@@ -34,6 +34,15 @@ def server_up():
         return False
 
 
+def autopull_up():
+    try:
+        s = socket.create_connection(("127.0.0.1", 8779), timeout=3)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
 def tunnel_up():
     try:
         out = subprocess.run(
@@ -64,6 +73,15 @@ while True:
         except Exception:
             pass
         time.sleep(15)
+    if not autopull_up():
+        try:
+            subprocess.Popen([str(PYTHONW), str(BASE / "autopull.pyw")],
+                             cwd=str(BASE), creationflags=DETACHED,
+                             stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        time.sleep(5)
     if not tunnel_up():
         try:
             start_tunnel()

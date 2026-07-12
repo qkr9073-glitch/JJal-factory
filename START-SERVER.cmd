@@ -4,6 +4,7 @@ rem Fixed public URL: https://jjal.traffic-charger.com (config: %USERPROFILE%\.c
 cd /d "%~dp0"
 if not exist logs mkdir logs
 start "" pythonw watchdog.pyw
+start "" pythonw autopull.pyw
 tasklist /fi "imagename eq cloudflared.exe" | find /i "cloudflared.exe" >nul
 if errorlevel 1 (
   start "mf-tunnel" /min "%~dp0bin\cloudflared.exe" tunnel --logfile "%~dp0logs\tunnel-named.log" run factory
