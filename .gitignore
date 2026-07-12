@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────
+#  짤공장 .gitignore
+#  ⚠️ 비밀키 · 개인정보 · 대용량 산출물은 절대 커밋하지 않는다
+# ─────────────────────────────────────────────
+
+# ── 비밀 · 개인정보 (유출 시 계정 탈취 / 사생활 노출) ──
+config.json
+자료서랍/
+_사용완료/
+
+# ── 런타임 산출물 / 상태 파일 ──
+결과물/
+logs/
+seen.json
+published.json
+usage.json
+jobs_pending.json
+
+# ── 임시 폴더 ──
+_covertmp/
+_memtmp/
+_reftmp/
+_backup_*/
+
+# ── 대용량 바이너리 (개발엔 불필요, 각자 내려받음) ──
+bin/
+*.zip
+
+# ── 파이썬 ──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ── 에디터 / OS ──
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

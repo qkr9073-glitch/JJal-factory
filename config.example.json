@@ -1,0 +1,81 @@
+{
+  "gemini_api_key": "",
+  "gemini_model": "gemini-2.5-flash",
+  "watermark": "@your_handle",
+  "hashtags": "",
+  "signature": "매일 한국 커뮤니티의 레전드 짤과 밈을 큐레이션합니다.\n@your_handle",
+  "uniform_size": true,
+  "auto_story": true,
+  "max_images": 10,
+  "meme_template": "classic",
+  "text_removal": "none",
+  "story_logo": "assets/story_logo.png",
+  "story_brand_name": "kangaroostory.jp",
+  "story_brand_handle": "@カンガルーストーリー",
+  "story_watermark": "instagram.com/kangaroostory.jp",
+  "story_verified": true,
+  "story_lang": "ja",
+  "story_text_fill": true,
+  "story_photo_fullbleed": true,
+  "story_polish": true,
+  "story_hashtags": "",
+  "story_signature": "",
+  "server_port": 8777,
+  "access_code": "0000",
+  "block_keywords": [],
+  "card_watermark": "@your_handle",
+  "card_handle": "@your_handle",
+  "card_accent": "#3E7BC4",
+  "card_label": "지금 저장하고 하나씩 따라하기",
+  "card_hashtags": "",
+  "card_items": 60,
+  "card_polish": true,
+  "card_auto_cover": true,
+  "card_body_images": false,
+  "pexels_key": "",
+  "card_teaser": 8,
+  "card_items_per_card": 2,
+  "card_title_font": "black",
+  "card_brand_context": "채널 소개를 여기에 적으세요. 기획 프롬프트의 근거(컨텍스트)로 들어갑니다.",
+  "card_profile_lines": [
+    "프로필 소개 줄 1",
+    "프로필 소개 줄 2",
+    "프로필 소개 줄 3"
+  ],
+  "output_dir": "결과물",
+  "card_theme": "hunter",
+  "card_logo": "assets/logo_hunter.png",
+  "card_channel_sub": "쇼츠 수익화 · 매일 실전 꿀팁",
+  "card_profile_photo": "",
+  "card_links": [
+    { "emoji": "💬", "label": "오픈채팅방", "url": "" },
+    { "emoji": "📷", "label": "인스타그램", "url": "" }
+  ],
+  "public_base_url": "http://localhost:8777",
+  "ig_accounts": {
+    "your_account": {
+      "user_id": "",
+      "access_token": ""
+    }
+  },
+  "ig_route": {
+    "meme": "your_account",
+    "cardnews": "your_account",
+    "story": "your_account",
+    "default": "your_account"
+  },
+  "card_logo_marks": [
+    "assets/marks/mark_black.png",
+    "assets/marks/mark_teal.png",
+    "assets/marks/mark_blue.png",
+    "assets/marks/mark_navy.png"
+  ],
+  "max_workers": 4,
+  "managers": [],
+  "usage_threshold": 2,
+  "used_dir": "_사용완료",
+  "used_prefix": "✅사용완료_",
+  "youtube_api_key": "",
+  "youtube_api_keys": [],
+  "youtube_queries": ["AI 자동화 프롬프트 꿀팁"]
+}

@@ -1,0 +1,6 @@
+# 짤공장 (게시물자동화) — Python 3.12 기준
+# 설치:  pip install -r requirements.txt
+Flask==3.1.3
+Pillow==12.2.0
+requests==2.33.1
+beautifulsoup4==4.15.0
