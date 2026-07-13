@@ -681,7 +681,7 @@ async function loadPacksForSched(){
     const r=await fetch('/api/packs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
     const d=await r.json();
     if(!d.ok){$('pkpicker').textContent='❌ '+d.error;return;}
-    PSCHED=(d.packs||[]).filter(p=>!p.published).map(p=>({name:p.name,title:p.title||p.name,type:p.type,story:p.story,thumb:p.thumb||'',thumbs:p.thumbs||[],lead:'',account:'',dt:'',checked:false}));
+    PSCHED=(d.packs||[]).map(p=>({name:p.name,title:p.title||p.name,type:p.type,story:p.story,published:p.published,thumb:p.thumb||'',thumbs:p.thumbs||[],lead:'',caption:p.caption||'',account:'',dt:'',checked:false}));
     renderPackPicker();
   }catch(e){$('pkpicker').textContent='❌ '+e;}
 }
@@ -702,11 +702,14 @@ function renderPackPicker(){
         <input type="checkbox" ${p.checked?'checked':''} onchange="PSCHED[${i}].checked=this.checked;renderPackPicker()" style="width:auto;margin:0;flex:0 0 auto">
         ${prev}
         <span style="font-size:12px;color:#9fb8a0;flex:0 0 auto">${kind}</span>
+        ${p.published?'<span style="font-size:11px;color:#7bd0e0;flex:0 0 auto" title="이미 올린 팩 — 예약하면 한 번 더 올라가요">📤올림</span>':''}
         <b style="font-size:12px;color:#cfe9d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.title)}</b></label>
       ${chooser}
       ${p.checked?`<div style="font-size:11px;color:#8fdca0;margin:7px 0 2px">📅 게시 날짜·시각${p.dt?'':' <span style="color:#e0a35a">← 정해주세요</span>'}</div>
         <input type="datetime-local" value="${p.dt||''}" onchange="PSCHED[${i}].dt=this.value" style="width:100%;box-sizing:border-box">
-        <select onchange="PSCHED[${i}].account=this.value" style="width:100%;margin-top:6px">${pacctOptions(p.account)}</select>`:''}</div>`;
+        <select onchange="PSCHED[${i}].account=this.value" style="width:100%;margin-top:6px">${pacctOptions(p.account)}</select>
+        <div style="font-size:11px;color:#8fdca0;margin:7px 0 2px">📝 캡션 (비우면 원래 캡션 그대로)</div>
+        <textarea onchange="PSCHED[${i}].caption=this.value" style="width:100%;box-sizing:border-box;min-height:60px;font-size:13px">${esc(p.caption||'')}</textarea>`:''}</div>`;
   });
   $('pkpicker').innerHTML=h;
 }
@@ -733,7 +736,7 @@ async function submitPackSchedule(){
     if(!p.dt){$('pprog').textContent='❌ 체크한 게시물에 시간을 정하세요 (배분 버튼이 편해요): '+p.title;return;}
     if(new Date(p.dt).getTime()<now-60000){$('pprog').textContent='❌ 과거 시간이 있어요: '+p.title;return;}
   }
-  const items=sel.map(p=>({pack:p.name,lead:p.lead||'',account:p.account,title:p.title,publish_at:Math.floor(new Date(p.dt).getTime()/1000)}));
+  const items=sel.map(p=>({pack:p.name,lead:p.lead||'',account:p.account,caption:(p.caption||'').trim(),title:p.title,publish_at:Math.floor(new Date(p.dt).getTime()/1000)}));
   $('pgo').disabled=true; $('pprog').textContent='🗓️ 예약 등록 중...';
   try{
     const r=await fetch('/api/pack/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,items})});
@@ -2691,6 +2694,7 @@ def api_pack_schedule():
             "id": uuid.uuid4().hex[:12], "type": "pack", "pack": pack, "lead": lead,
             "account": acct, "publish_at": pat, "status": "pending", "created": now,
             "permalink": "", "error": "", "title": str(it.get("title") or pack)[:80],
+            "caption": str(it.get("caption") or "")[:2150],
         })
     if not fresh:
         return jsonify(ok=False, error="예약할 게시물이 없습니다 (없는 팩/과거 시간)"), 400
@@ -2786,7 +2790,9 @@ def _reel_scheduler():
                             raise RuntimeError("게시물(완성팩)을 찾을 수 없어요")
                         res = insta.publish_pack(
                             cfg, BASE, pdir, lead=(snap.get("lead") or None),
-                            account=(snap.get("account") or None), log=lambda m: None)
+                            account=(snap.get("account") or None),
+                            caption=(snap.get("caption") or None),
+                            force=True, log=lambda m: None)   # 예약=일부러 건 것 → 중복차단 무시
                     else:
                         vpath = OUTPUT / "_videos" / (snap.get("video") or "")
                         if not vpath.exists():
@@ -2887,6 +2893,11 @@ def api_packs():
             checked = [m for m in (usage.get(d.name, {}).get("checked_by") or [])
                        if m in mgrs]
             is_story = meta.get("template") == "story"
+            _cap = ""
+            try:
+                _cap = (d / "caption.txt").read_text(encoding="utf-8")
+            except Exception:
+                pass
             packs.append({"name": d.name,
                           "title": meta.get("title") or d.name,
                           "created": meta.get("created", ""),
@@ -2895,6 +2906,7 @@ def api_packs():
                                   ("카드뉴스" if meta.get("type") == "cardnews" else ""),
                           "thumb": thumb,
                           "thumbs": sorted(x.name for x in d.glob("thumb*.jpg")),
+                          "caption": _cap,
                           "story": is_story,
                           "lang": meta.get("lang", "ko"),
                           "used": len(checked), "archived": show_arch,
