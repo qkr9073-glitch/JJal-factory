@@ -240,20 +240,43 @@ body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#a9d6bb;margin:4px 0">
 <input type="checkbox" id="sai" style="width:auto;margin:0"> ✨ 캡션 비워두면 게시 직전 AI가 자동 작성 (계정 톤·일본계정=일본어)</label>
 <div style="border-top:1px solid #34613f;margin:10px 0;padding-top:8px">
-<div style="font-size:13px;color:#a9d6bb;margin-bottom:6px">🗓️ 자동 시간 배분 <span style="color:#8fb8a0">(예: 매일 20:00 하루 1개씩 → 2주치 자동)</span></div>
+<div style="font-size:13px;color:#a9d6bb;margin-bottom:6px">🗓️ 자동 시간 배분 <span style="color:#8fb8a0">— 시각을 <b>여러 개</b> 넣으면 그만큼 <b>하루 여러 개</b> 올라가요</span></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+<span style="font-size:12px;color:#8fb8a0">빠른설정:</span>
+<button type="button" onclick="setTimes('20:00')" style="background:#25406e;padding:5px 9px;font-size:12px;flex:0 0 auto">하루 1개 (20시)</button>
+<button type="button" onclick="setTimes('12:00,20:00')" style="background:#25406e;padding:5px 9px;font-size:12px;flex:0 0 auto">하루 2개 (12·20시)</button>
+<button type="button" onclick="setTimes('09:00,14:00,20:00')" style="background:#25406e;padding:5px 9px;font-size:12px;flex:0 0 auto">하루 3개 (9·14·20시)</button></div>
 <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
 <span style="font-size:12px;color:#8fb8a0">시작일</span>
 <input type="date" id="sstart" style="width:auto;flex:0 0 auto">
 <span style="font-size:12px;color:#8fb8a0">매일 시각</span>
-<input type="text" id="stimes" value="20:00" placeholder="20:00 또는 12:00,20:00" style="width:auto;flex:1;min-width:110px">
-<button type="button" onclick="autoSchedule()" style="background:#2f6f4f;flex:0 0 auto;padding:8px 12px">배분</button></div></div>
+<input type="text" id="stimes" value="20:00" placeholder="예: 12:00,20:00 = 하루 2개" style="width:auto;flex:1;min-width:120px">
+<button type="button" onclick="autoSchedule()" style="background:#2f6f4f;flex:0 0 auto;padding:8px 12px">배분</button></div>
+<div id="ssum" style="font-size:12px;color:#8fdca0;margin-top:6px"></div></div>
 <div id="sitems"></div>
 <button id="sgo" type="button" onclick="submitSchedule()" style="background:#2f6f4f;margin-top:8px">🗓️ 예약 걸기</button>
 <div id="sprog" class="small" style="color:#a9d6bb;margin-top:6px"></div>
-<div style="border-top:1px solid #34613f;margin:12px 0 0;padding-top:8px">
-<button id="slist" type="button" onclick="loadScheduled()" style="background:#25406e">📋 예약 목록 보기 / 새로고침</button>
-<div id="schedlist" style="margin-top:8px"></div></div>
 </div>
+<button id="ptgl" type="button" onclick="togglePSched()" style="background:#3a6f52;color:#fff">🖼️ 게시물(완성팩) 예약</button>
+<div id="pschedbox" style="display:none;border:1px dashed #4aa06a;background:rgba(47,111,79,.10);border-radius:12px;padding:12px;margin:6px 0">
+<div style="font-size:13px;color:#a9d6bb;line-height:1.55;margin-bottom:8px">완성된 <b>게시물(짤·카드뉴스·스토리 팩)</b>을 골라 <b>게시물별로 날짜·시각</b>을 정하면 그 시각에 자동 게시돼요.</div>
+<button type="button" onclick="loadPacksForSched()" style="background:#1e3a2a">📂 미게시 완성팩 불러오기</button>
+<div style="border-top:1px solid #34613f;margin:10px 0;padding-top:8px">
+<div style="font-size:12px;color:#8fb8a0;margin-bottom:5px">체크한 것만 자동 배분 (개별로도 시각 수정 가능)</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+<span style="font-size:12px;color:#8fb8a0">시작일</span>
+<input type="date" id="pstart" style="width:auto;flex:0 0 auto">
+<span style="font-size:12px;color:#8fb8a0">매일 시각</span>
+<input type="text" id="ptimes" value="20:00" placeholder="예: 12:00,20:00 = 하루 2개" style="width:auto;flex:1;min-width:120px">
+<button type="button" onclick="autoPackSchedule()" style="background:#2f6f4f;flex:0 0 auto;padding:8px 12px">배분</button></div>
+<div id="psum" style="font-size:12px;color:#8fdca0;margin-top:6px"></div></div>
+<div id="pkpicker"></div>
+<button id="pgo" type="button" onclick="submitPackSchedule()" style="background:#2f6f4f;margin-top:8px">🗓️ 체크한 게시물 예약 걸기</button>
+<div id="pprog" class="small" style="color:#a9d6bb;margin-top:6px"></div>
+</div>
+<div style="border:1px solid #34613f;border-radius:12px;padding:10px;margin:8px 0;background:rgba(37,64,110,.10)">
+<button id="slist" type="button" onclick="loadScheduled()" style="background:#25406e">📋 예약 목록 (릴스+게시물) 보기 / 새로고침</button>
+<div id="schedlist" style="margin-top:8px"></div></div>
 <div id="status"></div>
 <div id="jobs"></div>
 <div class="bar" id="bar" style="display:none"><div id="fill"></div></div>
@@ -535,6 +558,7 @@ function toggleSched(){const b=$('schedbox');const o=b.style.display==='none';b.
 function sPick(inp){const def=$('sacct').value||SACCTS[0][0];Array.from(inp.files||[]).forEach(f=>{if(!/\\.(mp4|mov|m4v)$/i.test(f.name))return;SCHED.push({file:f,name:f.name+' ('+(f.size/1048576).toFixed(1)+'MB)',account:def,caption:'',dt:'',video:null});});inp.value='';renderSchedItems();}
 function sApplyAcct(){const v=$('sacct').value;SCHED.forEach(it=>it.account=v);renderSchedItems();}
 function sRemove(i){SCHED.splice(i,1);renderSchedItems();}
+function setTimes(t){$('stimes').value=t; if(SCHED.length&&$('sstart').value)autoSchedule();}
 function autoSchedule(){
   if(!SCHED.length){alert('먼저 영상을 고르세요');return;}
   const start=$('sstart').value; if(!start){alert('시작 날짜를 정하세요');return;}
@@ -542,6 +566,8 @@ function autoSchedule(){
   if(!times.length){alert('매일 게시할 시각을 하나 이상 (예: 20:00)');return;}
   let day=0,slot=0;
   SCHED.forEach(it=>{const d=new Date(start+'T00:00:00');d.setDate(d.getDate()+day);const p=times[slot].split(':');d.setHours(+p[0],+p[1],0,0);it.dt=toLocalInput(d);slot++;if(slot>=times.length){slot=0;day++;}});
+  const days=Math.ceil(SCHED.length/times.length);
+  $('ssum').textContent='→ '+SCHED.length+'개를 '+days+'일간 배분 (하루 '+times.length+'개 · '+times.join(', ')+') · 아래에서 개별 수정 가능';
   renderSchedItems();
 }
 function renderSchedItems(){
@@ -606,18 +632,22 @@ async function loadScheduled(){
   }catch(e){$('schedlist').textContent='❌ '+e;}
 }
 function renderScheduled(items){
-  if(!items.length){$('schedlist').innerHTML='<div class="small" style="color:#8fb8a0">예약된 영상이 없어요.</div>';return;}
+  if(!items.length){$('schedlist').innerHTML='<div class="small" style="color:#8fb8a0">예약된 게시물이 없어요.</div>';return;}
   let h='';
   items.forEach(it=>{
     const b=SBADGE[it.status]||['?','#888'];
     const t=new Date((it.publish_at||0)*1000);
     const when=t.toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit'});
-    const cap=(it.caption||'').replace(/\\s+/g,' ').slice(0,50);
+    const kind=it.type==='pack'?'🖼 게시물':'🎬 릴스';
+    const acc=it.account?esc(acctLabel(it.account)):'자동 라우팅';
+    const ttl=(it.type==='pack'&&it.title)?' · '+esc(String(it.title).slice(0,36)):'';
+    const cap=(it.caption||'').replace(/\\s+/g,' ').slice(0,44);
+    const extra=cap?' · '+esc(cap):(it.type!=='pack'&&it.auto_caption?' · ✨AI캡션 예정':'');
     h+=`<div style="border:1px solid #2c4b39;border-radius:8px;padding:8px;margin:5px 0;background:#14211a">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
         <span style="color:${b[1]};font-weight:700;font-size:13px">${b[0]}</span>
         <span style="font-size:13px;color:#cfe9d8">🗓️ ${when}</span></div>
-      <div style="font-size:12px;color:#9fc9ae;margin-top:3px">${esc(acctLabel(it.account))}${cap?' · '+esc(cap):(it.auto_caption?' · ✨AI캡션 예정':'')}</div>
+      <div style="font-size:12px;color:#9fc9ae;margin-top:3px">${kind} · ${acc}${ttl}${extra}</div>
       ${it.status==='failed'&&it.error?`<div style="font-size:12px;color:#e59a9a;margin-top:3px">${esc(it.error)}</div>`:''}
       ${it.status==='done'&&it.permalink?`<a href="${it.permalink}" target="_blank" style="font-size:12px">게시물 보기 ↗</a>`:''}
       ${it.status==='pending'?`<button type="button" onclick="cancelScheduled('${it.id}')" style="background:#5a2a2a;padding:4px 10px;margin-top:5px;font-size:12px">예약 취소</button>`:''}</div>`;
@@ -633,6 +663,72 @@ async function cancelScheduled(id){
     if(!d.ok){alert('❌ '+d.error);return;}
     loadScheduled();
   }catch(e){alert('❌ '+e);}
+}
+// ── 게시물(완성팩) 예약 ──
+let PSCHED=[];
+function togglePSched(){const b=$('pschedbox');const o=b.style.display==='none';b.style.display=o?'block':'none';$('ptgl').textContent=o?'🖼️ 게시물 예약 닫기 ▲':'🖼️ 게시물(완성팩) 예약';}
+function pacctOptions(sel){return '<option value=""'+(sel===''?' selected':'')+'>자동(종류별)</option>'+acctOptions(sel);}
+async function loadPacksForSched(){
+  const code=$('code').value.trim();
+  if(!code){$('pprog').textContent='접속코드를 먼저 입력하세요';return;}
+  localStorage.setItem('mfcode',code);
+  $('pkpicker').innerHTML='불러오는 중...';
+  try{
+    const r=await fetch('/api/packs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+    const d=await r.json();
+    if(!d.ok){$('pkpicker').textContent='❌ '+d.error;return;}
+    PSCHED=(d.packs||[]).filter(p=>!p.published).map(p=>({name:p.name,title:p.title||p.name,type:p.type,story:p.story,account:'',dt:'',checked:false}));
+    renderPackPicker();
+  }catch(e){$('pkpicker').textContent='❌ '+e;}
+}
+function renderPackPicker(){
+  if(!PSCHED.length){$('pkpicker').innerHTML='<div class="small" style="color:#8fb8a0">미게시 완성팩이 없어요 (이미 다 올렸거나 아직 안 만들었어요). 먼저 불러오기를 눌러보세요.</div>';return;}
+  let h='<div style="font-size:12px;color:#8fb8a0;margin:6px 0 4px">'+PSCHED.length+'개 — 예약할 것만 체크</div>';
+  PSCHED.forEach((p,i)=>{
+    const kind=p.story?'📖 스토리':(p.type==='cardnews'?'🗞 카드뉴스':'🖼 짤');
+    h+=`<div style="border:1px solid #34613f;border-radius:9px;padding:8px;margin:6px 0;background:${p.checked?'#1a2e22':'#16261d'}">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" ${p.checked?'checked':''} onchange="PSCHED[${i}].checked=this.checked;renderPackPicker()" style="width:auto;margin:0;flex:0 0 auto">
+        <span style="font-size:12px;color:#9fb8a0;flex:0 0 auto">${kind}</span>
+        <b style="font-size:12px;color:#cfe9d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.title)}</b></label>
+      ${p.checked?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <select onchange="PSCHED[${i}].account=this.value" style="flex:1;min-width:130px">${pacctOptions(p.account)}</select>
+        <input type="datetime-local" value="${p.dt||''}" onchange="PSCHED[${i}].dt=this.value" style="flex:1;min-width:150px"></div>`:''}</div>`;
+  });
+  $('pkpicker').innerHTML=h;
+}
+function autoPackSchedule(){
+  const sel=PSCHED.filter(p=>p.checked);
+  if(!sel.length){alert('먼저 예약할 게시물을 체크하세요');return;}
+  const start=$('pstart').value; if(!start){alert('시작 날짜를 정하세요');return;}
+  const times=($('ptimes').value||'').split(',').map(s=>s.trim()).filter(s=>/^\\d{1,2}:\\d{2}$/.test(s));
+  if(!times.length){alert('매일 게시할 시각을 하나 이상 (예: 20:00)');return;}
+  let day=0,slot=0;
+  sel.forEach(p=>{const d=new Date(start+'T00:00:00');d.setDate(d.getDate()+day);const t=times[slot].split(':');d.setHours(+t[0],+t[1],0,0);p.dt=toLocalInput(d);slot++;if(slot>=times.length){slot=0;day++;}});
+  const days=Math.ceil(sel.length/times.length);
+  $('psum').textContent='→ '+sel.length+'개를 '+days+'일간 (하루 '+times.length+'개 · '+times.join(', ')+') · 개별 수정 가능';
+  renderPackPicker();
+}
+async function submitPackSchedule(){
+  const code=$('code').value.trim();
+  if(!code){$('pprog').textContent='접속코드를 먼저 입력하세요';return;}
+  const sel=PSCHED.filter(p=>p.checked);
+  if(!sel.length){$('pprog').textContent='예약할 게시물을 체크하세요';return;}
+  const now=Date.now();
+  for(const p of sel){
+    if(!p.dt){$('pprog').textContent='❌ 체크한 게시물에 시간을 정하세요 (배분 버튼이 편해요): '+p.title;return;}
+    if(new Date(p.dt).getTime()<now-60000){$('pprog').textContent='❌ 과거 시간이 있어요: '+p.title;return;}
+  }
+  const items=sel.map(p=>({pack:p.name,account:p.account,title:p.title,publish_at:Math.floor(new Date(p.dt).getTime()/1000)}));
+  $('pgo').disabled=true; $('pprog').textContent='🗓️ 예약 등록 중...';
+  try{
+    const r=await fetch('/api/pack/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,items})});
+    const d=await r.json();
+    if(!d.ok){$('pprog').textContent='❌ '+d.error;$('pgo').disabled=false;return;}
+    $('pprog').textContent='✅ '+d.added+'개 게시물 예약 완료! 시간 되면 서버가 자동 게시해요.';
+    sel.forEach(p=>{p.checked=false;p.dt='';}); renderPackPicker(); loadScheduled();
+  }catch(e){$('pprog').textContent='❌ 통신 오류: '+e;}
+  $('pgo').disabled=false;
 }
 function addJobRow(jid,label){
   const div=document.createElement('div');
@@ -2537,14 +2633,53 @@ def api_reel_schedule():
         if pat < now - 60:      # 과거 시간 거부(1분 여유)
             continue
         fresh.append({
-            "id": uuid.uuid4().hex[:12], "video": v, "account": acct,
+            "id": uuid.uuid4().hex[:12], "type": "reel", "video": v, "account": acct,
             "caption": str(it.get("caption") or "")[:2150],
             "auto_caption": bool(it.get("auto_caption")),
             "publish_at": pat, "status": "pending", "created": now,
-            "permalink": "", "error": "",
+            "permalink": "", "error": "", "title": "🎬 릴스",
         })
     if not fresh:
         return jsonify(ok=False, error="예약할 영상이 없습니다 (파일 없음/과거 시간)"), 400
+    _sched_update(lambda items: items.extend(fresh))
+    return jsonify(ok=True, added=len(fresh))
+
+
+@app.post("/api/pack/schedule")
+def api_pack_schedule():
+    """완성팩(게시물)들을 예약. body: {code, items:[{pack, lead, account, publish_at, title}]}"""
+    data = request.get_json(force=True, silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    accs = set((cfg.get("ig_accounts") or {}).keys())
+    now = time.time()
+    fresh = []
+    for it in (data.get("items") or []):
+        pack = str(it.get("pack") or "").strip()
+        if not pack or "/" in pack or "\\" in pack or pack.startswith("_"):
+            continue
+        if not (OUTPUT / pack).is_dir():
+            continue
+        acct = str(it.get("account") or "")
+        if acct and acct not in accs:
+            acct = ""          # 빈 값 = publish_pack 자동 라우팅(팩 종류별)
+        try:
+            pat = float(it.get("publish_at") or 0)
+        except (TypeError, ValueError):
+            pat = 0
+        if pat < now - 60:
+            continue
+        lead = str(it.get("lead") or "")
+        if lead and not re.fullmatch(r"[a-zA-Z0-9._-]+", lead):
+            lead = ""
+        fresh.append({
+            "id": uuid.uuid4().hex[:12], "type": "pack", "pack": pack, "lead": lead,
+            "account": acct, "publish_at": pat, "status": "pending", "created": now,
+            "permalink": "", "error": "", "title": str(it.get("title") or pack)[:80],
+        })
+    if not fresh:
+        return jsonify(ok=False, error="예약할 게시물이 없습니다 (없는 팩/과거 시간)"), 400
     _sched_update(lambda items: items.extend(fresh))
     return jsonify(ok=True, added=len(fresh))
 
@@ -2630,34 +2765,40 @@ def _reel_scheduler():
                 snap = _sched_update(_claim)
                 if not snap:
                     continue
-                vpath = OUTPUT / "_videos" / snap["video"]
-                if not vpath.exists():
-                    _sched_update(lambda items, _r=rid: _sched_set(
-                        items, _r, status="failed", error="영상 파일이 없어요"))
-                    continue
-                account = snap.get("account") or None
-                caption = snap.get("caption") or ""
-                if not caption and snap.get("auto_caption"):
-                    try:
-                        caption = brain.caption_video(
-                            cfg, str(vpath), kind=_reel_kind(cfg, account),
-                            hint="", log=lambda m: None)
-                    except Exception:
-                        caption = ""
-                video_url = f"{public}/packs/_videos/{snap['video']}"
                 try:
-                    res = insta.publish_reel(cfg, BASE, video_url, caption,
-                                             account=account, log=lambda m: None)
-                    _sched_update(lambda items, _r=rid, _p=res.get("permalink", ""),
-                                  _c=caption: _sched_set(
-                        items, _r, status="done", permalink=_p, caption=_c))
-                    still = {x.get("video") for x in _sched_load()
-                             if x.get("status") in ("pending", "publishing")}
-                    if snap["video"] not in still:
-                        try:
-                            vpath.unlink()
-                        except OSError:
-                            pass
+                    if snap.get("type") == "pack":
+                        pdir = OUTPUT / (snap.get("pack") or "")
+                        if not pdir.is_dir():
+                            raise RuntimeError("게시물(완성팩)을 찾을 수 없어요")
+                        res = insta.publish_pack(
+                            cfg, BASE, pdir, lead=(snap.get("lead") or None),
+                            account=(snap.get("account") or None), log=lambda m: None)
+                    else:
+                        vpath = OUTPUT / "_videos" / (snap.get("video") or "")
+                        if not vpath.exists():
+                            raise RuntimeError("영상 파일이 없어요")
+                        account = snap.get("account") or None
+                        caption = snap.get("caption") or ""
+                        if not caption and snap.get("auto_caption"):
+                            try:
+                                caption = brain.caption_video(
+                                    cfg, str(vpath), kind=_reel_kind(cfg, account),
+                                    hint="", log=lambda m: None)
+                            except Exception:
+                                caption = ""
+                        video_url = f"{public}/packs/_videos/{snap['video']}"
+                        res = insta.publish_reel(cfg, BASE, video_url, caption,
+                                                 account=account, log=lambda m: None)
+                    _sched_update(lambda items, _r=rid, _p=res.get("permalink", ""):
+                                  _sched_set(items, _r, status="done", permalink=_p))
+                    if snap.get("type") != "pack" and snap.get("video"):
+                        still = {x.get("video") for x in _sched_load()
+                                 if x.get("status") in ("pending", "publishing")}
+                        if snap["video"] not in still:
+                            try:
+                                (OUTPUT / "_videos" / snap["video"]).unlink()
+                            except OSError:
+                                pass
                 except Exception as e:
                     _sched_update(lambda items, _r=rid, _e=str(e)[:300]:
                                   _sched_set(items, _r, status="failed", error=_e))
