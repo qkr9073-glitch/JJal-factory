@@ -15,6 +15,7 @@ seen.json
 published.json
 usage.json
 jobs_pending.json
+scheduled_reels.json
 
 # ── 임시 폴더 ──
 _covertmp/

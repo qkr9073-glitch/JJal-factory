@@ -229,6 +229,31 @@ body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 <button id="rcapgo" type="button" onclick="capReel()" style="background:#7a5cc2;margin-bottom:6px">✨ 영상 보고 AI가 캡션 써주기 (계정 톤 자동 · 일본계정=일본어)</button>
 <button id="rgo" type="button" onclick="uploadReel()" style="background:#c2502a">🎬 릴스로 자동 게시</button>
 </div>
+<button id="stgl" type="button" onclick="toggleSched()" style="background:#2f6f4f;color:#fff">🗓️ 릴스 예약 업로드 (다량·채널별)</button>
+<div id="schedbox" style="display:none;border:1px dashed #4aa06a;background:rgba(47,111,79,.12);border-radius:12px;padding:12px;margin:6px 0">
+<div style="font-size:13px;color:#a9d6bb;line-height:1.55;margin-bottom:8px">영상 <b>여러 개</b>를 올리고 <b>계정·시간</b>을 정하면, 사장님 서버가 그 시각에 <b>자동 게시</b>해요. 담당자 컴은 올린 뒤 꺼도 됩니다. <span style="color:#8fb8a0">(영상 1개당 100MB 이하 권장 — 터널 한도)</span></div>
+<label style="display:inline-block;cursor:pointer;background:#1e3a2a;color:#eafff2;padding:10px 14px;border-radius:10px;font-size:14px;font-weight:700">📎 영상 여러 개 고르기 (MP4)
+<input id="sfile" type="file" accept="video/mp4,video/quicktime,video/*" multiple style="display:none" onchange="sPick(this)"></label>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 4px">
+<span style="font-size:13px;color:#a9d6bb">기본 계정:</span>
+<select id="sacct" onchange="sApplyAcct()" style="flex:1;min-width:150px"></select></div>
+<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#a9d6bb;margin:4px 0">
+<input type="checkbox" id="sai" style="width:auto;margin:0"> ✨ 캡션 비워두면 게시 직전 AI가 자동 작성 (계정 톤·일본계정=일본어)</label>
+<div style="border-top:1px solid #34613f;margin:10px 0;padding-top:8px">
+<div style="font-size:13px;color:#a9d6bb;margin-bottom:6px">🗓️ 자동 시간 배분 <span style="color:#8fb8a0">(예: 매일 20:00 하루 1개씩 → 2주치 자동)</span></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+<span style="font-size:12px;color:#8fb8a0">시작일</span>
+<input type="date" id="sstart" style="width:auto;flex:0 0 auto">
+<span style="font-size:12px;color:#8fb8a0">매일 시각</span>
+<input type="text" id="stimes" value="20:00" placeholder="20:00 또는 12:00,20:00" style="width:auto;flex:1;min-width:110px">
+<button type="button" onclick="autoSchedule()" style="background:#2f6f4f;flex:0 0 auto;padding:8px 12px">배분</button></div></div>
+<div id="sitems"></div>
+<button id="sgo" type="button" onclick="submitSchedule()" style="background:#2f6f4f;margin-top:8px">🗓️ 예약 걸기</button>
+<div id="sprog" class="small" style="color:#a9d6bb;margin-top:6px"></div>
+<div style="border-top:1px solid #34613f;margin:12px 0 0;padding-top:8px">
+<button id="slist" type="button" onclick="loadScheduled()" style="background:#25406e">📋 예약 목록 보기 / 새로고침</button>
+<div id="schedlist" style="margin-top:8px"></div></div>
+</div>
 <div id="status"></div>
 <div id="jobs"></div>
 <div class="bar" id="bar" style="display:none"><div id="fill"></div></div>
@@ -499,6 +524,115 @@ async function uploadReel(){
     RVIDEO=null; RSTAGED=null; $('rfile').value=''; $('rname').textContent='';
   }catch(e){$('status').textContent='❌ 통신 오류: '+e;}
   $('rgo').disabled=false;
+}
+// ── 릴스 예약 업로드 (다량·채널별) ──
+let SCHED=[];
+const SACCTS=[['sowho77','@sowho77 (짤공장)'],['kangarooshort','@kangarooshort (카드뉴스)'],['kangaroostory.jp','@kangaroostory.jp (일본)']];
+function acctOptions(sel){return SACCTS.map(a=>`<option value="${a[0]}"${a[0]===sel?' selected':''}>${a[1]}</option>`).join('');}
+function acctLabel(v){const a=SACCTS.find(x=>x[0]===v);return a?a[1]:('@'+v);}
+function toLocalInput(d){const p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes());}
+function toggleSched(){const b=$('schedbox');const o=b.style.display==='none';b.style.display=o?'block':'none';$('stgl').textContent=o?'🗓️ 예약 업로드 닫기 ▲':'🗓️ 릴스 예약 업로드 (다량·채널별)';if(o&&!$('sacct').innerHTML){$('sacct').innerHTML=acctOptions(SACCTS[0][0]);}}
+function sPick(inp){const def=$('sacct').value||SACCTS[0][0];Array.from(inp.files||[]).forEach(f=>{if(!/\\.(mp4|mov|m4v)$/i.test(f.name))return;SCHED.push({file:f,name:f.name+' ('+(f.size/1048576).toFixed(1)+'MB)',account:def,caption:'',dt:'',video:null});});inp.value='';renderSchedItems();}
+function sApplyAcct(){const v=$('sacct').value;SCHED.forEach(it=>it.account=v);renderSchedItems();}
+function sRemove(i){SCHED.splice(i,1);renderSchedItems();}
+function autoSchedule(){
+  if(!SCHED.length){alert('먼저 영상을 고르세요');return;}
+  const start=$('sstart').value; if(!start){alert('시작 날짜를 정하세요');return;}
+  const times=($('stimes').value||'').split(',').map(s=>s.trim()).filter(s=>/^\\d{1,2}:\\d{2}$/.test(s));
+  if(!times.length){alert('매일 게시할 시각을 하나 이상 (예: 20:00)');return;}
+  let day=0,slot=0;
+  SCHED.forEach(it=>{const d=new Date(start+'T00:00:00');d.setDate(d.getDate()+day);const p=times[slot].split(':');d.setHours(+p[0],+p[1],0,0);it.dt=toLocalInput(d);slot++;if(slot>=times.length){slot=0;day++;}});
+  renderSchedItems();
+}
+function renderSchedItems(){
+  const box=$('sitems');
+  if(!SCHED.length){box.innerHTML='';return;}
+  let h='<div style="font-size:12px;color:#8fb8a0;margin:8px 0 4px">'+SCHED.length+'개 — 계정·시간·캡션 확인 후 예약</div>';
+  SCHED.forEach((it,i)=>{
+    h+=`<div style="border:1px solid #34613f;border-radius:9px;padding:8px;margin:6px 0;background:#16261d">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <b style="font-size:12px;color:#cfe9d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎬 ${esc(it.name)}</b>
+        <button type="button" onclick="sRemove(${i})" style="background:#5a2a2a;padding:4px 8px;flex:0 0 auto">✕</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <select onchange="SCHED[${i}].account=this.value" style="flex:1;min-width:130px">${acctOptions(it.account)}</select>
+        <input type="datetime-local" value="${it.dt||''}" onchange="SCHED[${i}].dt=this.value" style="flex:1;min-width:150px"></div>
+      <textarea placeholder="캡션 (비우면 위 ✨설정 따름)" onchange="SCHED[${i}].caption=this.value" style="width:100%;box-sizing:border-box;min-height:44px;margin-top:6px;font-size:13px">${esc(it.caption||'')}</textarea></div>`;
+  });
+  box.innerHTML=h;
+}
+async function submitSchedule(){
+  const code=$('code').value.trim();
+  if(!code){$('sprog').textContent='접속코드를 먼저 입력하세요';return;}
+  if(!SCHED.length){$('sprog').textContent='영상을 먼저 고르세요';return;}
+  const now=Date.now();
+  for(const it of SCHED){
+    if(!it.dt){$('sprog').textContent='❌ 모든 영상에 시간을 정하세요 (배분 버튼이 편해요)';return;}
+    if(new Date(it.dt).getTime()<now-60000){$('sprog').textContent='❌ 과거 시간이 있어요: '+it.name;return;}
+  }
+  localStorage.setItem('mfcode',code);
+  const aiOn=$('sai').checked;
+  $('sgo').disabled=true;
+  let done=0,total=SCHED.filter(it=>!it.video).length;
+  try{
+    for(const it of SCHED){
+      if(it.video)continue;
+      $('sprog').textContent=`⬆ 영상 업로드 중... ${done+1}/${total} (${it.name})`;
+      const fd=new FormData(); fd.append('code',code); fd.append('video',it.file);
+      const r=await fetch('/api/reel/stage',{method:'POST',body:fd});
+      const d=await r.json();
+      if(!d.ok){$('sprog').textContent='❌ 업로드 실패 ('+it.name+'): '+d.error;$('sgo').disabled=false;return;}
+      it.video=d.video; done++;
+    }
+    $('sprog').textContent='🗓️ 예약 등록 중...';
+    const items=SCHED.map(it=>({video:it.video,account:it.account,caption:(it.caption||'').trim(),auto_caption:aiOn,publish_at:Math.floor(new Date(it.dt).getTime()/1000)}));
+    const r=await fetch('/api/reel/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,items})});
+    const d=await r.json();
+    if(!d.ok){$('sprog').textContent='❌ '+d.error;$('sgo').disabled=false;return;}
+    $('sprog').textContent='✅ '+d.added+'개 예약 완료! 시간 되면 서버가 자동 게시해요.';
+    SCHED=[]; renderSchedItems(); loadScheduled();
+  }catch(e){$('sprog').textContent='❌ 통신 오류: '+e;}
+  $('sgo').disabled=false;
+}
+const SBADGE={pending:['🕐 대기','#caa73a'],publishing:['📤 게시중','#3a9ad6'],done:['✅ 완료','#3aa85a'],failed:['❌ 실패','#c25a5a']};
+async function loadScheduled(){
+  const code=$('code').value.trim();
+  if(!code){$('schedlist').textContent='접속코드를 먼저 입력하세요';return;}
+  $('schedlist').textContent='불러오는 중...';
+  try{
+    const r=await fetch('/api/reel/scheduled?code='+encodeURIComponent(code));
+    const d=await r.json();
+    if(!d.ok){$('schedlist').textContent='❌ '+d.error;return;}
+    renderScheduled(d.items||[]);
+  }catch(e){$('schedlist').textContent='❌ '+e;}
+}
+function renderScheduled(items){
+  if(!items.length){$('schedlist').innerHTML='<div class="small" style="color:#8fb8a0">예약된 영상이 없어요.</div>';return;}
+  let h='';
+  items.forEach(it=>{
+    const b=SBADGE[it.status]||['?','#888'];
+    const t=new Date((it.publish_at||0)*1000);
+    const when=t.toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit'});
+    const cap=(it.caption||'').replace(/\\s+/g,' ').slice(0,50);
+    h+=`<div style="border:1px solid #2c4b39;border-radius:8px;padding:8px;margin:5px 0;background:#14211a">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <span style="color:${b[1]};font-weight:700;font-size:13px">${b[0]}</span>
+        <span style="font-size:13px;color:#cfe9d8">🗓️ ${when}</span></div>
+      <div style="font-size:12px;color:#9fc9ae;margin-top:3px">${esc(acctLabel(it.account))}${cap?' · '+esc(cap):(it.auto_caption?' · ✨AI캡션 예정':'')}</div>
+      ${it.status==='failed'&&it.error?`<div style="font-size:12px;color:#e59a9a;margin-top:3px">${esc(it.error)}</div>`:''}
+      ${it.status==='done'&&it.permalink?`<a href="${it.permalink}" target="_blank" style="font-size:12px">게시물 보기 ↗</a>`:''}
+      ${it.status==='pending'?`<button type="button" onclick="cancelScheduled('${it.id}')" style="background:#5a2a2a;padding:4px 10px;margin-top:5px;font-size:12px">예약 취소</button>`:''}</div>`;
+  });
+  $('schedlist').innerHTML=h;
+}
+async function cancelScheduled(id){
+  const code=$('code').value.trim();
+  if(!confirm('이 예약을 취소할까요?'))return;
+  try{
+    const r=await fetch('/api/reel/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,id})});
+    const d=await r.json();
+    if(!d.ok){alert('❌ '+d.error);return;}
+    loadScheduled();
+  }catch(e){alert('❌ '+e);}
 }
 function addJobRow(jid,label){
   const div=document.createElement('div');
@@ -2242,9 +2376,10 @@ def _stage_reel_video(now):
         return None, (jsonify(ok=False, error="영상 파일을 올려주세요"), 400)
     if Path(f.filename).suffix.lower() not in (".mp4", ".mov", ".m4v"):
         return None, (jsonify(ok=False, error="MP4/MOV 영상만 올려주세요"), 400)
+    protected = _sched_video_names()   # 예약된 영상은 정리 대상에서 제외
     for old in vdir.glob("*.mp4"):     # 1시간 지난 옛 영상 정리(용량)
         try:
-            if now - old.stat().st_mtime > 3600:
+            if old.name not in protected and now - old.stat().st_mtime > 3600:
                 old.unlink()
         except OSError:
             pass
@@ -2315,6 +2450,219 @@ def api_reel_upload():
     JOBQ.put((jid, _run_reel_job,
               (jid, str(OUTPUT / "_videos" / name), video_url, caption, account, cfg)))
     return jsonify(ok=True, job=jid)
+
+
+# ══════════════════ 릴스 예약 발행 (다량 · 채널별) ══════════════════
+# 영상+시간을 scheduled_reels.json에 저장 → 서버(24시간)가 그 시각에 자동 게시.
+# 담당자는 다른 PC 브라우저로 영상만 올려두면 됨(컴 꺼도 서버가 대신 올림).
+SCHED_F = BASE / "scheduled_reels.json"
+_SCHED_LOCK = threading.Lock()
+
+
+def _sched_load():
+    try:
+        d = json.loads(SCHED_F.read_text(encoding="utf-8"))
+        return d.get("items", []) if isinstance(d, dict) else []
+    except Exception:
+        return []
+
+
+def _sched_update(mutate):
+    """락 안에서 read→mutate(items)→write. mutate 반환값을 그대로 돌려준다."""
+    with _SCHED_LOCK:
+        try:
+            d = json.loads(SCHED_F.read_text(encoding="utf-8"))
+            items = d.get("items", []) if isinstance(d, dict) else []
+        except Exception:
+            items = []
+        out = mutate(items)
+        SCHED_F.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2),
+                           encoding="utf-8")
+        return out
+
+
+def _sched_video_names():
+    """예약(대기·발행중)에 묶인 영상 파일명 — 영상 자동정리에서 보호."""
+    return {it.get("video") for it in _sched_load()
+            if it.get("status") in ("pending", "publishing")}
+
+
+def _sched_set(items, rid, **fields):
+    t = next((x for x in items if x.get("id") == rid), None)
+    if t:
+        t.update(fields)
+    return t
+
+
+@app.post("/api/reel/stage")
+def api_reel_stage():
+    """영상 하나 업로드해 서버에 저장(발행 안 함) — 다량 예약용. 반환 {video, size_mb}."""
+    cfg = load_config()
+    if not _check_code(cfg, request.form.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    name, err = _stage_reel_video(time.time())
+    if err:
+        return err
+    try:
+        mb = round((OUTPUT / "_videos" / name).stat().st_size / 1048576, 1)
+    except OSError:
+        mb = 0
+    return jsonify(ok=True, video=name, size_mb=mb)
+
+
+@app.post("/api/reel/schedule")
+def api_reel_schedule():
+    """여러 영상을 예약 목록에 추가.
+    body: {code, items:[{video, account, caption, auto_caption, publish_at}]}"""
+    data = request.get_json(force=True, silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    vdir = OUTPUT / "_videos"
+    accs = set((cfg.get("ig_accounts") or {}).keys())
+    default_acc = (cfg.get("ig_route") or {}).get("default") or ""
+    now = time.time()
+    fresh = []
+    for it in (data.get("items") or []):
+        v = str(it.get("video") or "")
+        if not re.fullmatch(r"[0-9a-f]{16}\.mp4", v) or not (vdir / v).exists():
+            continue
+        acct = str(it.get("account") or "")
+        if acct not in accs:
+            acct = default_acc
+        try:
+            pat = float(it.get("publish_at") or 0)
+        except (TypeError, ValueError):
+            pat = 0
+        if pat < now - 60:      # 과거 시간 거부(1분 여유)
+            continue
+        fresh.append({
+            "id": uuid.uuid4().hex[:12], "video": v, "account": acct,
+            "caption": str(it.get("caption") or "")[:2150],
+            "auto_caption": bool(it.get("auto_caption")),
+            "publish_at": pat, "status": "pending", "created": now,
+            "permalink": "", "error": "",
+        })
+    if not fresh:
+        return jsonify(ok=False, error="예약할 영상이 없습니다 (파일 없음/과거 시간)"), 400
+    _sched_update(lambda items: items.extend(fresh))
+    return jsonify(ok=True, added=len(fresh))
+
+
+@app.get("/api/reel/scheduled")
+def api_reel_scheduled():
+    cfg = load_config()
+    if not _check_code(cfg, request.args.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    now = time.time()
+
+    def _prune(items):
+        items[:] = [x for x in items
+                    if not (x.get("status") == "done"
+                            and now - x.get("publish_at", 0) > 7 * 86400)]
+    _sched_update(_prune)
+    items = sorted(_sched_load(), key=lambda x: x.get("publish_at", 0))
+    return jsonify(ok=True, items=items, now=now)
+
+
+@app.post("/api/reel/cancel")
+def api_reel_cancel():
+    data = request.get_json(force=True, silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    rid = str(data.get("id") or "")
+
+    def _mut(items):
+        victim = next((x for x in items if x.get("id") == rid), None)
+        if not victim:
+            return ("notfound", None)
+        if victim.get("status") == "publishing":
+            return ("busy", None)
+        items[:] = [x for x in items if x.get("id") != rid]
+        used = {x.get("video") for x in items}
+        return ("ok", victim.get("video") if victim.get("video") not in used else None)
+    status, vid = _sched_update(_mut)
+    if status == "notfound":
+        return jsonify(ok=False, error="예약을 찾을 수 없습니다"), 404
+    if status == "busy":
+        return jsonify(ok=False, error="지금 게시 중이라 취소할 수 없어요"), 409
+    if vid:
+        try:
+            (OUTPUT / "_videos" / vid).unlink()
+        except OSError:
+            pass
+    return jsonify(ok=True)
+
+
+def _reel_scheduler():
+    """예약된 릴스를 시각이 되면 자동 발행 (서버 안 백그라운드, 30초 주기)."""
+    def _recover(items):        # 재시작으로 중단된 발행중 항목 → 이중게시 방지 위해 실패 처리
+        for it in items:
+            if it.get("status") == "publishing":
+                it["status"] = "failed"
+                it["error"] = "서버 재시작으로 중단됨 — 인스타에서 게시 여부 확인 후 다시 예약하세요"
+    try:
+        _sched_update(_recover)
+    except Exception:
+        pass
+
+    while True:
+        try:
+            time.sleep(30)
+            now = time.time()
+            due_ids = [it["id"] for it in _sched_load()
+                       if it.get("status") == "pending" and it.get("publish_at", 0) <= now]
+            if not due_ids:
+                continue
+            cfg = load_config()
+            public = (cfg.get("public_base_url")
+                      or "https://jjal.traffic-charger.com").rstrip("/")
+            for rid in due_ids:
+                def _claim(items, _rid=rid):
+                    t = next((x for x in items if x.get("id") == _rid
+                              and x.get("status") == "pending"), None)
+                    if not t:
+                        return None
+                    t["status"] = "publishing"
+                    t["last_try"] = time.time()
+                    return dict(t)
+                snap = _sched_update(_claim)
+                if not snap:
+                    continue
+                vpath = OUTPUT / "_videos" / snap["video"]
+                if not vpath.exists():
+                    _sched_update(lambda items, _r=rid: _sched_set(
+                        items, _r, status="failed", error="영상 파일이 없어요"))
+                    continue
+                account = snap.get("account") or None
+                caption = snap.get("caption") or ""
+                if not caption and snap.get("auto_caption"):
+                    try:
+                        caption = brain.caption_video(
+                            cfg, str(vpath), kind=_reel_kind(cfg, account),
+                            hint="", log=lambda m: None)
+                    except Exception:
+                        caption = ""
+                video_url = f"{public}/packs/_videos/{snap['video']}"
+                try:
+                    res = insta.publish_reel(cfg, BASE, video_url, caption,
+                                             account=account, log=lambda m: None)
+                    _sched_update(lambda items, _r=rid, _p=res.get("permalink", ""),
+                                  _c=caption: _sched_set(
+                        items, _r, status="done", permalink=_p, caption=_c))
+                    still = {x.get("video") for x in _sched_load()
+                             if x.get("status") in ("pending", "publishing")}
+                    if snap["video"] not in still:
+                        try:
+                            vpath.unlink()
+                        except OSError:
+                            pass
+                except Exception as e:
+                    _sched_update(lambda items, _r=rid, _e=str(e)[:300]:
+                                  _sched_set(items, _r, status="failed", error=_e))
+        except Exception:
+            pass
 
 
 @app.get("/api/job/<jid>")
@@ -2975,4 +3323,5 @@ if __name__ == "__main__":
                           "ts": _info.get("ts", time.time())}
             JOBQ.put((_jid, _run_job, (_jid, _info["url"], cfg, None)))
         logging.getLogger("server").info(f"재시작 복구: 미완 작업 {len(_restore)}건 자동 재개")
+    threading.Thread(target=_reel_scheduler, daemon=True).start()  # 릴스 예약 발행기
     app.run(host="0.0.0.0", port=int(cfg.get("server_port", 8777)), threaded=True)
