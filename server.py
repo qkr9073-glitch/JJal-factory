@@ -239,21 +239,20 @@ body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 <select id="sacct" onchange="sApplyAcct()" style="flex:1;min-width:150px"></select></div>
 <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#a9d6bb;margin:4px 0">
 <input type="checkbox" id="sai" style="width:auto;margin:0"> ✨ 캡션 비워두면 게시 직전 AI가 자동 작성 (계정 톤·일본계정=일본어)</label>
-<div style="border-top:1px solid #34613f;margin:10px 0;padding-top:8px">
-<div style="font-size:13px;color:#a9d6bb;margin-bottom:6px">🗓️ 자동 시간 배분 <span style="color:#8fb8a0">— 시각을 <b>여러 개</b> 넣으면 그만큼 <b>하루 여러 개</b> 올라가요</span></div>
-<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
-<span style="font-size:12px;color:#8fb8a0">빠른설정:</span>
-<button type="button" onclick="setTimes('20:00')" style="background:#25406e;padding:5px 9px;font-size:12px;flex:0 0 auto">하루 1개 (20시)</button>
-<button type="button" onclick="setTimes('12:00,20:00')" style="background:#25406e;padding:5px 9px;font-size:12px;flex:0 0 auto">하루 2개 (12·20시)</button>
-<button type="button" onclick="setTimes('09:00,14:00,20:00')" style="background:#25406e;padding:5px 9px;font-size:12px;flex:0 0 auto">하루 3개 (9·14·20시)</button></div>
-<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-<span style="font-size:12px;color:#8fb8a0">시작일</span>
-<input type="date" id="sstart" style="width:auto;flex:0 0 auto">
-<span style="font-size:12px;color:#8fb8a0">매일 시각</span>
-<input type="text" id="stimes" value="20:00" placeholder="예: 12:00,20:00 = 하루 2개" style="width:auto;flex:1;min-width:120px">
-<button type="button" onclick="autoSchedule()" style="background:#2f6f4f;flex:0 0 auto;padding:8px 12px">배분</button></div>
-<div id="ssum" style="font-size:12px;color:#8fdca0;margin-top:6px"></div></div>
 <div id="sitems"></div>
+<div style="border-top:1px solid #34613f;margin:10px 0;padding-top:8px">
+<div style="font-size:13px;color:#a9d6bb;margin-bottom:6px">⏰ 시각 한 번에 채우기 <span style="color:#8fb8a0">(위 목록에서 하나하나 정해도 되고, 귀찮으면 여기로)</span></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;line-height:2.2">
+<input type="date" id="sstart" style="width:auto;flex:0 0 auto">
+<span style="font-size:13px;color:#cfe9d8">부터, 매일</span>
+<input type="text" id="stimes" value="20:00" placeholder="20:00" style="width:110px;flex:0 0 auto">
+<span style="font-size:13px;color:#cfe9d8">에 올리기</span>
+<button type="button" onclick="autoSchedule()" style="background:#2f6f4f;flex:0 0 auto;padding:8px 14px">채우기</button></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center"><span style="font-size:12px;color:#8fb8a0">하루 여러 개면 →</span>
+<button type="button" onclick="setTimes('20:00')" style="background:#25406e;padding:4px 9px;font-size:12px">하루 1개</button>
+<button type="button" onclick="setTimes('12:00,20:00')" style="background:#25406e;padding:4px 9px;font-size:12px">하루 2개</button>
+<button type="button" onclick="setTimes('09:00,14:00,20:00')" style="background:#25406e;padding:4px 9px;font-size:12px">하루 3개</button></div>
+<div id="ssum" style="font-size:12px;color:#8fdca0;margin-top:6px"></div></div>
 <button id="sgo" type="button" onclick="submitSchedule()" style="background:#2f6f4f;margin-top:8px">🗓️ 예약 걸기</button>
 <div id="sprog" class="small" style="color:#a9d6bb;margin-top:6px"></div>
 </div>
@@ -261,16 +260,20 @@ body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 <div id="pschedbox" style="display:none;border:1px dashed #4aa06a;background:rgba(47,111,79,.10);border-radius:12px;padding:12px;margin:6px 0">
 <div style="font-size:13px;color:#a9d6bb;line-height:1.55;margin-bottom:8px">완성된 <b>게시물(짤·카드뉴스·스토리 팩)</b>을 골라 <b>게시물별로 날짜·시각</b>을 정하면 그 시각에 자동 게시돼요.</div>
 <button type="button" onclick="loadPacksForSched()" style="background:#1e3a2a">📂 미게시 완성팩 불러오기</button>
-<div style="border-top:1px solid #34613f;margin:10px 0;padding-top:8px">
-<div style="font-size:12px;color:#8fb8a0;margin-bottom:5px">체크한 것만 자동 배분 (개별로도 시각 수정 가능)</div>
-<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-<span style="font-size:12px;color:#8fb8a0">시작일</span>
-<input type="date" id="pstart" style="width:auto;flex:0 0 auto">
-<span style="font-size:12px;color:#8fb8a0">매일 시각</span>
-<input type="text" id="ptimes" value="20:00" placeholder="예: 12:00,20:00 = 하루 2개" style="width:auto;flex:1;min-width:120px">
-<button type="button" onclick="autoPackSchedule()" style="background:#2f6f4f;flex:0 0 auto;padding:8px 12px">배분</button></div>
-<div id="psum" style="font-size:12px;color:#8fdca0;margin-top:6px"></div></div>
 <div id="pkpicker"></div>
+<div style="border-top:1px solid #34613f;margin:10px 0;padding-top:8px">
+<div style="font-size:13px;color:#a9d6bb;margin-bottom:6px">⏰ 시각 한 번에 채우기 <span style="color:#8fb8a0">(체크한 게시물들 · 하나하나 정해도 됨)</span></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;line-height:2.2">
+<input type="date" id="pstart" style="width:auto;flex:0 0 auto">
+<span style="font-size:13px;color:#cfe9d8">부터, 매일</span>
+<input type="text" id="ptimes" value="20:00" placeholder="20:00" style="width:110px;flex:0 0 auto">
+<span style="font-size:13px;color:#cfe9d8">에 올리기</span>
+<button type="button" onclick="autoPackSchedule()" style="background:#2f6f4f;flex:0 0 auto;padding:8px 14px">채우기</button></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center"><span style="font-size:12px;color:#8fb8a0">하루 여러 개면 →</span>
+<button type="button" onclick="setPTimes('20:00')" style="background:#25406e;padding:4px 9px;font-size:12px">하루 1개</button>
+<button type="button" onclick="setPTimes('12:00,20:00')" style="background:#25406e;padding:4px 9px;font-size:12px">하루 2개</button>
+<button type="button" onclick="setPTimes('09:00,14:00,20:00')" style="background:#25406e;padding:4px 9px;font-size:12px">하루 3개</button></div>
+<div id="psum" style="font-size:12px;color:#8fdca0;margin-top:6px"></div></div>
 <button id="pgo" type="button" onclick="submitPackSchedule()" style="background:#2f6f4f;margin-top:8px">🗓️ 체크한 게시물 예약 걸기</button>
 <div id="pprog" class="small" style="color:#a9d6bb;margin-top:6px"></div>
 </div>
@@ -573,16 +576,17 @@ function autoSchedule(){
 function renderSchedItems(){
   const box=$('sitems');
   if(!SCHED.length){box.innerHTML='';return;}
-  let h='<div style="font-size:12px;color:#8fb8a0;margin:8px 0 4px">'+SCHED.length+'개 — 계정·시간·캡션 확인 후 예약</div>';
+  let h='<div style="font-size:12px;color:#a9d6bb;margin:10px 0 4px">📹 고른 영상 '+SCHED.length+'개 — <b>각 영상마다 게시 날짜·시각을 정하세요</b></div>';
   SCHED.forEach((it,i)=>{
+    const need=it.dt?'':' <span style="color:#e0a35a">← 정해주세요</span>';
     h+=`<div style="border:1px solid #34613f;border-radius:9px;padding:8px;margin:6px 0;background:#16261d">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
         <b style="font-size:12px;color:#cfe9d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎬 ${esc(it.name)}</b>
         <button type="button" onclick="sRemove(${i})" style="background:#5a2a2a;padding:4px 8px;flex:0 0 auto">✕</button></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-        <select onchange="SCHED[${i}].account=this.value" style="flex:1;min-width:130px">${acctOptions(it.account)}</select>
-        <input type="datetime-local" value="${it.dt||''}" onchange="SCHED[${i}].dt=this.value" style="flex:1;min-width:150px"></div>
-      <textarea placeholder="캡션 (비우면 위 ✨설정 따름)" onchange="SCHED[${i}].caption=this.value" style="width:100%;box-sizing:border-box;min-height:44px;margin-top:6px;font-size:13px">${esc(it.caption||'')}</textarea></div>`;
+      <div style="font-size:11px;color:#8fdca0;margin:7px 0 2px">📅 게시 날짜·시각${need}</div>
+      <input type="datetime-local" value="${it.dt||''}" onchange="SCHED[${i}].dt=this.value" style="width:100%;box-sizing:border-box">
+      <select onchange="SCHED[${i}].account=this.value" style="width:100%;margin-top:6px">${acctOptions(it.account)}</select>
+      <textarea placeholder="캡션 (비우면 위 ✨설정 따름)" onchange="SCHED[${i}].caption=this.value" style="width:100%;box-sizing:border-box;min-height:40px;margin-top:6px;font-size:13px">${esc(it.caption||'')}</textarea></div>`;
   });
   box.innerHTML=h;
 }
@@ -677,26 +681,36 @@ async function loadPacksForSched(){
     const r=await fetch('/api/packs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
     const d=await r.json();
     if(!d.ok){$('pkpicker').textContent='❌ '+d.error;return;}
-    PSCHED=(d.packs||[]).filter(p=>!p.published).map(p=>({name:p.name,title:p.title||p.name,type:p.type,story:p.story,account:'',dt:'',checked:false}));
+    PSCHED=(d.packs||[]).filter(p=>!p.published).map(p=>({name:p.name,title:p.title||p.name,type:p.type,story:p.story,thumb:p.thumb||'',thumbs:p.thumbs||[],lead:'',account:'',dt:'',checked:false}));
     renderPackPicker();
   }catch(e){$('pkpicker').textContent='❌ '+e;}
 }
 function renderPackPicker(){
   if(!PSCHED.length){$('pkpicker').innerHTML='<div class="small" style="color:#8fb8a0">미게시 완성팩이 없어요 (이미 다 올렸거나 아직 안 만들었어요). 먼저 불러오기를 눌러보세요.</div>';return;}
-  let h='<div style="font-size:12px;color:#8fb8a0;margin:6px 0 4px">'+PSCHED.length+'개 — 예약할 것만 체크</div>';
+  let h='<div style="font-size:12px;color:#8fb8a0;margin:6px 0 4px">'+PSCHED.length+'개 — 예약할 것만 체크 → 썸네일·시각 정하기</div>';
   PSCHED.forEach((p,i)=>{
     const kind=p.story?'📖 스토리':(p.type==='cardnews'?'🗞 카드뉴스':'🖼 짤');
+    const prev=p.thumb?`<img src="/packs/${encodeURIComponent(p.name)}/${p.thumb}" style="width:38px;height:48px;object-fit:cover;border-radius:5px;flex:0 0 auto">`:'';
+    let chooser='';
+    if(p.checked && p.thumbs && p.thumbs.length>1){
+      const cur=p.lead||p.thumbs[0];
+      chooser='<div style="font-size:11px;color:#8fdca0;margin:7px 0 2px">🖼 첫 장(썸네일) 고르기 — 후킹 문구가 다른 3종 중 선택</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+
+        p.thumbs.map(tn=>`<img src="/packs/${encodeURIComponent(p.name)}/${tn}" onclick="PSCHED[${i}].lead='${tn}';renderPackPicker()" style="width:56px;height:70px;object-fit:cover;border-radius:6px;cursor:pointer;border:3px solid ${cur===tn?'#4ade80':'#2c4b39'}">`).join('')+'</div>';
+    }
     h+=`<div style="border:1px solid #34613f;border-radius:9px;padding:8px;margin:6px 0;background:${p.checked?'#1a2e22':'#16261d'}">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" ${p.checked?'checked':''} onchange="PSCHED[${i}].checked=this.checked;renderPackPicker()" style="width:auto;margin:0;flex:0 0 auto">
+        ${prev}
         <span style="font-size:12px;color:#9fb8a0;flex:0 0 auto">${kind}</span>
         <b style="font-size:12px;color:#cfe9d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.title)}</b></label>
-      ${p.checked?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-        <select onchange="PSCHED[${i}].account=this.value" style="flex:1;min-width:130px">${pacctOptions(p.account)}</select>
-        <input type="datetime-local" value="${p.dt||''}" onchange="PSCHED[${i}].dt=this.value" style="flex:1;min-width:150px"></div>`:''}</div>`;
+      ${chooser}
+      ${p.checked?`<div style="font-size:11px;color:#8fdca0;margin:7px 0 2px">📅 게시 날짜·시각${p.dt?'':' <span style="color:#e0a35a">← 정해주세요</span>'}</div>
+        <input type="datetime-local" value="${p.dt||''}" onchange="PSCHED[${i}].dt=this.value" style="width:100%;box-sizing:border-box">
+        <select onchange="PSCHED[${i}].account=this.value" style="width:100%;margin-top:6px">${pacctOptions(p.account)}</select>`:''}</div>`;
   });
   $('pkpicker').innerHTML=h;
 }
+function setPTimes(t){$('ptimes').value=t; if(PSCHED.some(p=>p.checked)&&$('pstart').value)autoPackSchedule();}
 function autoPackSchedule(){
   const sel=PSCHED.filter(p=>p.checked);
   if(!sel.length){alert('먼저 예약할 게시물을 체크하세요');return;}
@@ -719,7 +733,7 @@ async function submitPackSchedule(){
     if(!p.dt){$('pprog').textContent='❌ 체크한 게시물에 시간을 정하세요 (배분 버튼이 편해요): '+p.title;return;}
     if(new Date(p.dt).getTime()<now-60000){$('pprog').textContent='❌ 과거 시간이 있어요: '+p.title;return;}
   }
-  const items=sel.map(p=>({pack:p.name,account:p.account,title:p.title,publish_at:Math.floor(new Date(p.dt).getTime()/1000)}));
+  const items=sel.map(p=>({pack:p.name,lead:p.lead||'',account:p.account,title:p.title,publish_at:Math.floor(new Date(p.dt).getTime()/1000)}));
   $('pgo').disabled=true; $('pprog').textContent='🗓️ 예약 등록 중...';
   try{
     const r=await fetch('/api/pack/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,items})});
@@ -2880,6 +2894,7 @@ def api_packs():
                           "site": meta.get("site", "") or
                                   ("카드뉴스" if meta.get("type") == "cardnews" else ""),
                           "thumb": thumb,
+                          "thumbs": sorted(x.name for x in d.glob("thumb*.jpg")),
                           "story": is_story,
                           "lang": meta.get("lang", "ko"),
                           "used": len(checked), "archived": show_arch,
