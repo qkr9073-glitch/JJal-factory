@@ -1578,6 +1578,7 @@ function renderDetail(){
     h+='</div>';
   }
   if(!d.arch) h+=`<button onclick="pub(false)">📤 인스타 자동 업로드${d.thumbs.length?' (선택한 썸네일이 첫 장)':''}</button>`;
+  if(!d.arch) h+=`<button class="ghost" onclick="togglePackSched()" style="border-color:#4a8a5f;color:#8fdca0">🗓️ 나중에 올리기 (예약)${d.thumbs.length?' — 위에서 고른 썸네일로':''}</button><div id="psbox" style="display:none"></div>`;
   h+=`<div class="small">⬇ <a href="${base}/${encodeURIComponent(d.zip)}" download onclick="return zipDl()"><b>zip 받기</b></a>`;
   if(d.ebook) h+=` &nbsp;|&nbsp; 📕 <a href="${base}/ebook.pdf" download><b>전자책 PDF</b></a>`;
   if(d.keyword) h+=` &nbsp;|&nbsp; 댓글 키워드: <b>${esc(d.keyword)}</b>`;
@@ -1631,6 +1632,38 @@ function renderDetail(){
   setTimeout(igInit,60);
 }
 function pickLead(tn){LEAD=tn;renderDetail();}
+function togglePackSched(){
+  const b=$('psbox');
+  if(b.style.display!=='none' && b.innerHTML){b.style.display='none';return;}
+  b.style.display='block';
+  b.innerHTML=`<div class="itbox" style="border-color:#4a8a5f">
+    <div style="font-size:12px;color:#8fdca0;margin-bottom:4px">📅 게시 날짜·시각 (한국시간)</div>
+    <input type="datetime-local" id="psdt" style="width:100%;box-sizing:border-box">
+    <div style="font-size:12px;color:#8fdca0;margin:8px 0 4px">올릴 계정</div>
+    <select id="psacc" style="width:100%">
+      <option value="">자동 (팩 종류에 맞게)</option>
+      <option value="sowho77">@sowho77 (짤공장)</option>
+      <option value="kangarooshort">@kangarooshort (카드뉴스)</option>
+      <option value="kangaroostory.jp">@kangaroostory.jp (일본)</option>
+    </select>
+    <div style="font-size:12px;color:#8fdca0;margin:8px 0 4px">📝 캡션 (비우면 원래 캡션 그대로)</div>
+    <textarea id="pscap" style="width:100%;box-sizing:border-box;min-height:72px">${esc(CUR.caption||'')}</textarea>
+    <button onclick="submitOnePack()" style="background:#2f6f4f;margin-top:8px">🗓️ 이 게시물 예약 걸기</button>
+    <div id="psmsg" class="small" style="color:#8fdca0;margin-top:6px"></div></div>`;
+}
+async function submitOnePack(){
+  const code=$('code').value.trim();
+  const dt=$('psdt').value;
+  if(!dt){$('psmsg').textContent='❌ 게시 날짜·시각을 먼저 정하세요';return;}
+  if(new Date(dt).getTime()<Date.now()-60000){$('psmsg').textContent='❌ 과거 시간이에요';return;}
+  const item={pack:CUR.name,lead:LEAD||'',account:$('psacc').value,caption:($('pscap').value||'').trim(),title:CUR.title,publish_at:Math.floor(new Date(dt).getTime()/1000)};
+  $('psmsg').textContent='🗓️ 예약 등록 중...';
+  try{
+    const d=await api('/api/pack/schedule',{code,items:[item]});
+    if(!d.ok){$('psmsg').textContent='❌ '+d.error;return;}
+    $('psmsg').innerHTML='✅ 예약 완료! '+new Date(dt).toLocaleString('ko-KR')+' 에 올라가요. (예약 목록은 짤공장 메인에서 확인·취소)';
+  }catch(e){$('psmsg').textContent='❌ '+e;}
+}
 function usageSection(d){
   if(d.arch) return `<div class="itbox" style="border-color:#3a4166"><b>🗄 사용완료 보관됨</b> <span class="dim">— 담당 ${NEED}명 확인 후 이동된 팩이에요. 필요하면 위 zip으로 다시 받을 수 있습니다.</span></div>`;
   const need=(d.used&&d.used.need)||NEED, checked=(d.used&&d.used.checked)||[];
