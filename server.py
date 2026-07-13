@@ -1455,7 +1455,7 @@ function openMosaic(fn){
     +'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;justify-content:center">'
     +'<button class="mini ghost" onclick="mosClear()">↩ 다 지우기</button>'
     +'<button class="mini ghost" onclick="closeMosaic()">취소</button>'
-    +'<button class="mini" style="background:#2f7d4f;color:#fff;font-weight:700" onclick="applyMosaic(\''+fn+'\')">✅ 모자이크 적용</button></div>';
+    +'<button class="mini" style="background:#2f7d4f;color:#fff;font-weight:700" onclick="applyMosaic(&#39;'+fn+'&#39;)">✅ 모자이크 적용</button></div>';
   document.body.appendChild(ov);
   const img=$('mosimg');
   if(img.complete && img.naturalWidth) mosSetup(); else img.onload=mosSetup;
