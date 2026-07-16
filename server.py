@@ -3481,15 +3481,46 @@ def api_ie_insta_targets():
         return jsonify(ok=False, error="관리자만 계정을 편집할 수 있습니다"), 403
     lst = insta_import.load_targets(BASE)
     if action == "add":
-        u = (data.get("username") or "").strip().lstrip("@")
-        if not u:
-            return jsonify(ok=False, error="계정 아이디를 입력하세요"), 400
-        lst = insta_import.save_targets(BASE, lst + [u])
+        many = data.get("usernames")
+        if isinstance(many, list) and many:      # 팔로우 목록 등에서 일괄 추가
+            adds = [str(u).strip().lstrip("@") for u in many if str(u).strip()]
+            lst = insta_import.save_targets(BASE, lst + adds)
+        else:
+            u = (data.get("username") or "").strip().lstrip("@")
+            if not u:
+                return jsonify(ok=False, error="계정 아이디를 입력하세요"), 400
+            lst = insta_import.save_targets(BASE, lst + [u])
     elif action == "remove":
         u = (data.get("username") or "").strip().lstrip("@").lower()
         lst = insta_import.save_targets(BASE, [x for x in lst if x.lower() != u])
     login = (cfg.get("ig_import_login") or {}).get("username", "")
     return jsonify(ok=True, targets=lst, login=login)
+
+
+def _run_ie_following(jid, cfg):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=20, msg="부계정 팔로우 목록 불러오는 중…")
+        lst = insta_import.list_following(cfg, BASE,
+                                          log=lambda m: job.update(msg=str(m)[:80]))
+        job.update(status="done", pct=100, msg="완료", result={"following": lst})
+    except Exception as e:
+        job.update(status="error", error=str(e)[:200])
+
+
+@app.post("/api/ie/insta/following")
+def api_ie_insta_following():
+    """부계정이 팔로우한 계정 목록 → 대상 계정 일괄 등록용. (관리자 전용)"""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="대상 계정 편집은 관리자만 가능합니다"), 403
+    now = time.time()
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
+                 "result": None, "error": None, "ts": now}
+    threading.Thread(target=_run_ie_following, args=(jid, cfg), daemon=True).start()
+    return jsonify(ok=True, job=jid)
 
 
 def _run_ie_fetch(jid, cfg, usernames, per):

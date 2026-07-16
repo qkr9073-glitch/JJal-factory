@@ -143,6 +143,27 @@ def fetch_posts(cfg, base, username, limit=6, log=print):
     return out
 
 
+def list_following(cfg, base, limit=300, log=print):
+    """로그인한 부계정이 '팔로우한 계정' 목록을 반환 → 대상 계정 일괄 등록용.
+    (부계정이 수집하고 싶은 계정들을 팔로우해두면, 하나하나 등록 안 해도 됨)"""
+    import instaloader
+    L, user = _loader(cfg, base, log)
+    if not user:
+        raise RuntimeError("부계정 로그인이 설정돼야 팔로우 목록을 불러올 수 있어요 "
+                           "(config.json의 ig_import_login)")
+    try:
+        prof = instaloader.Profile.from_username(L.context, user)
+        out = []
+        for f in prof.get_followees():
+            out.append({"username": f.username, "full_name": (f.full_name or "")})
+            if len(out) >= limit:
+                break
+        out.sort(key=lambda x: x["username"].lower())
+        return out
+    except Exception as e:
+        raise RuntimeError(f"팔로우 목록 조회 실패: {str(e)[:140]}")
+
+
 def fetch_many(cfg, base, usernames, per=4, log=print):
     """여러 지정 계정에서 이미지 게시물 수집 → 좋아요순 합침."""
     allp = []

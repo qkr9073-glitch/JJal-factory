@@ -972,7 +972,9 @@
       b.innerHTML=`
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">수집 대상 계정</span><span class="sd">부계정으로 수집</span></div>
           <div id="igtargets" style="display:flex;flex-direction:column;gap:6px"><div style="color:var(--faint)">불러오는 중…</div></div>
-          ${isAdmin()?`<div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="igadd" placeholder="계정 아이디(@없이)" style="flex:1"><button class="btn" onclick="igAddTarget()">＋추가</button></div>`:'<div class="caphint" style="margin-top:6px">대상 계정 편집은 관리자만 가능</div>'}</div>
+          ${isAdmin()?`<div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="igadd" placeholder="계정 아이디(@없이)" style="flex:1"><button class="btn" onclick="igAddTarget()">＋추가</button></div>
+          <button class="btn" style="width:100%;margin-top:6px" onclick="igFetchFollowing()">📥 부계정 팔로우 목록에서 가져오기</button>
+          <div id="igfollow"></div>`:'<div class="caphint" style="margin-top:6px">대상 계정 편집은 관리자만 가능</div>'}</div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">이미지 게시물 수집</span><span class="sd">릴스 제외</span></div>
           <label style="font-size:12px;color:var(--faint)">계정당 가져올 개수
             <select class="in" id="igper" style="width:auto;margin-left:6px"><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option></select></label>
@@ -1013,6 +1015,43 @@
     const u=($('igadd')&&$('igadd').value.trim())||''; if(!u){flash('계정 아이디를 입력하세요');return;}
     const r=await apiJson('/api/ie/insta/targets',{code:code(),action:'add',username:u});
     if(!r.ok){flash('❌ '+r.error);return;} $('igadd').value=''; igLoadTargets();
+  }
+  /* ---- 부계정 팔로우 목록에서 대상 일괄 등록 ---- */
+  async function igFetchFollowing(){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    const box=$('igfollow'); if(box)box.innerHTML='<div class="caphint" style="margin-top:8px">📥 팔로우 목록 불러오는 중… (부계정 로그인·요청에 시간이 걸릴 수 있어요)</div>';
+    let d; try{d=await apiJson('/api/ie/insta/following',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){if(box)box.innerHTML='<div style="color:var(--danger);margin-top:8px">❌ '+esch(d.error)+'</div>';return;}
+    igPollFollowing(d.job);
+  }
+  async function igPollFollowing(jid){
+    const box=$('igfollow');
+    try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);const d=await r.json();
+      if(!d.ok||d.status==='error'){if(box)box.innerHTML='<div style="color:var(--danger);margin-top:8px">❌ '+esch(d.error||'실패')+'</div>';return;}
+      if(d.status==='done'){igPaintFollowing((d.result&&d.result.following)||[]);return;}
+      if(box)box.innerHTML='<div class="caphint" style="margin-top:8px">📥 '+esch(d.msg||'불러오는 중…')+'</div>';
+      setTimeout(()=>igPollFollowing(jid),1600);
+    }catch(e){setTimeout(()=>igPollFollowing(jid),2600);}
+  }
+  function igPaintFollowing(list){
+    const box=$('igfollow'); if(!box)return;
+    if(!list.length){box.innerHTML='<div style="color:var(--faint);margin-top:8px">팔로우한 계정이 없어요. (부계정으로 수집할 계정들을 팔로우해두세요)</div>';return;}
+    box.innerHTML=`<div style="margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <b style="font-size:12.5px">팔로우 ${list.length}개</b>
+        <label style="font-size:12px;color:var(--faint);margin-left:auto;cursor:pointer"><input type="checkbox" id="igfall" onchange="igToggleAll(this)"> 전체선택</label></div>
+      <div style="max-height:210px;overflow:auto;display:flex;flex-direction:column;gap:3px">
+        ${list.map(f=>`<label class="ck" style="font-size:12.5px"><input type="checkbox" class="igfchk" value="${esch(f.username)}"> <span>@${esch(f.username)}${f.full_name?` <span style="color:var(--faint)">· ${esch(f.full_name)}</span>`:''}</span></label>`).join('')}
+      </div>
+      <button class="btn primary" style="width:100%;margin-top:9px" onclick="igAddSelected()">＋ 선택한 계정 대상에 추가</button></div>`;
+  }
+  function igToggleAll(cb){document.querySelectorAll('.igfchk').forEach(c=>c.checked=cb.checked);}
+  async function igAddSelected(){
+    const us=[...document.querySelectorAll('.igfchk:checked')].map(c=>c.value);
+    if(!us.length){flash('추가할 계정을 선택하세요');return;}
+    const r=await apiJson('/api/ie/insta/targets',{code:code(),action:'add',usernames:us});
+    if(!r.ok){flash('❌ '+r.error);return;}
+    flash('✅ '+us.length+'개 대상 추가됨'); if($('igfollow'))$('igfollow').innerHTML=''; igLoadTargets();
   }
   async function igFetch(){
     if(!code()){flash('접속코드를 입력하세요');return;}
