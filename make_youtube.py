@@ -100,8 +100,10 @@ def main():
         try:
             pool = youtube.extract_frame_pool(str(vid), str(out / "pool"), interval=interval)
             youtube.assign_frames(outline["cards"], pool)
+            print("[5] 프레임 텍스트 감지 + 가우시안 블러...")
+            youtube.clean_card_frames(cfg, outline["cards"], str(out / "clean"))
         except Exception as e:
-            print(f"    프레임 추출 실패(템플릿 폴백 대상): {e}")
+            print(f"    프레임 처리 실패(템플릿 폴백 대상): {e}")
     else:
         print("[4] 영상 없음 → 프레임 없이 템플릿 폴백 경로")
 
@@ -125,11 +127,13 @@ def _render_preview(meta, outline, pool, out):
     cards = outline.get("cards", [])
     cardhtml = ""
     for i, c in enumerate(cards):
-        frame = c.get("frame")
+        frame = c.get("frame_clean") or c.get("frame")
         img = f'<img src="{rel(frame)}">' if frame else '<div class="noimg">템플릿 생성 예정</div>'
+        nb = len(c.get("text_boxes") or [])
+        blur = f'<span class="bl">🟦 블러 {nb}</span>' if nb else ""
         cardhtml += f"""<div class="card">
           <div class="thumb">{img}<div class="ov">{esc(c.get('text'))}</div>
-            <span class="t">{c.get('t', 0):.1f}s</span></div>
+            <span class="t">{c.get('t', 0):.1f}s</span>{blur}</div>
           <div class="ci">뒷장 {i + 1}</div></div>"""
     poolhtml = "".join(
         f'<img src="{rel(p["path"])}" title="{p["t"]:.1f}s · 선명도 {p["sharp"]:.0f}">'
@@ -146,12 +150,13 @@ h1{{font-size:18px}} h2{{font-size:14px;color:#8bffcf;margin:22px 0 8px}}
 .hook{{background:#1c2029;border:1px solid #2a3f38;border-radius:10px;padding:12px 14px;font-size:14px;min-width:150px}}
 .hook b{{color:#34d399;font-size:15px}}
 .cards{{display:flex;gap:14px;flex-wrap:wrap}}
-.card{{width:190px}}
+.card{{width:230px}}
 .thumb{{position:relative;aspect-ratio:4/5;border-radius:10px;overflow:hidden;background:#000;border:1px solid #2a2f3c}}
 .thumb img{{width:100%;height:100%;object-fit:cover}}
-.ov{{position:absolute;left:0;right:0;bottom:0;padding:10px;font-weight:800;font-size:15px;
-    background:linear-gradient(0deg,rgba(0,0,0,.8),transparent);white-space:pre-wrap;line-height:1.3}}
+.ov{{position:absolute;left:0;right:0;bottom:0;max-height:80%;overflow:hidden;padding:12px 11px;font-weight:700;font-size:12px;
+    background:linear-gradient(0deg,rgba(0,0,0,.9),rgba(0,0,0,.55) 78%,transparent);white-space:pre-wrap;line-height:1.42}}
 .t{{position:absolute;top:6px;right:8px;background:rgba(0,0,0,.6);font-size:11px;padding:2px 7px;border-radius:20px}}
+.bl{{position:absolute;top:6px;left:8px;background:rgba(52,211,153,.85);color:#052e1c;font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:20px}}
 .noimg{{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#6b7284;font-size:13px}}
 .ci{{font-size:12px;color:#9aa0b3;margin-top:6px;text-align:center}}
 .pool{{display:flex;gap:5px;flex-wrap:wrap}}
