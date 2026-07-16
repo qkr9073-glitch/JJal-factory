@@ -219,12 +219,7 @@ def _outro(plan, cfg):
         for lk in links[:4]:
             _shadow_box(canvas, [EM, y, EW - EM, y + 106], 20, (255, 255, 255))
             draw = ImageDraw.Draw(canvas)
-            try:
-                ef = ImageFont.truetype("C:/Windows/Fonts/seguiemj.ttf", 42)
-                draw.text((EM + 34, y + 30), lk.get("emoji", "🔗"), font=ef,
-                          embedded_color=True)
-            except Exception:
-                pass
+            _link_icon(canvas, EM + 32, y + 53, 44, lk)
             draw.text((EM + 112, y + 16), lk.get("label", ""), font=lf, fill=INK)
             draw.text((EM + 112, y + 60), lk.get("url", ""), font=uf,
                       fill=_tint(accent, 0.95, base=INK))
@@ -235,6 +230,37 @@ def _outro(plan, cfg):
     _center(draw, "본 자료의 무단 재배포·재판매를 금지합니다",
             _font("reg", 25), EH - 100, (178, 165, 152))
     return canvas
+
+
+def _link_icon(canvas, x, cy, s, lk):
+    """유입 링크 아이콘 — 유튜브=빨간 로고, 카카오/오픈채팅=노란 말풍선, 그 외=컬러 이모지.
+    (x = 아이콘 왼쪽, cy = 세로 중심)"""
+    draw = ImageDraw.Draw(canvas)
+    key = (str(lk.get("url", "")) + " " + str(lk.get("label", ""))).lower()
+    if ("youtube" in key or "youtu.be" in key or "유튜브" in key):
+        w, h = s * 1.34, s * 0.94
+        bx, by = x, cy - h / 2
+        draw.rounded_rectangle([bx, by, bx + w, by + h], radius=h * 0.28, fill=(255, 0, 0))
+        tw = h * 0.42
+        draw.polygon([(bx + w / 2 - tw * 0.45, cy - tw * 0.62),
+                      (bx + w / 2 - tw * 0.45, cy + tw * 0.62),
+                      (bx + w / 2 + tw * 0.78, cy)], fill=(255, 255, 255))
+        return
+    if any(t in key for t in ("kakao", "openchat", "오픈", "채팅", "카톡", "커뮤니티", "톡방")):
+        bx, by = x, cy - s / 2
+        draw.rounded_rectangle([bx, by, bx + s, by + s * 0.80], radius=s * 0.30, fill=(254, 229, 0))
+        draw.polygon([(bx + s * 0.24, by + s * 0.74), (bx + s * 0.46, by + s * 0.74),
+                      (bx + s * 0.24, by + s)], fill=(254, 229, 0))
+        r = s * 0.06
+        for dxp in (0.34, 0.5, 0.66):
+            ccx, ccy = bx + s * dxp, by + s * 0.38
+            draw.ellipse([ccx - r, ccy - r, ccx + r, ccy + r], fill=(60, 45, 20))
+        return
+    try:
+        ef = ImageFont.truetype("C:/Windows/Fonts/seguiemj.ttf", int(s))
+        draw.text((x, cy - s / 2), lk.get("emoji", "🔗"), font=ef, embedded_color=True)
+    except Exception:
+        pass
 
 
 def build_ebook(plan, items, cfg, out_pdf, log=print):
