@@ -358,6 +358,7 @@
       <div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
       <span class="jm" style="color:var(--gold)">접수됨…</span>`;
     box.prepend(div);
+    const sc=box.closest('.mainpane'); if(sc) sc.scrollTo({top:0,behavior:'smooth'});
     pollJob(d.job);
   }
   async function pollJob(jid){
@@ -410,13 +411,13 @@
           <div class="cbody">짤의 언어를 전환하는 '수입·수출'은 별도 탭으로 준비 중입니다.</div></details>
       </aside>
       <main class="mainpane">
+        <div id="jjobs"></div>
+        <div id="jresult"></div>
         <div class="panehead"><h2>🔥 이슈</h2><span class="n">유튜브 · 커뮤니티에서 소재 고르기</span></div>
         <div class="chips" style="margin-bottom:14px">
           <span class="chip ${jState.issue==='youtube'?'on':''}" onclick="issueTab('youtube')">▶️ 유튜브</span>
           <span class="chip ${jState.issue==='community'?'on':''}" onclick="issueTab('community')">🗨 커뮤니티</span></div>
         <div id="issue"></div>
-        <div id="jjobs" style="margin-top:18px"></div>
-        <div id="jresult" style="margin-top:6px"></div>
       </main>
     </div>`;
     $('jtpl').addEventListener('click',e=>{const t=e.target.closest('.t');if(!t)return;jState.tpl=+t.dataset.i;
