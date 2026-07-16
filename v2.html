@@ -1518,8 +1518,8 @@
     const canEdit=(e.status==='pending'||e.status==='await');
     $('smEdit').style.display=canEdit?'':'none';
     $('smCancel').style.display=canEdit?'':'none';
-    $('smEdit').onclick=()=>openReschedule(e.id);
-    $('smCancel').onclick=()=>{if(confirm('이 예약을 취소할까요? (되돌릴 수 없습니다)')){cancelSched(e.id);closeSModal();}};
+    $('smEdit').onclick=(ev)=>{ev.stopPropagation();openReschedule(e.id);};
+    $('smCancel').onclick=(ev)=>{ev.stopPropagation();if(confirm('이 예약을 취소할까요? (되돌릴 수 없습니다)')){cancelSched(e.id);closeSModal();}};
     $('sScrim').classList.add('open');
   }
   function paintSPrev(){
