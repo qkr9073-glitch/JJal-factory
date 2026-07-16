@@ -1650,6 +1650,30 @@ def load_config():
 MEMBERS_FILE = BASE / "members.json"
 _members_lock = threading.Lock()
 
+# ── 결과물 팩 소유자 (누가 만들었나) ─────────────────────────────
+OWNERS_FILE = BASE / "pack_owners.json"
+_owners_lock = threading.Lock()
+
+
+def _owners_load():
+    try:
+        return json.loads(OWNERS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _owner_set(pack_name, code):
+    code = (code or "").strip()
+    if not pack_name or not code:
+        return
+    with _owners_lock:
+        d = _owners_load()
+        if d.get(pack_name) == code:
+            return
+        d[pack_name] = code
+        OWNERS_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2),
+                               encoding="utf-8")
+
 
 def _members_load(cfg=None):
     """회원코드→{name,role} 사전. 파일 없으면 config의 access_code를 관리자 1명으로 시드."""
@@ -2602,6 +2626,11 @@ def api_job(jid):
     if job["status"] == "queued":
         pos = sum(1 for v in JOBS.values()
                   if v["status"] == "queued" and v["ts"] <= job["ts"])
+    # 팩을 만든 잡이 끝나면, 이 잡을 폴링하는 사람(=만든 사람)을 소유자로 기록
+    if job["status"] == "done" and isinstance(job.get("result"), dict):
+        pk = job["result"].get("pack")
+        if pk:
+            _owner_set(pk, request.args.get("code"))
     return jsonify(ok=True, status=job["status"], pct=job["pct"], msg=job["msg"],
                    pos=pos, error=job["error"],
                    result=job["result"] if job["status"] == "done" else None)
@@ -2641,6 +2670,10 @@ def api_packs():
     need = int(cfg.get("usage_threshold", 2) or 2)
     used_dir = cfg.get("used_dir") or "_사용완료"
     show_arch = bool(data.get("archived"))
+    # 일반 회원은 본인이 만든 팩만, 관리자는 전체
+    is_admin = _is_admin(cfg, data.get("code"))
+    mycode = (data.get("code") or "").strip()
+    owners = _owners_load()
     root = _used_root(cfg) if show_arch else OUTPUT
     if root.exists():
         for d in sorted(root.iterdir(), key=lambda p: p.name, reverse=True):
@@ -2648,6 +2681,8 @@ def api_packs():
                 continue
             if not show_arch and d.name in (used_dir, "_휴지통"):
                 continue
+            if not is_admin and owners.get(d.name) != mycode:
+                continue      # 내 팩이 아니면(소유자 미상 레거시 포함) 일반 회원엔 숨김
             meta = {}
             try:
                 meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
@@ -3368,10 +3403,15 @@ def api_schedule_list():
     for e in items:
         pd = OUTPUT / e.get("pack", "")
         e["thumb"] = f"/packs/{e['pack']}/thumb.jpg" if (pd / "thumb.jpg").exists() else ""
-        # 미리보기용 이미지/영상 목록(예약 상세 팝업에서 캐러셀로 보여줌)
+        # 미리보기용 이미지/영상 목록 — 실제 게시 순서와 동일(썸네일/lead가 첫 장, 그다음 본문)
         if pd.is_dir():
-            imgs = sorted(pd.glob("[0-9][0-9].jpg"))
-            e["images"] = [f"/packs/{e['pack']}/{p.name}" for p in imgs]
+            numbered = [p.name for p in sorted(pd.glob("[0-9][0-9].jpg"))]
+            order = []
+            if (pd / "thumb.jpg").exists():        # 짤/유튜브 팩: 썸네일이 첫 장
+                lead = e.get("lead") or ""
+                order.append(lead if lead and (pd / lead).exists() else "thumb.jpg")
+            order += numbered
+            e["images"] = [f"/packs/{e['pack']}/{n}" for n in order]
             vids = sorted(pd.glob("*.mp4"))
             e["video"] = f"/packs/{e['pack']}/{vids[0].name}" if vids else ""
         else:

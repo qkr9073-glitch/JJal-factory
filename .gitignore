@@ -23,6 +23,7 @@ usage.json
 jobs_pending.json
 schedule.json
 members.json
+pack_owners.json
 ig_targets.json
 ig_session/
 
