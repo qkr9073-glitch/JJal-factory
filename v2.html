@@ -214,7 +214,7 @@
   .btn.ghost{background:transparent;color:var(--muted)}
   .btn.primary{background:var(--gold);color:var(--gold-ink);border-color:var(--gold);font-weight:800;padding:11px 22px;box-shadow:0 6px 18px -8px color-mix(in srgb,var(--gold) 70%,transparent)}
   .btn.primary:hover{filter:brightness(1.05)}
-  .pop{position:absolute;bottom:64px;right:18px;width:300px;max-height:74vh;overflow:hidden auto;background:var(--raised);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:8px;display:none;z-index:10}
+  .pop{position:fixed;bottom:22px;right:22px;width:300px;max-height:80vh;overflow:hidden auto;background:var(--raised);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:8px;display:none;z-index:60}
   .cal{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px}
   .calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:13px;font-weight:800}
   .calhead button{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:7px;width:26px;height:26px;font-size:15px;line-height:1;padding:0}
@@ -316,31 +316,33 @@
           <div class="sp"></div>
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--faint)">올릴 계정
             <select id="macct2" class="in" style="width:auto;padding:7px 9px" onchange="onAcct()"></select></label>
-          <button class="btn primary" id="upBtn" onclick="togglePop(event)">📤 업로드</button>
-        </div>
-        <div class="pop" id="pop">
-          <div id="popMenu">
-            <div class="popopt" onclick="uploadNow()"><span class="e">⚡</span><div><div class="tt">지금 업로드</div><div class="ds">바로 인스타에 게시</div></div></div>
-            <div class="popsep"></div>
-            <div class="popopt" onclick="openSchedule()"><span class="e">🕒</span><div><div class="tt">예약</div><div class="ds">날짜·시간 지정해서 자동 게시</div></div></div>
-          </div>
-          <div class="sched" id="sched">
-            <button class="back" onclick="backToMenu()">‹ 뒤로</button>
-            <div class="schrow"><label>예약 날짜</label><div class="cal" id="scal"></div></div>
-            <div class="schrow"><label>시간</label>
-              <div class="timerow">
-                <div class="ampm"><button type="button" data-ap="am" class="on" onclick="setAmpm('am')">오전</button><button type="button" data-ap="pm" onclick="setAmpm('pm')">오후</button></div>
-                <select class="in tsel" id="thour"></select><span style="color:var(--faint);font-weight:800">:</span><select class="in tsel" id="tmin"></select>
-              </div>
-              <div class="seldt" id="seldt"></div></div>
-            <div class="schrow"><label>올릴 계정</label><select><option>@sowho77 (짤공장)</option><option>@kangarooshort (카드뉴스)</option><option>@kangaroostory.jp (일본)</option></select></div>
-            <div class="schrow"><label>올릴 캡션 <span style="font-weight:400;color:var(--faint)">— 위 ② 본문 캡션 그대로</span></label>
-              <div id="scap" style="font-size:12px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 10px;max-height:76px;overflow:auto;white-space:pre-wrap;line-height:1.5"></div></div>
-            <button class="btn primary" style="width:100%" onclick="confirmSchedule()">🕒 이 시간에 예약</button>
-          </div>
+          <button class="btn primary" id="upBtn" onclick="togglePop(event,'result')">📤 업로드</button>
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- 공유 업로드 팝오버 (결과물·릴스 공용, 화면 우하단 고정) -->
+<div class="pop" id="pop">
+  <div id="popMenu">
+    <div class="popopt" onclick="uploadNow()"><span class="e">⚡</span><div><div class="tt">지금 업로드</div><div class="ds">바로 인스타에 게시</div></div></div>
+    <div class="popsep"></div>
+    <div class="popopt" onclick="openSchedule()"><span class="e">🕒</span><div><div class="tt">예약</div><div class="ds">날짜·시간 지정해서 자동 게시</div></div></div>
+  </div>
+  <div class="sched" id="sched">
+    <button class="back" onclick="backToMenu()">‹ 뒤로</button>
+    <div class="schrow"><label>예약 날짜</label><div class="cal" id="scal"></div></div>
+    <div class="schrow"><label>시간</label>
+      <div class="timerow">
+        <div class="ampm"><button type="button" data-ap="am" class="on" onclick="setAmpm('am')">오전</button><button type="button" data-ap="pm" onclick="setAmpm('pm')">오후</button></div>
+        <select class="in tsel" id="thour"></select><span style="color:var(--faint);font-weight:800">:</span><select class="in tsel" id="tmin"></select>
+      </div>
+      <div class="seldt" id="seldt"></div></div>
+    <div class="schrow"><label>올릴 계정</label><div id="sacctShow" style="font-size:13px;font-weight:800;color:var(--gold)"></div></div>
+    <div class="schrow"><label>올릴 캡션 <span style="font-weight:400;color:var(--faint)">— 본문 캡션 그대로</span></label>
+      <div id="scap" style="font-size:12px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 10px;max-height:76px;overflow:auto;white-space:pre-wrap;line-height:1.5"></div></div>
+    <button class="btn primary" style="width:100%" onclick="confirmSchedule()">🕒 이 시간에 예약</button>
   </div>
 </div>
 
@@ -580,21 +582,14 @@
         <div style="display:flex;gap:10px;margin-top:12px">
           <button class="btn" onclick="flash('✨ 영상 분석 후 캡션 작성 중… (데모)')">✨ 영상 보고 AI가 캡션 써주기</button>
         </div>
-        <div style="display:flex;margin-top:26px;justify-content:flex-end;align-items:center;gap:8px">
-          <div id="rupmenu" style="display:none;gap:8px">
-            <button class="btn" onclick="reelDo('now')">⚡ 지금 업로드</button>
-            <button class="btn" onclick="reelDo('sched')">🕒 예약</button></div>
-          <button class="btn primary" onclick="reelUploadMenu()" style="font-size:14.5px">📤 업로드</button></div>
+        <div style="display:flex;margin-top:26px;justify-content:flex-end">
+          <button class="btn primary" onclick="togglePop(event,'reel')" style="font-size:14.5px">📤 업로드</button></div>
         <div class="caphint" style="margin-top:16px">⚠️ '지금 업로드'는 선택한 실계정에 바로 올라갑니다. (릴스 실연결은 다음 단계)</div>
       </main>
     </div>`;
   }
   function pickReel(){reelPicked=true;renderReel();}
-  function reelUploadMenu(){ if(!reelPicked){flash('먼저 영상을 선택하세요');return;} const m=$('rupmenu'); if(m)m.style.display=(m.style.display==='flex')?'none':'flex'; }
-  function reelDo(kind){ const m=$('rupmenu'); if(m)m.style.display='none';
-    if(kind==='now') flash('⚡ 릴스 지금 업로드 요청 — 릴스 실연결은 다음 단계입니다');
-    else flash('🕒 릴스 예약 — 준비 중(스케줄러 필요)'); }
-  function onReelAcct(){ const s=$('racctSel'), cap=$('rcap'); if(!s||!cap)return; cap.value=swapHandle(cap.value,'@'+s.value); }
+  function onReelAcct(){ const s=$('racctSel'), cap=$('rcap'); if(!s||!cap)return; cap.value=swapHandle(cap.value,'@'+s.value); syncSchedAcct(); }
 
   /* ============ 결과물 TAB (실데이터) ============ */
   let PACKS=[], rUp='all', rKind='all';
@@ -607,6 +602,7 @@
   function onAcct(){ const a=$('macct2')&&$('macct2').value; if(!a)return;
     if($('mAcct'))$('mAcct').textContent=a;
     if($('capta'))$('capta').value=swapHandle($('capta').value,'@'+a);
+    syncSchedAcct();
   }
   const hoverTimers=new WeakMap();
 
@@ -850,13 +846,20 @@
   }
 
   /* ---- upload popover (실제) ---- */
-  function togglePop(e){e.stopPropagation();$('pop').classList.toggle('open');backToMenu();}
+  let popCtx='result';
+  function togglePop(e,ctx){e.stopPropagation(); if(ctx)popCtx=ctx; $('pop').classList.toggle('open'); backToMenu();}
+  function activeCaption(){return popCtx==='reel'?(($('rcap')&&$('rcap').value)||''):(($('capta')&&$('capta').value)||'');}
+  function activeAccount(){return popCtx==='reel'?(($('racctSel')&&$('racctSel').value)||'sowho77'):(($('macct2')&&$('macct2').value)||'sowho77');}
+  function refreshScap(){if($('scap')){const c=activeCaption().trim();$('scap').textContent=c||'(본문 캡션 없음)';}}
+  function syncSchedAcct(){if($('sched')&&$('sched').classList.contains('open')){if($('sacctShow'))$('sacctShow').textContent='@'+activeAccount();refreshScap();}}
   function closePop(){$('pop').classList.remove('open');}
   function openSchedule(){$('popMenu').style.display='none';$('sched').classList.add('open');initSched();}
   function backToMenu(){$('popMenu').style.display='';$('sched').classList.remove('open');}
   async function uploadNow(){
-    closePop(); if(!PK)return;
-    const acct=($('macct2')&&$('macct2').value)||acctOf(PK);
+    closePop();
+    if(popCtx==='reel'){ if(!reelPicked){flash('먼저 영상을 선택하세요');return;} flash('⚡ 릴스 지금 업로드 요청 — 릴스 실연결은 다음 단계'); return; }
+    if(!PK)return;
+    const acct=activeAccount();
     if(!confirm('지금 @'+acct+' 에 게시할까요?'))return;
     flash('📤 업로드 요청 중…');
     let d; try{d=await apiJson('/api/insta/publish',{code:code(),pack:PK.name,lead:LEAD||'',account:acct});}catch(e){flash('통신 오류');return;}
@@ -877,8 +880,8 @@
     const t=new Date(); t.setDate(t.getDate()+1);
     SCHED={y:t.getFullYear(),m:t.getMonth(),d:t.getDate(),hour:9,min:0};
     buildTimeSelects(); renderCal(); syncTimeUI(); showSeldt();
-    const cap=($('capta')&&$('capta').value)||(PK&&PK.caption)||'';
-    if($('scap'))$('scap').textContent=cap.trim()||'(본문 캡션 없음 — ② 캡션을 채우세요)';
+    if($('sacctShow'))$('sacctShow').textContent='@'+activeAccount();
+    refreshScap();
   }
   function buildTimeSelects(){
     const h=$('thour'), mi=$('tmin'); if(!h||!mi)return;
@@ -910,7 +913,7 @@
   function schedStr(){let h=SCHED.hour%12;if(h===0)h=12;const ap=SCHED.hour>=12?'오후':'오전';
     return `${SCHED.y}-${String(SCHED.m+1).padStart(2,'0')}-${String(SCHED.d).padStart(2,'0')} ${ap} ${h}:${String(SCHED.min).padStart(2,'0')}`;}
   function showSeldt(){if($('seldt'))$('seldt').textContent='📅 '+schedStr();}
-  function confirmSchedule(){closePop();flash('🕒 '+schedStr()+' 예약 (준비 중 · 스케줄러 필요)');}
+  function confirmSchedule(){closePop();const who=popCtx==='reel'?'릴스':'게시물';flash('🕒 '+who+' '+schedStr()+' 예약 (준비 중 · 스케줄러 필요)');}
   document.addEventListener('click',e=>{const pop=$('pop');if(pop.classList.contains('open')&&!pop.contains(e.target)&&e.target.id!=='upBtn')closePop();});
 
   /* ---- misc ---- */
