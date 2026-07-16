@@ -265,8 +265,8 @@
       <span class="mt" id="mTitle"></span>
       <span class="mstat" id="mStat"></span>
       <div class="sp"></div>
-      <button class="iconbtn" title="zip 받기">⬇</button>
-      <button class="iconbtn" title="삭제" style="color:var(--danger)">🗑</button>
+      <button class="iconbtn" id="mZip" title="zip 받기">⬇</button>
+      <button class="iconbtn" id="mDel" title="삭제" style="color:var(--danger)">🗑</button>
       <button class="iconbtn" onclick="closeModal()" title="닫기 (Esc)">✕</button>
     </div>
     <div class="mbody">
@@ -287,8 +287,10 @@
         <div class="escroll">
           <div class="grp"><h4>① 대표 썸네일 <span class="kbd">숫자키 1·2·3</span></h4><div class="thumbrow" id="thumbrow"></div></div>
           <div class="grp"><h4>② 본문 캡션 <span class="kbd">바로 편집</span></h4>
-            <textarea class="capta" id="capta"></textarea><div class="caphint">📋 저장 없이 바로 반영 · 댓글 키워드 CTA 자동 확인</div></div>
-          <div class="grp"><h4>③ 짤 순서·제외·모자이크 <span class="kbd">⠿ 드래그로 이동</span></h4><div class="strip" id="strip"></div></div>
+            <textarea class="capta" id="capta"></textarea>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:7px"><button class="btn" onclick="saveCap()">💾 캡션 저장</button><span class="caphint">저장해야 zip·업로드에 반영</span></div></div>
+          <div class="grp"><h4>③ 짤 순서·제외·모자이크 <span class="kbd">⠿ 드래그로 이동</span></h4><div class="strip" id="strip"></div>
+            <button class="btn" id="stripsave" style="margin-top:10px;display:none" onclick="saveArr()">💾 순서·제외 저장</button></div>
         </div>
         <div class="mfoot">
           <div class="left">🖼 <span id="mFootCount"></span> · 대표 <span id="mFootLead"></span></div>
@@ -559,116 +561,182 @@
   }
   function pickReel(){reelPicked=true;renderReel();}
 
-  /* ============ 결과물 TAB ============ */
-  const KIND={kr:{ic:'🏭',acct:'sowho77'},card:{ic:'🗂',acct:'kangarooshort'},jp:{ic:'📖',acct:'kangaroostory.jp'}};
-  const PACKS=[
-    {t:'디시 실베 — 회사 그만두고 싶을 때 보는 짤',kind:'kr',n:6,st:'no',date:'07-16 14:20',hooks:['퇴사각 재는 중','월요일의 나','상사 몰래']},
-    {t:'루리웹 유머 — 고양이가 집사 길들이는 법',kind:'kr',n:8,st:'up',date:'07-16 11:02',hooks:['냥이의 계략','3단계 훈련','최종 보스']},
-    {t:'쇼츠 조회수 터지는 후킹 문장 30선',kind:'card',n:10,st:'no',date:'07-15 19:40',hooks:['첫 3초','스크롤 멈춤','저장각']},
-    {t:'스토리래빗 — 길냥이 보은 이야기 (일본판)',kind:'jp',n:5,st:'no',date:'07-15 16:12',hooks:['恩返し','再会','約束']},
-    {t:'에펨 포텐 — 알바하다 겪은 레전드',kind:'kr',n:7,st:'up',date:'07-15 10:33',hooks:['손님 甲','사장 등장','반전']},
-    {t:'디시 — 자취생 냉장고 클라스',kind:'kr',n:4,st:'no',date:'07-14 22:18',hooks:['텅장 냉장고','비상식량','최후의 만찬']},
-    {t:'AI 자동화 프롬프트 꿀팁 모음',kind:'card',n:12,st:'no',date:'07-14 15:55',hooks:['복붙각','업무 반토막','저장 필수']},
-    {t:'루리웹 — 강아지 산책 거부 3종 세트',kind:'kr',n:6,st:'no',date:'07-14 09:07',hooks:['드러눕기','철벽 방어','귀가 거부']},
-    {t:'스토리래빗 — 첫 제자 어머니 이야기 (일본판)',kind:'jp',n:6,st:'up',date:'07-13 20:44',hooks:['母の挑戦','初通帳','涙']},
-    {t:'디시 실베 — 편의점 진상 모음.txt',kind:'kr',n:9,st:'no',date:'07-13 13:29',hooks:['진상 甲','알바 인내','사이다']},
-  ];
+  /* ============ 결과물 TAB (실데이터) ============ */
+  let PACKS=[], rUp='all', rKind='all';
+  const packBase=n=>`/packs/${encodeURIComponent(n)}`;
+  const isJp=p=>p.story||p.lang==='ja';
+  const acctOf=p=>isJp(p)?'kangaroostory.jp':(p.type==='cardnews'?'kangarooshort':'sowho77');
+  const iconOf=p=>isJp(p)?'📖':(p.type==='cardnews'?'🗂':'🏭');
   const hoverTimers=new WeakMap();
+
   function renderResults(){
     $('view').innerHTML=`
     <div class="view">
-      <aside class="rail">
-        <div><p class="rlabel">업로드 상태</p>
-          <div class="rlink on"><span class="ic">▦</span> 전체 <span class="c">${PACKS.length}</span></div>
-          <div class="rlink"><span class="ic" style="color:var(--pend)">●</span> 미업로드 <span class="c">${PACKS.filter(p=>p.st==='no').length}</span></div>
-          <div class="rlink"><span class="ic" style="color:var(--insta)">●</span> 업로드완료 <span class="c">${PACKS.filter(p=>p.st==='up').length}</span></div></div>
-        <div><p class="rlabel">종류</p>
-          <div class="rlink on"><span class="ic">▦</span> 전체 <span class="c">${PACKS.length}</span></div>
-          <div class="rlink"><span class="ic">🏭</span> 짤 <span class="c">${PACKS.filter(p=>p.kind==='kr').length}</span></div>
-          <div class="rlink"><span class="ic">🗂</span> 카드뉴스 <span class="c">${PACKS.filter(p=>p.kind==='card').length}</span></div>
-          <div class="rlink"><span class="ic">📖</span> 일본 스토리 <span class="c">${PACKS.filter(p=>p.kind==='jp').length}</span></div></div>
-        <div><p class="rlabel">예약</p><div class="rlink"><span class="ic">🕒</span> 예약 대기 <span class="c">2</span></div></div>
-      </aside>
+      <aside class="rail" id="rrail"></aside>
       <main class="mainpane">
-        <div class="panehead"><h2>사용 가능</h2><span class="n">${PACKS.length}개</span>
-          <span class="n" style="margin-left:auto">카드에 마우스 올리면 짤 미리보기 · 클릭하면 편집·업로드</span></div>
-        <div class="grid" id="grid"></div>
+        <div class="panehead"><h2>결과물</h2><span class="n" id="rcount"></span>
+          <span class="n" style="margin-left:auto">마우스 올리면 짤 미리보기 · 클릭하면 편집·업로드</span></div>
+        <div id="grid" class="grid"><div style="color:var(--faint)">불러오는 중…</div></div>
       </main>
     </div>`;
-    const g=$('grid');
-    PACKS.forEach((p,idx)=>{
-      const k=KIND[p.kind];
-      const statChip=p.st==='up'?'<span class="mchip up">📤 업로드완료</span>':'<span class="mchip no">🆕 미업로드</span>';
-      const jpChip=p.kind==='jp'?'<span class="mchip jp">🇯🇵</span>':'';
-      const card=document.createElement('div');card.className='card';card.tabIndex=0;
-      card.innerHTML=`<div class="thumb" style="background:${grad(idx)}">
-        <div class="cchips"><span class="mchip count">🖼 ${p.n}장</span>${jpChip}${statChip}</div>
-        <div class="ph"><b>짤 1</b></div>
-        <div class="dots">${Array.from({length:p.n},(_,i)=>`<i class="${i===0?'on':''}"></i>`).join('')}</div>
+    loadPacks();
+  }
+  async function loadPacks(){
+    if(!$('grid'))return;
+    if(!code()){$('grid').innerHTML='<div style="color:var(--danger)">접속코드를 입력하세요</div>';return;}
+    let d; try{d=await apiJson('/api/packs',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!$('grid'))return;
+    if(!d.ok){$('grid').innerHTML=`<div style="color:var(--danger)">❌ ${esch(d.error)}</div>`;return;}
+    PACKS=d.packs||[]; paintRail(); paintGrid();
+  }
+  function setUp(f){rUp=f;paintRail();paintGrid();}
+  function setKind(f){rKind=f;paintRail();paintGrid();}
+  function paintRail(){
+    const nUp=PACKS.filter(p=>p.published).length, nNo=PACKS.length-nUp;
+    const nMe=PACKS.filter(p=>!isJp(p)&&p.type!=='cardnews').length;
+    const nCard=PACKS.filter(p=>p.type==='cardnews').length, nJp=PACKS.filter(isJp).length;
+    const L=(on,f,fn,ic,lab,c)=>`<div class="rlink ${on?'on':''}" onclick="${fn}('${f}')"><span class="ic">${ic}</span> ${lab} <span class="c">${c}</span></div>`;
+    $('rrail').innerHTML=`
+      <div><p class="rlabel">업로드 상태</p>
+        ${L(rUp==='all','all','setUp','▦','전체',PACKS.length)}
+        ${L(rUp==='no','no','setUp','<span style="color:var(--pend)">●</span>','미업로드',nNo)}
+        ${L(rUp==='up','up','setUp','<span style="color:var(--insta)">●</span>','업로드완료',nUp)}</div>
+      <div><p class="rlabel">종류</p>
+        ${L(rKind==='all','all','setKind','▦','전체',PACKS.length)}
+        ${L(rKind==='meme','meme','setKind','🏭','짤',nMe)}
+        ${L(rKind==='card','card','setKind','🗂','카드뉴스',nCard)}
+        ${L(rKind==='jp','jp','setKind','📖','일본 스토리',nJp)}</div>`;
+  }
+  function filtered(){
+    return PACKS.filter(p=>{
+      if(rUp==='up'&&!p.published)return false;
+      if(rUp==='no'&&p.published)return false;
+      if(rKind==='meme'&&(isJp(p)||p.type==='cardnews'))return false;
+      if(rKind==='card'&&p.type!=='cardnews')return false;
+      if(rKind==='jp'&&!isJp(p))return false;
+      return true;
+    });
+  }
+  function paintGrid(){
+    const list=filtered(), g=$('grid'); if(!g)return;
+    if($('rcount'))$('rcount').textContent=list.length+'개';
+    if(!list.length){g.innerHTML='<div style="color:var(--faint)">해당하는 완성팩이 없어요</div>';return;}
+    g.innerHTML='';
+    list.forEach(p=>{
+      const base=packBase(p.name);
+      const stat=p.published?'<span class="mchip up">📤 업로드완료</span>':'<span class="mchip no">🆕 미업로드</span>';
+      const jp=isJp(p)?'<span class="mchip jp">🇯🇵</span>':'';
+      const card=document.createElement('div'); card.className='card'; card.tabIndex=0;
+      card.innerHTML=`<div class="thumb">
+        <img class="cimg" src="${base}/${p.thumb}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">
+        <div class="cchips"><span class="mchip count">🖼 ${p.n||0}장</span>${jp}${stat}</div>
+        <div class="dots">${Array.from({length:Math.max(1,p.n||1)},(_,i)=>`<i class="${i===0?'on':''}"></i>`).join('')}</div>
         <div class="hovercta"><span>클릭해서 편집·업로드 →</span></div></div>
-        <div class="meta"><div class="t">${k.ic} ${p.t}</div><div class="d">${p.date}</div></div>`;
-      const ph=card.querySelector('.ph'),dots=[...card.querySelectorAll('.dots i')];
-      card.addEventListener('mouseenter',()=>{ph.classList.add('show');let i=0;
-        const tm=setInterval(()=>{i=(i+1)%p.n;ph.querySelector('b').textContent='짤 '+(i+1);
-          dots.forEach((d,di)=>d.classList.toggle('on',di===i));},620);hoverTimers.set(card,tm);});
-      card.addEventListener('mouseleave',()=>{clearInterval(hoverTimers.get(card));ph.classList.remove('show');
-        dots.forEach((d,di)=>d.classList.toggle('on',di===0));});
-      card.addEventListener('click',()=>openModal(idx));
-      card.addEventListener('keydown',e=>{if(e.key==='Enter')openModal(idx);});
+        <div class="meta"><div class="t">${iconOf(p)} ${esch(p.title)}</div><div class="d">${esch((p.created||'').replace('T',' ').slice(0,16))}</div></div>`;
+      const img=card.querySelector('.cimg'), dots=[...card.querySelectorAll('.dots i')];
+      if((p.n||0)>1){
+        card.addEventListener('mouseenter',()=>{let i=1;
+          const tm=setInterval(()=>{img.src=`${base}/${String(i).padStart(2,'0')}.jpg`;
+            dots.forEach((d,di)=>d.classList.toggle('on',di===(i-1))); i=i%p.n+1;},640);
+          hoverTimers.set(card,tm);});
+        card.addEventListener('mouseleave',()=>{clearInterval(hoverTimers.get(card));img.src=`${base}/${p.thumb}`;
+          dots.forEach((d,di)=>d.classList.toggle('on',di===0));});
+      }
+      card.addEventListener('click',()=>openModal(p.name));
+      card.addEventListener('keydown',e=>{if(e.key==='Enter')openModal(p.name);});
       g.appendChild(card);
     });
   }
 
-  /* ---- modal state ---- */
-  let CUR=0,IDX=0,LEAD=0,ORDER=[];
-  function openModal(i){
-    CUR=i;IDX=0;LEAD=0;
-    const p=PACKS[i],k=KIND[p.kind];
-    ORDER=Array.from({length:p.n},(_,s)=>({id:s,ex:false,mos:false}));
-    $('mTitle').textContent=k.ic+' '+p.t;
-    const st=$('mStat');st.textContent=p.st==='up'?'📤 업로드완료':'🆕 미업로드';st.className='mstat '+(p.st==='up'?'up':'no');
-    $('mAcct').textContent=k.acct;$('mFootCount').textContent='짤 '+p.n+'장';
-    $('thumbrow').innerHTML=p.hooks.map((h,hi)=>`<div class="tpick ${hi===0?'sel':''}" onclick="pickLead(${hi})"><div class="tp" style="background:${grad(i+hi*3)}">${h}</div><div class="tag">${hi===0?'✅ 첫 장':'후보 '+(hi+1)}</div></div>`).join('');
-    $('capta').value=`${p.t}\n\n오늘도 레전드 한 편 🔥\n저장하고 두고두고 보기 👉\n#유머 #짤 #${k.acct}`;
-    updateLead();renderStrip();renderTrack();
-    $('scrim').classList.add('open');closePop();
+  /* ---- modal (실데이터) ---- */
+  let PK=null, IDX=0, LEAD=null, ORDER=[], ORDERDIRTY=false, TS=0;
+  async function openModal(name){
+    let d; try{d=await apiJson('/api/pack',{code:code(),pack:name});}catch(e){flash('통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    PK=d; TS=Date.now(); IDX=0; ORDERDIRTY=false;
+    LEAD=(d.thumbs&&d.thumbs.length)?d.thumbs[0]:null;
+    ORDER=(d.images||[]).map(fn=>({fn,ex:false}));
+    $('mTitle').textContent=iconOf(d)+' '+d.title;
+    const st=$('mStat'); st.textContent=d.published?'📤 업로드완료':'🆕 미업로드'; st.className='mstat '+(d.published?'up':'no');
+    $('mAcct').textContent=acctOf(d);
+    $('mFootCount').textContent='짤 '+ORDER.length+'장';
+    $('capta').value=d.caption||'';
+    paintThumbs(); updateLead(); renderStrip(); renderTrack();
+    const zb=$('mZip'), db=$('mDel');
+    if(zb) zb.onclick=()=>{ if(d.zip) window.open(`${packBase(d.name)}/${encodeURIComponent(d.zip)}`,'_blank'); else flash('zip 없음'); };
+    if(db) db.onclick=()=>delPack(d.name);
+    $('scrim').classList.add('open'); closePop();
   }
-  function closeModal(){$('scrim').classList.remove('open');closePop();}
+  function closeModal(){$('scrim').classList.remove('open');closePop();PK=null;}
+  function reloadModal(){ if(PK) openModal(PK.name); }
+  function paintThumbs(){
+    if(!PK)return; const base=packBase(PK.name);
+    $('thumbrow').innerHTML=(PK.thumbs||[]).map((fn,i)=>{
+      const hk=(PK.hooks&&PK.hooks[i])||{}; const on=fn===LEAD;
+      return `<div class="tpick ${on?'sel':''}" data-fn="${fn}" onclick="pickLead('${fn}')">
+        <div class="tp" style="padding:0"><img src="${base}/${fn}?t=${TS}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block"></div>
+        <div class="tag">${on?'✅ 첫 장':(hk.line1?esch(hk.line1).slice(0,10):'후보 '+(i+1))}</div></div>`;
+    }).join('')||'<div class="caphint">대표 썸네일 없음</div>';
+  }
+  function pickLead(fn){LEAD=fn;paintThumbs();updateLead();renderTrack();}
+  function updateLead(){$('mFootLead').textContent=LEAD?LEAD.replace('.jpg',''):'-';}
 
   function renderTrack(){
-    const p=PACKS[CUR];
-    const vis=ORDER.filter(o=>!o.ex);
-    IDX=Math.max(0,Math.min(vis.length-1,IDX));
-    $('igtrack').innerHTML=vis.map(o=>{
-      const mos=o.mos?`<span class="mos" style="left:22%;top:38%;width:56%;height:16%"></span>`:'';
-      return `<div class="igslide" style="background:${grad(CUR+o.id)}"><b>짤 ${o.id+1}</b>${mos}</div>`;
-    }).join('');
+    if(!PK)return; const base=packBase(PK.name), vis=ORDER.filter(o=>!o.ex);
+    const slides=[]; if(LEAD)slides.push(LEAD); vis.forEach(o=>slides.push(o.fn));
+    IDX=Math.max(0,Math.min(slides.length-1,IDX));
+    $('igtrack').innerHTML=slides.map(fn=>`<div class="igslide" style="background:#000"><img src="${base}/${fn}?t=${TS}" style="width:100%;height:100%;object-fit:cover"></div>`).join('');
     $('igtrack').style.transform=`translateX(${-IDX*100}%)`;
-    $('mCount').textContent=(IDX+1)+'/'+vis.length;
-    $('pvdots').innerHTML=vis.map((_,i)=>`<i class="${i===IDX?'on':''}"></i>`).join('');
+    $('mCount').textContent=(IDX+1)+'/'+slides.length;
+    $('pvdots').innerHTML=slides.map((_,i)=>`<i class="${i===IDX?'on':''}"></i>`).join('');
   }
-  function slide(d){const vis=ORDER.filter(o=>!o.ex);IDX=Math.max(0,Math.min(vis.length-1,IDX+d));renderTrack();}
+  function slide(dr){const n=$('igtrack').children.length; if(!n)return; IDX=Math.max(0,Math.min(n-1,IDX+dr));
+    $('igtrack').style.transform=`translateX(${-IDX*100}%)`; $('mCount').textContent=(IDX+1)+'/'+n;
+    $('pvdots').innerHTML=[...Array(n)].map((_,i)=>`<i class="${i===IDX?'on':''}"></i>`).join('');}
 
   function renderStrip(){
-    let pos=0;
+    if(!PK)return; const base=packBase(PK.name); let pos=0;
     $('strip').innerHTML=ORDER.map((o,i)=>{
       const num=o.ex?'—':(++pos)+'번';
-      const mos=o.mos?'<span class="mos" style="left:2px;right:2px;top:60%;bottom:12%"></span>':'';
       return `<div class="item ${o.ex?'ex':''}" draggable="true" data-i="${i}">
         <span class="drag-h">⠿</span>
-        <span class="mini" style="background:${grad(CUR+o.id)}">${o.id+1}${mos}</span>
-        <span class="no"><b>${num}</b> <small>짤${o.id+1}.jpg</small>${o.ex?' <span style="color:var(--danger)">제외됨</span>':''}</span>
+        <span class="mini"><img src="${base}/${o.fn}?t=${TS}" style="width:100%;height:100%;object-fit:cover"></span>
+        <span class="no"><b>${num}</b> <small>${esch(o.fn)}</small>${o.ex?' <span style="color:var(--danger)">제외</span>':''}</span>
         ${o.ex?'':`<button class="itbtn" onclick="mkThumb(${i})" title="이 짤을 대표 썸네일로">🖼</button>`}
-        ${o.ex?'':`<button class="itbtn ${o.mos?'on':''}" onclick="openMosaic(${i})" title="모자이크">🟦</button>`}
+        ${o.ex?'':`<button class="itbtn" onclick="openMosaic(${i})" title="모자이크">🟦</button>`}
         <button class="itbtn ${o.ex?'exon':''}" onclick="toggleEx(${i})">${o.ex?'↩ 복구':'✕'}</button>
       </div>`;
     }).join('');
+    const sv=$('stripsave'); if(sv) sv.style.display=ORDERDIRTY?'block':'none';
     bindDrag();
   }
-  function toggleEx(i){ORDER[i].ex=!ORDER[i].ex;renderStrip();renderTrack();}
-  function mkThumb(i){flash('🖼 '+(ORDER[i].id+1)+'번 짤을 대표 썸네일 배경으로 (데모)');}
-  function updateLead(){$('mFootLead').textContent='후보'+(LEAD+1);}
-  function pickLead(hi){LEAD=hi;[...document.querySelectorAll('.tpick')].forEach((el,i)=>{el.classList.toggle('sel',i===hi);el.querySelector('.tag').textContent=i===hi?'✅ 첫 장':'후보 '+(i+1);});updateLead();}
+  function toggleEx(i){ORDER[i].ex=!ORDER[i].ex;ORDERDIRTY=true;renderStrip();renderTrack();}
+  async function saveArr(){
+    if(!PK)return; const keep=ORDER.filter(o=>!o.ex).map(o=>o.fn);
+    if(!keep.length){flash('최소 1장은 남겨야 해요');return;}
+    const d=await apiJson('/api/pack/arrange',{code:code(),pack:PK.name,order:keep});
+    if(!d.ok){flash('❌ '+d.error);return;}
+    flash('💾 순서·제외 저장 완료'); reloadModal();
+  }
+  async function mkThumb(i){
+    if(!PK)return; const fn=ORDER[i].fn;
+    if(!confirm(fn+' 짤을 대표 썸네일 배경으로 다시 만들까요?\n(후킹 3종은 유지, 배경만 교체)'))return;
+    flash('🖼 썸네일 다시 만드는 중…');
+    const d=await apiJson('/api/pack/rethumb',{code:code(),pack:PK.name,base:fn});
+    if(!d.ok){flash('❌ '+d.error);return;}
+    flash('✅ 썸네일 재생성 완료'); reloadModal();
+  }
+  async function saveCap(){
+    if(!PK)return;
+    const d=await apiJson('/api/caption/save',{code:code(),pack:PK.name,caption:$('capta').value});
+    if(!d.ok){flash('❌ '+d.error);return;} flash('💾 캡션 저장 완료');
+  }
+  async function delPack(name){
+    if(!confirm('이 팩을 삭제할까요? (휴지통으로 이동 · 복구 가능)'))return;
+    const d=await apiJson('/api/pack/delete',{code:code(),pack:name});
+    if(!d.ok){flash('❌ '+d.error);return;}
+    closeModal(); loadPacks(); flash('🗑 휴지통으로 이동했어요');
+  }
 
   /* ---- drag reorder ---- */
   let dragI=null;
@@ -679,23 +747,24 @@
       el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over');});
       el.addEventListener('dragleave',()=>el.classList.remove('over'));
       el.addEventListener('drop',e=>{e.preventDefault();const to=+el.dataset.i;if(dragI===null||dragI===to)return;
-        const moved=ORDER.splice(dragI,1)[0];ORDER.splice(to,0,moved);dragI=null;renderStrip();renderTrack();});
+        const moved=ORDER.splice(dragI,1)[0];ORDER.splice(to,0,moved);dragI=null;ORDERDIRTY=true;renderStrip();renderTrack();});
     });
   }
 
-  /* ---- mosaic editor (functional) ---- */
+  /* ---- mosaic editor (실제 반영) ---- */
   let mosTarget=null,mosBoxes=[],mosDraw=null;
   function openMosaic(i){
-    mosTarget=i;mosBoxes=[];mosDraw=null;
-    $('mosbg').style.background=grad(CUR+ORDER[i].id);
-    $('mosLabel').textContent='짤 '+(ORDER[i].id+1);
+    if(!PK)return; mosTarget=ORDER[i].fn; mosBoxes=[]; mosDraw=null;
+    const bg=$('mosbg');
+    bg.style.backgroundImage=`url("${packBase(PK.name)}/${mosTarget}?t=${TS}")`;
+    bg.style.backgroundSize='cover'; bg.style.backgroundPosition='center';
+    $('mosLabel').textContent='';
     $('mosov').classList.add('open');
-    setTimeout(mosSetup,30);
+    setTimeout(mosSetup,40);
   }
   function mosSetup(){
     const bg=$('mosbg'),cv=$('moscv');
-    cv.width=bg.clientWidth;cv.height=bg.clientHeight;
-    mosRedraw();
+    cv.width=bg.clientWidth;cv.height=bg.clientHeight;mosRedraw();
     const pos=e=>{const r=cv.getBoundingClientRect();const t=(e.touches&&e.touches[0])||e;return{x:t.clientX-r.left,y:t.clientY-r.top};};
     cv.onpointerdown=e=>{const p=pos(e);mosDraw={x0:p.x,y0:p.y,x1:p.x,y1:p.y};cv.setPointerCapture(e.pointerId);};
     cv.onpointermove=e=>{if(!mosDraw)return;const p=pos(e);mosDraw.x1=p.x;mosDraw.y1=p.y;mosRedraw();};
@@ -711,19 +780,38 @@
   }
   function mosClear(){mosBoxes=[];mosDraw=null;mosRedraw();}
   function closeMosaic(){$('mosov').classList.remove('open');}
-  function applyMosaic(){
+  async function applyMosaic(){
     if(!mosBoxes.length){flash('가릴 부분을 드래그로 표시하세요');return;}
-    ORDER[mosTarget].mos=true;closeMosaic();renderStrip();renderTrack();
-    flash('🟦 모자이크 '+mosBoxes.length+'곳 적용 (데모)');
+    const cv=$('moscv');
+    const boxes=mosBoxes.map(b=>({x:b.x/cv.width,y:b.y/cv.height,w:b.w/cv.width,h:b.h/cv.height}));
+    const d=await apiJson('/api/pack/mosaic',{code:code(),pack:PK.name,base:mosTarget,boxes});
+    closeMosaic();
+    if(!d.ok){flash('❌ '+d.error);return;}
+    flash('🟦 모자이크 적용 완료'); reloadModal();
   }
 
-  /* ---- upload popover ---- */
+  /* ---- upload popover (실제) ---- */
   function togglePop(e){e.stopPropagation();$('pop').classList.toggle('open');backToMenu();}
   function closePop(){$('pop').classList.remove('open');}
   function openSchedule(){$('popMenu').style.display='none';$('sched').classList.add('open');}
   function backToMenu(){$('popMenu').style.display='';$('sched').classList.remove('open');}
-  function uploadNow(){closePop();flash('⚡ 지금 업로드 — @'+KIND[PACKS[CUR].kind].acct+'에 게시 요청 (데모)');}
-  function confirmSchedule(){closePop();flash('🕒 예약 완료 — 지정 시간 자동 게시 예정 (데모 · 실제는 스케줄러 필요)');}
+  async function uploadNow(){
+    closePop(); if(!PK)return;
+    if(!confirm('지금 @'+acctOf(PK)+' 에 게시할까요?'))return;
+    flash('📤 업로드 요청 중…');
+    let d; try{d=await apiJson('/api/insta/publish',{code:code(),pack:PK.name,lead:LEAD||''});}catch(e){flash('통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    if(d.job)pollUpload(d.job); else flash('요청됨');
+  }
+  async function pollUpload(jid){
+    try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);const d=await r.json();
+      if(!d.ok){flash('❌ '+d.error);return;}
+      if(d.status==='error'){flash('❌ 업로드 실패: '+d.error);return;}
+      if(d.status==='done'){flash('✅ 업로드 완료');reloadModal();loadPacks();return;}
+      flash('📤 '+(d.msg||'업로드 중…'));setTimeout(()=>pollUpload(jid),1500);
+    }catch(e){setTimeout(()=>pollUpload(jid),2500);}
+  }
+  function confirmSchedule(){closePop();flash('🕒 예약 업로드는 준비 중이에요 (스케줄러 필요 · 다음 업데이트)');}
   document.addEventListener('click',e=>{const pop=$('pop');if(pop.classList.contains('open')&&!pop.contains(e.target)&&e.target.id!=='upBtn')closePop();});
 
   /* ---- misc ---- */
@@ -736,7 +824,7 @@
     if(e.key==='Escape')closeModal();
     else if(e.key==='ArrowRight')slide(1);
     else if(e.key==='ArrowLeft')slide(-1);
-    else if(['1','2','3'].includes(e.key)){const hi=+e.key-1;if(hi<PACKS[CUR].hooks.length)pickLead(hi);}
+    else if(['1','2','3'].includes(e.key)){const hi=+e.key-1;if(PK&&PK.thumbs&&PK.thumbs[hi])pickLead(PK.thumbs[hi]);}
   });
   function toggleTheme(){const r=document.documentElement;
     const cur=r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');

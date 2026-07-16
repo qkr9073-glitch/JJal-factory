@@ -2438,9 +2438,11 @@ def api_packs():
             checked = [m for m in (usage.get(d.name, {}).get("checked_by") or [])
                        if m in mgrs]
             is_story = meta.get("template") == "story"
+            nimg = len(list(d.glob("[0-9][0-9].jpg")))
             packs.append({"name": d.name,
                           "title": meta.get("title") or d.name,
                           "created": meta.get("created", ""),
+                          "n": nimg,
                           "type": "cardnews" if meta.get("type") == "cardnews" else "meme",
                           "site": meta.get("site", "") or
                                   ("카드뉴스" if meta.get("type") == "cardnews" else ""),
