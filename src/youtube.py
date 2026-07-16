@@ -829,6 +829,15 @@ def build_youtube_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     tr = _translate_source(cfg, src, lang_label)
     hooks = (tr.get("hooks") or src.get("hooks", []))[:3]
     cards_txt = tr.get("cards") or [c.get("text", "") for c in src.get("cards", [])]
+    # 각 번역 썸네일에 '한국어 원문 후킹'을 붙여준다 (수출 결과에서 무슨 제목인지 보이게)
+    src_hooks = src.get("hooks", [])
+    for i, h in enumerate(hooks):
+        if isinstance(h, dict):
+            kh = src_hooks[i] if i < len(src_hooks) else {}
+            ko = (kh.get("line1", "") or "").strip()
+            if kh.get("line2"):
+                ko = (ko + " / " + kh["line2"].strip()).strip(" /")
+            h["ko"] = ko
 
     root = Path(base_dir) / cfg.get("output_dir", "결과물")
     root.mkdir(parents=True, exist_ok=True)
