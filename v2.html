@@ -980,7 +980,7 @@
           <div id="bulkvids" style="margin-top:8px"></div></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">예약 규칙</span></div>
           <label class="fld">시작 날짜</label>
-          <input type="date" class="in" id="bulkdate" onchange="BULK.date=this.value;bulkPreview()">
+          <div class="cal" id="bulkcal"></div>
           <label class="fld" style="margin-top:10px">하루 게시 시간</label>
           <div id="bulktimes"></div>
           <div class="bulkaddrow">
@@ -1002,8 +1002,7 @@
       </main>
     </div>`;
     if($('bulkacct'))$('bulkacct').value=BULK.account;
-    if($('bulkdate'))$('bulkdate').value=BULK.date;
-    bulkRenderVideos(); bulkRenderTimes(); bulkPreview();
+    bulkInitCal(); bulkRenderVideos(); bulkRenderTimes(); bulkPreview();
   }
   function bulkPick(inp){
     const files=[...(inp.files||[])]; inp.value='';
@@ -1012,6 +1011,29 @@
     files.forEach(f=>{if(!seen.has(key(f))){BULK.videos.push(f);seen.add(key(f));}});
     bulkRenderVideos(); bulkPreview();
   }
+  function bulkInitCal(){
+    if(!BULK.date){const t=new Date();t.setDate(t.getDate()+1);
+      BULK.date=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;}
+    const [y,m]=BULK.date.split('-').map(Number); BULK.vY=y; BULK.vM=m-1; renderBulkCal();
+  }
+  function renderBulkCal(){
+    const cal=$('bulkcal'); if(!cal)return;
+    const y=BULK.vY, m=BULK.vM;
+    const start=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+    const t=new Date(), isT=d=>y===t.getFullYear()&&m===t.getMonth()&&d===t.getDate();
+    const tk=t.getFullYear()*10000+t.getMonth()*100+t.getDate();
+    const isPast=d=>(y*10000+m*100+d)<tk;
+    const sp=(BULK.date||'').split('-').map(Number);
+    const isSel=d=>(sp[0]===y&&sp[1]-1===m&&sp[2]===d);
+    let cells=''; for(let i=0;i<start;i++)cells+='<span></span>';
+    for(let d=1;d<=days;d++){const past=isPast(d);
+      cells+=`<span class="cd ${isSel(d)?'on':''} ${isT(d)?'today':''}"${past?' style="opacity:.28;pointer-events:none;text-decoration:line-through"':` onclick="bulkPickDay(${d})"`}>${d}</span>`;}
+    cal.innerHTML=`<div class="calhead"><button type="button" onclick="bulkCalMove(-1)">‹</button><b>${y}년 ${m+1}월</b><button type="button" onclick="bulkCalMove(1)">›</button></div>
+      <div class="calgrid caldow">${['일','월','화','수','목','금','토'].map(w=>`<span>${w}</span>`).join('')}</div>
+      <div class="calgrid">${cells}</div>`;
+  }
+  function bulkPickDay(d){BULK.date=`${BULK.vY}-${String(BULK.vM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;renderBulkCal();bulkPreview();}
+  function bulkCalMove(dm){let m=BULK.vM+dm,y=BULK.vY;if(m<0){m=11;y--;}if(m>11){m=0;y++;}BULK.vM=m;BULK.vY=y;renderBulkCal();}
   function bulkRenderVideos(){
     const box=$('bulkvids'); if(!box)return;
     if(!BULK.videos.length){box.innerHTML='<div class="caphint">아직 없음 — 영상을 올리세요</div>';return;}
