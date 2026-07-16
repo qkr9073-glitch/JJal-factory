@@ -269,6 +269,7 @@
       <button data-t="card">🗂 <span>카드뉴스</span></button>
       <button data-t="reel">🎬 <span>릴스</span></button>
       <button data-t="ie">🔄 <span>수입·수출</span></button>
+      <button data-t="sched">🗓 <span>예약·승인</span></button>
       <button data-t="result">📦 <span>결과물</span></button>
     </div>
     <div class="sp"></div>
@@ -369,7 +370,7 @@
   const tabsEl=$('tabs');
   tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
     [...tabsEl.children].forEach(x=>x.classList.toggle('on',x===b));route(b.dataset.t);});
-  function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,ie:renderIE,result:renderResults}[t])();}
+  function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,ie:renderIE,sched:renderSchedule,result:renderResults}[t])();}
 
   /* ============ 공용: 접속코드 · API · 잡 폴링 ============ */
   const CODE=$('code');
@@ -1118,7 +1119,63 @@
   function schedStr(){let h=SCHED.hour%12;if(h===0)h=12;const ap=SCHED.hour>=12?'오후':'오전';
     return `${SCHED.y}-${String(SCHED.m+1).padStart(2,'0')}-${String(SCHED.d).padStart(2,'0')} ${ap} ${h}:${String(SCHED.min).padStart(2,'0')}`;}
   function showSeldt(){if($('seldt'))$('seldt').textContent='📅 '+schedStr();}
-  function confirmSchedule(){closePop();const who=popCtx==='reel'?'릴스':'게시물';flash('🕒 '+who+' '+schedStr()+' 예약 (준비 중 · 스케줄러 필요)');}
+  async function confirmSchedule(){
+    closePop();
+    if(popCtx==='reel'){flash('🕒 릴스 예약은 준비 중(영상 보관 필요) — 지금은 게시물 예약만');return;}
+    if(!PK){flash('팩을 먼저 여세요');return;}
+    const ts=Math.floor(new Date(SCHED.y,SCHED.m,SCHED.d,SCHED.hour,SCHED.min).getTime()/1000);
+    const acct=($('macct2')&&$('macct2').value)||acctOf(PK);
+    let d; try{d=await apiJson('/api/schedule/add',{code:code(),pack:PK.name,account:acct,lead:LEAD||'',ts,when:schedStr(),title:PK.title});}catch(e){flash('통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    flash('🗓 예약 완료 — '+schedStr()+' @'+acct+' · 예약·승인 탭에서 확인');
+  }
+
+  /* ============ 예약·승인 TAB ============ */
+  function renderSchedule(){
+    $('view').innerHTML=`
+    <div class="view">
+      <main class="mainpane">
+        <div class="panehead"><h2>🗓 예약 · 승인</h2><span class="n">전체 예약 업로드 일정</span>
+          <button class="btn" style="margin-left:auto" onclick="loadSched()">🔄 새로고침</button></div>
+        <div class="caphint" style="margin-bottom:14px">결과물에서 팩 열고 📤 업로드 → 예약으로 등록하면 여기 뜹니다. 예약 시간에 서버(사장님 PC)가 켜져 있으면 자동 게시.</div>
+        <div id="schedlist"><div style="color:var(--faint)">불러오는 중…</div></div>
+      </main>
+    </div>`;
+    loadSched();
+  }
+  async function loadSched(){
+    const box=$('schedlist'); if(!box)return;
+    if(!code()){box.innerHTML='<div style="color:var(--danger)">접속코드를 입력하세요</div>';return;}
+    let d; try{d=await apiJson('/api/schedule/list',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){box.innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
+    paintSched(d.items||[]);
+  }
+  function paintSched(items){
+    const box=$('schedlist'); if(!box)return;
+    if(!items.length){box.innerHTML='<div style="color:var(--faint)">예약된 업로드가 없어요.</div>';return;}
+    const stC={pending:'var(--gold)',done:'var(--insta)',failed:'var(--danger)',missed:'var(--pend)'};
+    const stL={pending:'⏳ 대기',done:'✅ 게시됨',failed:'❌ 실패',missed:'⏭ 놓침(서버 꺼짐)'};
+    const conflict=new Set();
+    for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){
+      if(items[i].account===items[j].account&&Math.abs((items[i].ts||0)-(items[j].ts||0))<1800&&items[i].status==='pending'&&items[j].status==='pending'){conflict.add(items[i].id);conflict.add(items[j].id);}}
+    const byDay={};
+    items.forEach(e=>{const day=(e.when||'').slice(0,10)||'(시간미상)';(byDay[day]=byDay[day]||[]).push(e);});
+    let h='';
+    Object.keys(byDay).sort().forEach(day=>{
+      h+=`<div style="font-weight:800;margin:16px 0 8px;color:var(--gold2,var(--gold))">📅 ${esch(day)}</div>`;
+      byDay[day].forEach(e=>{
+        const cf=conflict.has(e.id)?'border-color:var(--danger);box-shadow:0 0 0 2px color-mix(in srgb,var(--danger) 28%,transparent)':'';
+        h+=`<div class="hot" style="${cf}">
+          <div class="th" style="width:56px;height:70px;flex:0 0 56px;border-radius:8px;overflow:hidden;padding:0;background:#000">${e.thumb?`<img src="${e.thumb}" style="width:100%;height:100%;object-fit:cover">`:'📦'}</div>
+          <div class="info"><div class="src">🕒 ${esch((e.when||'').slice(11))} · @${esch(e.account||'')}${conflict.has(e.id)?' · <span style="color:var(--danger)">⚠ 시간 겹침</span>':''}</div>
+            <div class="tt">${esch(e.title||e.pack)}</div>
+            <div class="mt" style="color:${stC[e.status]||'var(--faint)'}">${stL[e.status]||e.status}${e.error?' · '+esch(e.error):''}${e.permalink?` · <a href="${e.permalink}" target="_blank" style="color:var(--insta)">게시물↗</a>`:''}</div></div>
+          ${e.status==='pending'?`<button data-cancel="${e.id}">취소</button>`:''}</div>`;
+      });
+    });
+    box.innerHTML=h;
+    box.querySelectorAll('button[data-cancel]').forEach(b=>{b.onclick=async()=>{if(!confirm('이 예약을 취소할까요?'))return;await apiJson('/api/schedule/cancel',{code:code(),id:b.dataset.cancel});loadSched();};});
+  }
   document.addEventListener('click',e=>{const pop=$('pop');if(pop.classList.contains('open')&&!pop.contains(e.target)&&e.target.id!=='upBtn')closePop();});
 
   /* ---- misc ---- */

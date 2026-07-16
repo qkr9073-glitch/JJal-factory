@@ -3080,6 +3080,120 @@ def packs(subpath):
     return send_from_directory(OUTPUT, subpath)
 
 
+# ──────────────────── 예약 업로드 스케줄러 ────────────────────
+SCHED_FILE = BASE / "schedule.json"
+_sched_lock = threading.Lock()
+
+
+def _sched_load():
+    try:
+        return json.loads(SCHED_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _sched_save(items):
+    with _sched_lock:
+        SCHED_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2),
+                              encoding="utf-8")
+
+
+def _scheduler_loop():
+    """예약 큐 주기 확인 → 시간 되면 자동 게시. 서버 꺼져 놓친 건 시작 시 '놓침' 처리."""
+    grace = 600   # 10분 이상 지난 pending = (서버 꺼졌던 것) → 놓침
+    try:
+        items = _sched_load()
+        now = time.time()
+        ch = False
+        for e in items:
+            if e.get("status") == "pending" and e.get("ts", 0) < now - grace:
+                e["status"] = "missed"
+                ch = True
+        if ch:
+            _sched_save(items)
+    except Exception:
+        pass
+    while True:
+        try:
+            items = _sched_load()
+            now = time.time()
+            due = [e for e in items
+                   if e.get("status") == "pending" and e.get("ts", 0) <= now]
+            if due:
+                cfg = load_config()
+                for e in due:
+                    try:
+                        pack_dir = OUTPUT / e["pack"]
+                        if not pack_dir.is_dir():
+                            raise RuntimeError("팩 없음(삭제됨?)")
+                        r = insta.publish_pack(cfg, BASE, pack_dir,
+                                               lead=e.get("lead") or None,
+                                               account=e.get("account") or None)
+                        e["status"] = "done"
+                        e["permalink"] = r.get("permalink", "")
+                    except Exception as ex:
+                        e["status"] = "failed"
+                        e["error"] = str(ex)[:200]
+                    e["posted_at"] = datetime.now().isoformat(timespec="seconds")
+                _sched_save(items)
+        except Exception:
+            pass
+        time.sleep(45)
+
+
+@app.post("/api/schedule/add")
+def api_schedule_add():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    if not pack or "/" in pack or "\\" in pack or not (OUTPUT / pack).is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    try:
+        ts = float(data.get("ts") or 0)
+    except (TypeError, ValueError):
+        ts = 0
+    if ts <= 0:
+        return jsonify(ok=False, error="예약 시간이 올바르지 않습니다"), 400
+    entry = {"id": uuid.uuid4().hex[:10], "pack": pack,
+             "account": (data.get("account") or "").strip(),
+             "lead": (data.get("lead") or "").strip(),
+             "ts": ts, "when": (data.get("when") or "").strip(),
+             "title": (data.get("title") or pack).strip(),
+             "status": "pending",
+             "created": datetime.now().isoformat(timespec="seconds")}
+    items = _sched_load()
+    items.append(entry)
+    _sched_save(items)
+    return jsonify(ok=True, id=entry["id"])
+
+
+@app.post("/api/schedule/list")
+def api_schedule_list():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    items = _sched_load()
+    for e in items:
+        pd = OUTPUT / e.get("pack", "")
+        e["thumb"] = f"/packs/{e['pack']}/thumb.jpg" if (pd / "thumb.jpg").exists() else ""
+    items.sort(key=lambda x: x.get("ts", 0))
+    return jsonify(ok=True, items=items)
+
+
+@app.post("/api/schedule/cancel")
+def api_schedule_cancel():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    sid = (data.get("id") or "").strip()
+    _sched_save([e for e in _sched_load() if e.get("id") != sid])
+    return jsonify(ok=True)
+
+
 if __name__ == "__main__":
     import logging
     (BASE / "logs").mkdir(exist_ok=True)
@@ -3105,4 +3219,5 @@ if __name__ == "__main__":
                           "ts": _info.get("ts", time.time())}
             JOBQ.put((_jid, _run_job, (_jid, _info["url"], cfg, None)))
         logging.getLogger("server").info(f"재시작 복구: 미완 작업 {len(_restore)}건 자동 재개")
+    threading.Thread(target=_scheduler_loop, daemon=True).start()   # 예약 자동 게시
     app.run(host="0.0.0.0", port=int(cfg.get("server_port", 8777)), threaded=True)
