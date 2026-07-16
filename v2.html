@@ -101,6 +101,25 @@
   .igcard img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#000}
   .igcard .ib{padding:9px 10px}
   .iggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  /* 릴스 대량 예약 */
+  .bvid{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel);margin-bottom:6px;font-size:12.5px;cursor:grab}
+  .bvid.drag{opacity:.4}
+  .bvid .bh{color:var(--faint);cursor:grab}
+  .bvid .bn{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+  .bvid .bsz{color:var(--faint);font-size:11px}
+  .bvid button{border:0;background:transparent;color:var(--danger);cursor:pointer;font-size:13px}
+  .tchip{display:inline-flex;align-items:center;gap:5px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:12.5px;font-weight:800;margin:0 6px 6px 0}
+  .tchip b{cursor:pointer;color:var(--danger)}
+  .tchip.add{cursor:pointer;color:var(--gold);border-style:dashed}
+  .bulkaddrow{display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap}
+  .bulkaddrow select{padding:6px 8px}
+  .bulkaddrow .ampm{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .bulkaddrow .ampm button{border:0;background:var(--panel);color:var(--muted);padding:6px 10px;font-size:12px;font-weight:800;cursor:pointer}
+  .bulkaddrow .ampm button.on{background:var(--gold);color:#04120c}
+  .prow{display:flex;align-items:center;gap:10px;padding:8px 11px;border-bottom:1px solid var(--line);font-size:13px}
+  .prow .pn{width:26px;height:26px;flex:0 0 26px;border-radius:7px;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--muted)}
+  .prow .pv{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+  .prow .pt{font-variant-numeric:tabular-nums;font-weight:800;color:var(--gold)}
   .topbar .sp{flex:1}
   .codepill{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:7px 11px}
   .codepill input{border:0;background:transparent;color:var(--ink);font-size:12.5px;width:82px;outline:none}
@@ -909,11 +928,18 @@
   function cMode(i){cState.mode=i;renderCard();}
 
   /* ============ 릴스 TAB ============ */
-  let reelPicked=false, RVIDEO=null, RSTAGED=null;
+  let reelPicked=false, RVIDEO=null, RSTAGED=null, reelMode='single';
+  const REEL_ACCTS=`<option value="sowho77">@sowho77 (짤공장)</option><option value="kangarooshort">@kangarooshort (카드뉴스)</option><option value="kangaroostory.jp">@kangaroostory.jp (일본 · 일본어 캡션)</option>`;
+  const reelToggle=()=>`<div class="chips" style="margin-bottom:16px">
+    <span class="chip ${reelMode==='single'?'on':''}" onclick="reelTab('single')">🎬 단일 업로드</span>
+    <span class="chip ${reelMode==='bulk'?'on':''}" onclick="reelTab('bulk')">📚 대량 예약</span></div>`;
+  function reelTab(m){reelMode=m;renderReel();}
   function renderReel(){
+    if(reelMode==='bulk'){renderReelBulk();return;}
     $('view').innerHTML=`
     <div class="view">
       <aside class="side">
+        ${reelToggle()}
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">영상 올리기</span><span class="sd">MP4</span></div>
           <div class="drop ${reelPicked?'has':''}" onclick="document.getElementById('rfile').click()">
             <div class="big">${reelPicked?'✅':'🎬'}</div>
@@ -922,7 +948,7 @@
           </div>
           <input id="rfile" type="file" accept="video/mp4,video/quicktime,video/*" style="display:none" onchange="rPick(this)"></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">올릴 계정</span></div>
-          <select class="in" id="racctSel" onchange="onReelAcct()"><option value="sowho77">@sowho77 (짤공장)</option><option value="kangarooshort">@kangarooshort (카드뉴스)</option><option value="kangaroostory.jp">@kangaroostory.jp (일본 · 일본어 캡션)</option></select></div>
+          <select class="in" id="racctSel" onchange="onReelAcct()">${REEL_ACCTS}</select></div>
       </aside>
       <main class="mainpane">
         <div class="panehead"><h2>✍️ 릴스 캡션</h2><span class="n">직접 쓰거나 AI가 영상 보고 작성</span></div>
@@ -937,6 +963,137 @@
       </main>
     </div>`;
     if($('rname')&&RVIDEO)$('rname').textContent='🎬 '+RVIDEO.name;
+  }
+  /* ---- 릴스 대량 예약 (자동 배분) ---- */
+  let BULK={videos:[], date:'', times:[{h:8,m:0},{h:18,m:0}], account:'sowho77', caption:'', ap:'am'};
+  function renderReelBulk(){
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        ${reelToggle()}
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">영상 여러 개</span><span class="sd">순서=게시순</span></div>
+          <div class="drop" onclick="document.getElementById('bulkfile').click()"><div class="big">📚</div><div class="t1">영상 여러 개 선택</div><div class="t2">MP4 · 드래그로 순서 조정</div></div>
+          <input id="bulkfile" type="file" accept="video/mp4,video/quicktime,video/*" multiple style="display:none" onchange="bulkPick(this)">
+          <div id="bulkvids" style="margin-top:8px"></div></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">예약 규칙</span></div>
+          <label class="fld">시작 날짜</label>
+          <input type="date" class="in" id="bulkdate" onchange="BULK.date=this.value;bulkPreview()">
+          <label class="fld" style="margin-top:10px">하루 게시 시간</label>
+          <div id="bulktimes"></div>
+          <div class="bulkaddrow">
+            <div class="ampm"><button type="button" id="bap_am" class="on" onclick="bulkAp('am')">오전</button><button type="button" id="bap_pm" onclick="bulkAp('pm')">오후</button></div>
+            <select class="in" id="bth" style="width:auto">${Array.from({length:12},(_,i)=>`<option>${i+1}</option>`).join('')}</select>
+            <span style="font-weight:800">:</span>
+            <select class="in" id="btm" style="width:auto">${Array.from({length:12},(_,i)=>`<option value="${i*5}">${String(i*5).padStart(2,'0')}</option>`).join('')}</select>
+            <button class="btn" onclick="bulkAddTime()">＋추가</button></div>
+          <label class="fld" style="margin-top:10px">올릴 계정</label>
+          <select class="in" id="bulkacct" onchange="BULK.account=this.value;bulkPreview()">${REEL_ACCTS}</select>
+          <label class="fld" style="margin-top:10px">공통 캡션 <span style="font-weight:400;color:var(--faint)">— 선택(모든 영상 공통)</span></label>
+          <textarea class="in" id="bulkcap" style="min-height:64px" onchange="BULK.caption=this.value" placeholder="비우면 캡션 없이 예약"></textarea></div>
+      </aside>
+      <main class="mainpane">
+        <div class="panehead"><h2>🗓 이렇게 예약됩니다</h2><span class="n" id="bulkcount"></span></div>
+        <div class="caphint" style="margin-bottom:12px">영상 순서대로 시작 날짜부터 매일 지정 시간대에 자동 배분됩니다. 이미 지난 시간은 건너뜁니다.</div>
+        <div id="bulkpreview" style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn primary" id="bulkgo" style="font-size:14.5px" onclick="bulkConfirm()">🗓 모두 예약하기</button></div>
+        <div id="bulkstatus" class="caphint" style="margin-top:12px;color:var(--gold)"></div>
+      </main>
+    </div>`;
+    if($('bulkacct'))$('bulkacct').value=BULK.account;
+    if($('bulkcap'))$('bulkcap').value=BULK.caption;
+    if($('bulkdate'))$('bulkdate').value=BULK.date;
+    bulkRenderVideos(); bulkRenderTimes(); bulkPreview();
+  }
+  function bulkPick(inp){
+    const files=[...(inp.files||[])]; inp.value='';
+    const key=f=>f.name+'|'+f.size;
+    const seen=new Set(BULK.videos.map(key));
+    files.forEach(f=>{if(!seen.has(key(f))){BULK.videos.push(f);seen.add(key(f));}});
+    bulkRenderVideos(); bulkPreview();
+  }
+  function bulkRenderVideos(){
+    const box=$('bulkvids'); if(!box)return;
+    if(!BULK.videos.length){box.innerHTML='<div class="caphint">아직 없음 — 영상을 올리세요</div>';return;}
+    box.innerHTML=BULK.videos.map((v,i)=>`<div class="bvid" draggable="true" data-i="${i}"><span class="bh">⠿</span><span class="bn">${esch(v.name)}</span><span class="bsz">${(v.size/1048576).toFixed(1)}MB</span><button data-rm="${i}">✕</button></div>`).join('');
+    let dragI=null;
+    box.querySelectorAll('.bvid').forEach(el=>{
+      el.ondragstart=()=>{dragI=+el.dataset.i;el.classList.add('drag');};
+      el.ondragend=()=>el.classList.remove('drag');
+      el.ondragover=e=>e.preventDefault();
+      el.ondrop=e=>{e.preventDefault();const to=+el.dataset.i;if(dragI===null||dragI===to)return;const m=BULK.videos.splice(dragI,1)[0];BULK.videos.splice(to,0,m);dragI=null;bulkRenderVideos();bulkPreview();};
+    });
+    box.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{BULK.videos.splice(+b.dataset.rm,1);bulkRenderVideos();bulkPreview();});
+  }
+  function bulkAp(ap){BULK.ap=ap;$('bap_am').classList.toggle('on',ap==='am');$('bap_pm').classList.toggle('on',ap==='pm');}
+  function bulkAddTime(){
+    let h=+$('bth').value%12; if(BULK.ap==='pm')h+=12;
+    const m=+$('btm').value;
+    if(BULK.times.some(t=>t.h===h&&t.m===m)){flash('이미 있는 시간이에요');return;}
+    BULK.times.push({h,m}); BULK.times.sort((a,b)=>(a.h*60+a.m)-(b.h*60+b.m));
+    bulkRenderTimes(); bulkPreview();
+  }
+  function bulkRenderTimes(){
+    const box=$('bulktimes'); if(!box)return;
+    box.innerHTML=BULK.times.map((t,i)=>{const ap=t.h>=12?'오후':'오전';let h=t.h%12;if(h===0)h=12;
+      return `<span class="tchip">${ap} ${h}:${String(t.m).padStart(2,'0')} <b data-rmt="${i}">✕</b></span>`;}).join('')
+      ||'<span class="caphint">시간을 추가하세요</span>';
+    box.querySelectorAll('[data-rmt]').forEach(b=>b.onclick=()=>{BULK.times.splice(+b.dataset.rmt,1);bulkRenderTimes();bulkPreview();});
+  }
+  function bulkFmtWhen(dt){const ap=dt.getHours()>=12?'오후':'오전';let h=dt.getHours()%12;if(h===0)h=12;
+    return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${ap} ${h}:${String(dt.getMinutes()).padStart(2,'0')}`;}
+  function bulkSlots(count){
+    if(!BULK.date||!BULK.times.length) return [];
+    const [Y,M,D]=BULK.date.split('-').map(Number);
+    const times=[...BULK.times].sort((a,b)=>(a.h*60+a.m)-(b.h*60+b.m));
+    const out=[]; const nowSec=Math.floor(Date.now()/1000)+60;
+    for(let day=0; day<400 && out.length<count; day++){
+      for(const t of times){
+        const dt=new Date(Y,M-1,D+day,t.h,t.m,0);
+        const ts=Math.floor(dt.getTime()/1000);
+        if(ts>nowSec){out.push({ts,when:bulkFmtWhen(dt)}); if(out.length>=count)break;}
+      }
+    }
+    return out;
+  }
+  function bulkPreview(){
+    const box=$('bulkpreview'); if(!box)return;
+    const dows=['일','월','화','수','목','금','토'];
+    const n=BULK.videos.length;
+    if($('bulkcount'))$('bulkcount').textContent=n?`영상 ${n}개`:'';
+    if(!n){box.innerHTML='<div class="caphint" style="padding:16px">영상을 올리면 여기에 배분 결과가 떠요.</div>';return;}
+    if(!BULK.date||!BULK.times.length){box.innerHTML='<div class="caphint" style="padding:16px">시작 날짜와 게시 시간을 정하세요.</div>';return;}
+    const slots=bulkSlots(n);
+    box.innerHTML=BULK.videos.map((v,i)=>{
+      const s=slots[i];
+      const dow=s?dows[new Date(s.ts*1000).getDay()]:'';
+      return `<div class="prow"><span class="pn">${i+1}</span><span class="pv">🎬 ${esch(v.name)}</span><span class="pt">${s?esch(s.when.replace(' ',` (${dow}) `)):'—'}</span></div>`;
+    }).join('');
+  }
+  async function bulkConfirm(){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    const n=BULK.videos.length;
+    if(!n){flash('영상을 올리세요');return;}
+    if(!BULK.date||!BULK.times.length){flash('시작 날짜와 시간을 정하세요');return;}
+    const slots=bulkSlots(n);
+    if(slots.length<n){flash('시간대가 부족해요 — 시간을 더 추가하거나 시작 날짜를 조정하세요');return;}
+    if(!confirm(n+'개 영상을 예약할까요? (업로드에 시간이 좀 걸립니다)'))return;
+    $('bulkgo').disabled=true;
+    let ok=0, fail=0;
+    for(let i=0;i<n;i++){
+      const v=BULK.videos[i], s=slots[i];
+      if($('bulkstatus'))$('bulkstatus').textContent=`⬆ ${i+1}/${n} 업로드·예약 중… (${v.name})`;
+      const fd=new FormData();
+      fd.append('code',code()); fd.append('account',BULK.account);
+      fd.append('caption',BULK.caption||''); fd.append('ts',s.ts); fd.append('when',s.when);
+      fd.append('title','릴스 · '+v.name); fd.append('video',v);
+      try{const r=await fetch('/api/reel/schedule',{method:'POST',body:fd});const d=await r.json();
+        if(d.ok)ok++; else {fail++; console.warn('예약 실패',v.name,d.error);}
+      }catch(e){fail++;}
+    }
+    $('bulkgo').disabled=false;
+    if($('bulkstatus'))$('bulkstatus').textContent=`✅ ${ok}개 예약 완료`+(fail?` · ❌ ${fail}개 실패`:'')+' — 예약·승인 탭에서 확인';
+    if(ok){BULK.videos=[]; bulkRenderVideos(); bulkPreview();}
+    flash(`🎬 릴스 ${ok}개 예약됨`+(fail?` (${fail}개 실패)`:''));
   }
   function rPick(inp){ const f=inp.files&&inp.files[0]; RVIDEO=f||null; RSTAGED=null; reelPicked=!!f;
     if($('rname'))$('rname').textContent=f?('🎬 '+f.name+' ('+(f.size/1048576).toFixed(1)+'MB)'):'클릭해서 MP4 선택';
