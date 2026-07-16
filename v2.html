@@ -471,10 +471,14 @@
   function renderIssue(){
     const host=$('issue'); if(!host) return;
     if(jState.issue==='youtube'){
-      host.innerHTML=`<div style="background:var(--panel);border:1px dashed var(--line2);border-radius:14px;padding:26px 22px;text-align:center;color:var(--muted)">
-        <div style="font-size:32px">🎬</div>
-        <div style="font-weight:800;margin-top:8px;color:var(--ink)">인기 쇼츠 목록은 준비 중</div>
-        <div style="font-size:12.5px;margin-top:7px;line-height:1.65">지금은 왼쪽 <b>소재 넣기</b>에 <b>유튜브 쇼츠 URL</b>을 붙여넣고<br>완성팩 만들기를 누르면 — 대본·프레임·자막 블러까지 자동으로 짤이 나옵니다.<br><span style="color:var(--faint)">(트렌딩/검색 브라우징은 다음 업데이트)</span></div></div>`;
+      host.innerHTML=`
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <input class="in" id="ytq" placeholder="검색어 (비우면 트렌딩)" style="flex:1;min-width:150px" onkeydown="if(event.key==='Enter')ytSearch()">
+          <select class="in" id="ytcount" style="width:auto"><option value="30">30개</option><option value="50">50개</option><option value="100">100개</option></select>
+          <button class="btn primary" onclick="ytSearch()">🔎 검색</button>
+          <button class="btn" onclick="ytTrending(true)">🔄 트렌딩</button></div>
+        <div id="ytlist"><div style="color:var(--faint);font-size:13px">불러오는 중…</div></div>`;
+      ytTrending(false);
     }else{
       host.innerHTML=`<div style="margin-bottom:12px"><button class="btn primary" id="candbtn" onclick="loadCand()">🔥 지금 인기글 불러오기</button></div>
         <div id="candlist"><div style="color:var(--faint);font-size:13px">위 버튼을 눌러 디시·루리웹·에펨 인기글을 불러오세요. (첫 로딩 30초쯤)</div></div>`;
@@ -524,6 +528,43 @@
     startJob(yt?'/api/youtube/make':'/api/make',body,(yt?'🎬 ':'')+(label||url.slice(0,40)));
   }
   function makeJjal(){const u=($('jurl')&&$('jurl').value.trim())||'';makeUrl(u,u.replace(/^https?:\/\//,'').slice(0,40));if($('jurl'))$('jurl').value='';}
+
+  /* ---- 인기 쇼츠 브라우징 ---- */
+  function ytErr(e){const isKey=/API 키/.test(e||'');
+    return `<div style="color:var(--danger)">❌ ${esch(e)}</div>`+(isKey?'<div style="color:var(--faint);font-size:12px;margin-top:6px">config.json 의 <b>youtube_api_key</b> 를 넣어야 인기 쇼츠 목록이 떠요. (URL 붙여 만들기는 키 없이 됩니다)</div>':'');}
+  async function ytTrending(refresh){
+    const box=$('ytlist'); if(!box)return;
+    if(!code()){box.innerHTML='<div style="color:var(--danger)">접속코드를 입력하세요</div>';return;}
+    box.innerHTML='<div style="color:var(--faint);font-size:13px">트렌딩 불러오는 중… (첫 로딩 몇 초)</div>';
+    let d; try{d=await apiJson('/api/youtube/trending',{code:code(),refresh:!!refresh});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){box.innerHTML=ytErr(d.error);return;}
+    paintYt(d.items,'🔥 트렌딩 (한국·미국·일본 각 탑10)');
+  }
+  async function ytSearch(){
+    const box=$('ytlist'); if(!box)return;
+    const q=($('ytq')&&$('ytq').value.trim())||'';
+    if(!q){ytTrending(false);return;}
+    if(!code()){box.innerHTML='<div style="color:var(--danger)">접속코드를 입력하세요</div>';return;}
+    box.innerHTML='<div style="color:var(--faint);font-size:13px">검색 중… (한국어면 영·일로도 검색)</div>';
+    const count=($('ytcount')&&$('ytcount').value)||'30';
+    let d; try{d=await apiJson('/api/youtube/search',{code:code(),query:q,count:+count});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){box.innerHTML=ytErr(d.error);return;}
+    paintYt(d.items,`🔎 "${esch(q)}" 검색 결과 ${(d.items||[]).length}개`);
+  }
+  function paintYt(items,label){
+    const box=$('ytlist'); if(!box)return;
+    if(!items||!items.length){box.innerHTML='<div style="color:var(--faint)">결과가 없어요</div>';return;}
+    const flag=r=>({KR:'🇰🇷',US:'🇺🇸',JP:'🇯🇵'}[r]||'▶️');
+    box.innerHTML=`<div class="caphint" style="margin-bottom:8px">${esch(label)} · 만들기 누르면 유튜브 짤 생성</div>
+      <div class="hotgrid">${items.map((v,i)=>`
+        <div class="hot">
+          <div class="th" style="width:74px;height:74px;flex:0 0 74px;border-radius:9px;overflow:hidden;padding:0;background:#000">${v.thumb?`<img src="${v.thumb}" style="width:100%;height:100%;object-fit:cover">`:'▶️'}</div>
+          <div class="info"><div class="src">${flag(v.region)} ${esch(v.channel)}</div>
+            <div class="tt"><a href="${v.url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esch(v.title)} <span style="color:var(--faint);font-weight:400">↗</span></a></div>
+            <div class="mt">👀 ${(v.views||0).toLocaleString()}</div></div>
+          <button data-yt="${i}">만들기</button></div>`).join('')}</div>`;
+    box.querySelectorAll('button[data-yt]').forEach(b=>{b.onclick=()=>{const v=items[+b.dataset.yt];makeUrl(v.url,'🎬 '+(v.title||'').slice(0,20));};});
+  }
 
   /* ============ 카드뉴스 TAB ============ */
   const THEMES=[['hunter','🎮 유튜브 네온','다크',268],['cream','🧡 크림 클래식','라이트',28],['news','🗞 뉴스 에디토리얼','라이트',210],['punch','💥 다크 강펀치','골드',45],['info','📋 인포그래픽','체크리스트',150],['pastel','🧸 파스텔 소프트','부드럽게',340]];

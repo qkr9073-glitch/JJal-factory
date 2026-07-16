@@ -591,3 +591,124 @@ def build_from_youtube(url, cfg, base_dir, mock=False, log=print):
                 "num_images": len(card_paths), "num_thumbs": len(thumb_paths)}
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+# ─────────────────────────── 8) 인기 쇼츠 브라우징 (YouTube Data API) ───────────────────────────
+_YT_DATA = "https://www.googleapis.com/youtube/v3"
+
+
+def _yt_key(cfg):
+    keys = cfg.get("youtube_api_keys") or []
+    return (cfg.get("youtube_api_key") or (keys[0] if keys else "") or "").strip()
+
+
+def _iso_seconds(iso):
+    import re
+    m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso or "")
+    if not m:
+        return 0
+    h, mn, s = (int(x) if x else 0 for x in m.groups())
+    return h * 3600 + mn * 60 + s
+
+
+def _yt_item(it, region=""):
+    sn = it.get("snippet", {}) or {}
+    st = it.get("statistics", {}) or {}
+    vid = it.get("id") if isinstance(it.get("id"), str) else (it.get("id", {}) or {}).get("videoId", "")
+    th = (sn.get("thumbnails", {}) or {})
+    thumb = (th.get("medium") or th.get("high") or th.get("default") or {}).get("url", "")
+    return {"id": vid, "url": f"https://www.youtube.com/shorts/{vid}",
+            "title": sn.get("title", ""), "channel": sn.get("channelTitle", ""),
+            "views": int(st.get("viewCount", 0) or 0), "thumb": thumb, "region": region}
+
+
+def trending_shorts(cfg, regions=("KR", "US", "JP"), per=10, max_sec=180):
+    """지역별 트렌딩(mostPopular) 중 쇼츠(≤3분)만 지역당 per개."""
+    key = _yt_key(cfg)
+    if not key:
+        raise RuntimeError("유튜브 API 키가 없습니다 (config youtube_api_key)")
+    out = []
+    for rg in regions:
+        try:
+            r = requests.get(f"{_YT_DATA}/videos",
+                             params={"part": "snippet,contentDetails,statistics",
+                                     "chart": "mostPopular", "regionCode": rg,
+                                     "maxResults": 50, "key": key}, timeout=30)
+            if r.status_code != 200:
+                continue
+            cnt = 0
+            for it in r.json().get("items", []):
+                dur = _iso_seconds(it.get("contentDetails", {}).get("duration"))
+                if dur == 0 or dur > max_sec:
+                    continue
+                out.append(_yt_item(it, rg))
+                cnt += 1
+                if cnt >= per:
+                    break
+        except Exception:
+            continue
+    return out
+
+
+def _translate_query(cfg, query):
+    """검색어 → 영어·일본어 (Gemini). 실패 시 빈 리스트."""
+    key = _key(cfg)
+    if not key:
+        return []
+    try:
+        model = cfg.get("gemini_model", "gemini-2.5-flash")
+        prompt = ('유튜브 검색어를 영어와 일본어로 번역하라. JSON만: {"en":"...","ja":"..."}\n검색어: '
+                  + query)
+        resp = requests.post(brain.GEMINI_URL.format(model=model), params={"key": key},
+                             json={"contents": [{"parts": [{"text": prompt}]}],
+                                   "generationConfig": {"response_mime_type": "application/json",
+                                                        "temperature": 0, "maxOutputTokens": 256,
+                                                        "thinkingConfig": {"thinkingBudget": 0}}},
+                             timeout=30)
+        cand = resp.json()["candidates"][0]
+        j = brain._parse_json("".join(p.get("text", "") for p in cand["content"]["parts"]))
+        return [x for x in [j.get("en"), j.get("ja")] if x]
+    except Exception:
+        return []
+
+
+def search_shorts(cfg, query, count=30, translate=True, max_sec=180):
+    """검색어로 인기 쇼츠 검색(조회순). 한국어면 영/일로도 번역해 합침."""
+    key = _yt_key(cfg)
+    if not key:
+        raise RuntimeError("유튜브 API 키가 없습니다 (config youtube_api_key)")
+    queries = [query] + (_translate_query(cfg, query) if translate else [])
+    per = max(5, min(50, count // len(queries) + 5))
+    seen, ids = set(), []
+    for q in queries:
+        try:
+            r = requests.get(f"{_YT_DATA}/search",
+                             params={"part": "snippet", "type": "video",
+                                     "videoDuration": "short", "order": "viewCount",
+                                     "q": q, "maxResults": per, "key": key}, timeout=30)
+            if r.status_code != 200:
+                continue
+            for it in r.json().get("items", []):
+                vid = (it.get("id", {}) or {}).get("videoId")
+                if vid and vid not in seen:
+                    seen.add(vid)
+                    ids.append(vid)
+        except Exception:
+            continue
+    ids = ids[:count]
+    if not ids:
+        return []
+    out = []
+    for i in range(0, len(ids), 50):
+        chunk = ids[i:i + 50]
+        try:
+            r = requests.get(f"{_YT_DATA}/videos",
+                             params={"part": "snippet,contentDetails,statistics",
+                                     "id": ",".join(chunk), "key": key}, timeout=30)
+            for it in r.json().get("items", []):
+                if _iso_seconds(it.get("contentDetails", {}).get("duration")) <= max_sec:
+                    out.append(_yt_item(it))
+        except Exception:
+            continue
+    out.sort(key=lambda v: v["views"], reverse=True)
+    return out

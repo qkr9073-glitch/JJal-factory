@@ -2202,6 +2202,47 @@ def api_youtube_make():
     return jsonify(ok=True, job=jid)
 
 
+YT_TREND_CACHE = {"data": None, "time": 0}
+
+
+@app.post("/api/youtube/trending")
+def api_youtube_trending():
+    """인기 쇼츠 트렌딩 (한국·미국·일본 각 탑10). 6시간 캐시 + refresh."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    now = time.time()
+    if data.get("refresh") or not YT_TREND_CACHE["data"] or now - YT_TREND_CACHE["time"] > 21600:
+        try:
+            YT_TREND_CACHE["data"] = youtube.trending_shorts(cfg)
+            YT_TREND_CACHE["time"] = now
+        except Exception as e:
+            return jsonify(ok=False, error=str(e)), 500
+    return jsonify(ok=True, items=YT_TREND_CACHE["data"] or [])
+
+
+@app.post("/api/youtube/search")
+def api_youtube_search():
+    """검색어로 인기 쇼츠 검색(조회순, 한국어면 영/일 번역검색). count 30/50/100."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    q = (data.get("query") or "").strip()
+    if not q:
+        return jsonify(ok=False, error="검색어를 입력하세요"), 400
+    try:
+        count = max(10, min(100, int(data.get("count") or 30)))
+    except (TypeError, ValueError):
+        count = 30
+    try:
+        items = youtube.search_shorts(cfg, q, count=count)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
+    return jsonify(ok=True, items=items)
+
+
 @app.post("/api/make_images")
 def api_make_images():
     """🌏 해외 인기글 캡처 이미지 → 짤공장 커뮤형 팩 (한국 현지화)."""
