@@ -456,18 +456,21 @@
     list.sort((a,b)=>jState.sort===3?((a.age_min||0)-(b.age_min||0)):((b[k]||0)-(a[k]||0)));
     const sc=sites.map(s=>`<span class="chip ${jState.site===s?'on':''}" onclick="jSite('${s}')">${esch(s)}</span>`).join('');
     const oc=labels.map((s,i)=>`<span class="chip ${jState.sort===i?'on':''}" onclick="jSort(${i})">${s}</span>`).join('');
-    const rows=list.map(it=>{
+    const rows=list.map((it,idx)=>{
       const p=[]; if(it.recs)p.push('👍 '+it.recs); if(it.views)p.push('👀 '+it.views.toLocaleString()); if(it.replies)p.push('💬 '+it.replies);
       const ic=it.site==='디시'?'🎮':it.site==='루리웹'?'🐰':it.site==='에펨'?'⚽':'📝';
-      const lab=esch((it.title||'').slice(0,18)).replace(/'/g,'’');
       return `<div class="hot ${it.used?'used':''}">
         <div class="th" style="background:${grad((it.site||'x').length+(it.title||'').length)}">${ic}</div>
         <div class="info"><div class="src">[${esch(it.site)}·${esch(it.category||'')}]</div>
-          <div class="tt">${esch(it.title)}</div><div class="mt">${p.join(' · ')}${it.used?' · ✅제작됨':''}</div></div>
-        <button onclick="makeUrl('${it.url}','${lab}')">${it.used?'다시':'만들기'}</button></div>`;
+          <div class="tt"><a href="${esch(it.url)}" target="_blank" rel="noopener" title="원글 새 탭으로 열기" style="color:inherit;text-decoration:none">${esch(it.title)} <span style="color:var(--faint);font-weight:400">↗</span></a></div>
+          <div class="mt">${p.join(' · ')}${it.used?' · ✅제작됨':''}</div></div>
+        <button data-mk="${idx}">${it.used?'다시':'만들기'}</button></div>`;
     }).join('');
     box.innerHTML=`<div class="chips" style="margin-bottom:8px">${sc}</div><div class="chips" style="margin-bottom:14px">${oc}</div>
       <div class="hotgrid">${rows||'<div style="color:var(--faint)">불러온 인기글이 없어요</div>'}</div>`;
+    box.querySelectorAll('button[data-mk]').forEach(b=>{
+      b.onclick=()=>{const it=list[+b.dataset.mk]; makeUrl(it.url,(it.title||'').slice(0,24));};
+    });
   }
   function jSite(s){jState.site=s;paintCand();}
   function jSort(i){jState.sort=i;paintCand();}
