@@ -21,6 +21,7 @@ import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
 from src import brain, hunter, insights, pipeline, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
 
@@ -3255,17 +3256,23 @@ def api_schedule_add():
         ts = 0
     if ts <= 0:
         return jsonify(ok=False, error="예약 시간이 올바르지 않습니다"), 400
+    who = _member(cfg, data.get("code")) or {}
+    admin = who.get("role") == "admin"
     entry = {"id": uuid.uuid4().hex[:10], "pack": pack,
              "account": (data.get("account") or "").strip(),
              "lead": (data.get("lead") or "").strip(),
              "ts": ts, "when": (data.get("when") or "").strip(),
              "title": (data.get("title") or pack).strip(),
-             "status": "pending",
+             # 관리자 예약은 바로 확정(pending), 일반 회원은 승인 대기(await)
+             "status": "pending" if admin else "await",
+             "by_code": (data.get("code") or "").strip(),
+             "by_name": who.get("name", ""),
+             "by_role": who.get("role", "user"),
              "created": datetime.now().isoformat(timespec="seconds")}
     items = _sched_load()
     items.append(entry)
     _sched_save(items)
-    return jsonify(ok=True, id=entry["id"])
+    return jsonify(ok=True, id=entry["id"], status=entry["status"])
 
 
 @app.post("/api/schedule/list")
@@ -3275,11 +3282,52 @@ def api_schedule_list():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     items = _sched_load()
+    # 일반 회원은 본인이 만든 예약만, 관리자는 전체
+    if not _is_admin(cfg, data.get("code")):
+        mycode = (data.get("code") or "").strip()
+        items = [e for e in items if e.get("by_code") == mycode]
     for e in items:
         pd = OUTPUT / e.get("pack", "")
         e["thumb"] = f"/packs/{e['pack']}/thumb.jpg" if (pd / "thumb.jpg").exists() else ""
     items.sort(key=lambda x: x.get("ts", 0))
-    return jsonify(ok=True, items=items)
+    return jsonify(ok=True, items=items, admin=_is_admin(cfg, data.get("code")))
+
+
+@app.post("/api/schedule/approve")
+def api_schedule_approve():
+    """승인 대기(await) 예약을 확정(pending)으로. 관리자 전용."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 승인할 수 있습니다"), 403
+    sid = (data.get("id") or "").strip()
+    items = _sched_load()
+    hit = False
+    for e in items:
+        if e.get("id") == sid and e.get("status") == "await":
+            e["status"] = "pending"
+            e["approved_at"] = datetime.now().isoformat(timespec="seconds")
+            hit = True
+    _sched_save(items)
+    return jsonify(ok=True, changed=hit)
+
+
+@app.post("/api/schedule/reject")
+def api_schedule_reject():
+    """승인 대기 예약을 반려. 관리자 전용. (기록 남기려 status=rejected)"""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 반려할 수 있습니다"), 403
+    sid = (data.get("id") or "").strip()
+    items = _sched_load()
+    for e in items:
+        if e.get("id") == sid and e.get("status") == "await":
+            e["status"] = "rejected"
+            e["reject_reason"] = (data.get("reason") or "").strip()
+            e["rejected_at"] = datetime.now().isoformat(timespec="seconds")
+    _sched_save(items)
+    return jsonify(ok=True)
 
 
 @app.post("/api/schedule/cancel")
@@ -3352,6 +3400,114 @@ def api_members_remove():
         m.pop(ncode)
         _members_save(m)
     return jsonify(ok=True)
+
+
+# ── 인스타 수입: 지정 계정에서 이미지 캐러셀 수집(릴스 제외) ──────
+@app.post("/api/ie/insta/targets")
+def api_ie_insta_targets():
+    """지정 크롤 계정 목록 조회/추가/삭제. (누구나 조회, 관리자만 수정)"""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    action = (data.get("action") or "list").strip()
+    if action != "list" and not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 계정을 편집할 수 있습니다"), 403
+    lst = insta_import.load_targets(BASE)
+    if action == "add":
+        u = (data.get("username") or "").strip().lstrip("@")
+        if not u:
+            return jsonify(ok=False, error="계정 아이디를 입력하세요"), 400
+        lst = insta_import.save_targets(BASE, lst + [u])
+    elif action == "remove":
+        u = (data.get("username") or "").strip().lstrip("@").lower()
+        lst = insta_import.save_targets(BASE, [x for x in lst if x.lower() != u])
+    login = (cfg.get("ig_import_login") or {}).get("username", "")
+    return jsonify(ok=True, targets=lst, login=login)
+
+
+def _run_ie_fetch(jid, cfg, usernames, per):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=15, msg="인스타 접속·수집 중…")
+        posts = insta_import.fetch_many(cfg, BASE, usernames, per=per,
+                                        log=lambda m: job.update(msg=str(m)[:80]))
+        for p in posts:
+            p.pop("image_urls", None)   # 프런트로 원본 CDN URL은 안 보냄(썸네일만)
+        job.update(status="done", pct=100, msg="완료", result={"posts": posts})
+    except Exception as e:
+        job.update(status="error", error=str(e)[:200])
+
+
+@app.post("/api/ie/insta/fetch")
+def api_ie_insta_fetch():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    usernames = insta_import.load_targets(BASE)
+    only = (data.get("username") or "").strip().lstrip("@")
+    if only:
+        usernames = [only]
+    if not usernames:
+        return jsonify(ok=False, error="먼저 수집할 인스타 계정을 등록하세요"), 400
+    per = max(2, min(12, int(data.get("per") or 4)))
+    now = time.time()
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
+                 "result": None, "error": None, "ts": now}
+    threading.Thread(target=_run_ie_fetch, args=(jid, cfg, usernames, per),
+                     daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+def _run_ie_import(jid, cfg, post):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=20, msg="이미지 내려받는 중…")
+        r = insta_import.import_post(cfg, BASE, post,
+                                     log=lambda m: job.update(msg=str(m)[:80]))
+        job.update(status="done", pct=100, msg="완료",
+                   result=_pack_payload(r))
+    except Exception as e:
+        job.update(status="error", error=str(e)[:200])
+
+
+@app.post("/api/ie/insta/import")
+def api_ie_insta_import():
+    """수집 목록에서 고른 게시물(shortcode) → 이미지 재조회 후 완성팩 생성."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    shortcode = (data.get("shortcode") or "").strip()
+    username = (data.get("username") or "").strip().lstrip("@")
+    caption = data.get("caption") or ""
+    if not shortcode:
+        return jsonify(ok=False, error="게시물이 없습니다"), 400
+    # shortcode로 이미지 URL 재조회(만료 대비)
+    try:
+        import instaloader
+        L, _ = insta_import._loader(cfg, BASE)
+        p = instaloader.Post.from_shortcode(L.context, shortcode)
+        urls = []
+        if p.typename == "GraphSidecar":
+            urls = [n.display_url for n in p.get_sidecar_nodes() if not n.is_video]
+        elif not p.is_video:
+            urls = [p.url]
+        if not urls:
+            return jsonify(ok=False, error="이미지 게시물이 아닙니다"), 400
+        post = {"image_urls": urls, "username": username or p.owner_username,
+                "caption": caption or (p.caption or ""), "url": f"https://www.instagram.com/p/{shortcode}/",
+                "likes": int(p.likes or 0)}
+    except Exception as e:
+        return jsonify(ok=False, error=f"게시물 조회 실패: {str(e)[:120]}"), 502
+    now = time.time()
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
+                 "result": None, "error": None, "ts": now}
+    threading.Thread(target=_run_ie_import, args=(jid, cfg, post), daemon=True).start()
+    return jsonify(ok=True, job=jid)
 
 
 if __name__ == "__main__":

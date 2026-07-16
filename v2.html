@@ -38,6 +38,57 @@
   .tabs button.on{background:var(--raised);color:var(--ink);box-shadow:0 1px 0 rgba(0,0,0,.25)}
   .tabs button .sub{font-size:11px;font-weight:600;color:var(--faint)}
   .tabs button.on .sub{color:var(--muted)}
+  .tabdrop{position:relative}
+  .tabdrop .caret{font-size:10px;opacity:.6;margin-left:-2px}
+  .dropmenu{position:absolute;top:calc(100% + 6px);left:0;min-width:172px;background:var(--raised);border:1px solid var(--line2);border-radius:12px;padding:5px;box-shadow:var(--shadow);display:none;flex-direction:column;gap:2px;z-index:40}
+  .tabdrop:hover .dropmenu{display:flex}
+  .dropmenu button{width:100%;justify-content:flex-start;color:var(--muted)}
+  .dropmenu button:hover{background:var(--panel2);color:var(--ink)}
+  .dropmenu button.on{background:color-mix(in srgb,var(--gold) 18%,transparent);color:var(--gold)}
+  /* 예약·승인 계정칩 + 월간 캘린더 */
+  .acclabel{font-size:12px;font-weight:800;color:var(--faint);margin:2px 0 8px}
+  .acrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+  .achip{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:999px;padding:9px 15px;font-size:13px;font-weight:800;cursor:pointer;transition:.15s;display:flex;align-items:center;gap:7px}
+  .achip:hover{border-color:var(--line2);color:var(--ink)}
+  .achip.on{background:color-mix(in srgb,var(--gold) 16%,transparent);border-color:var(--gold);color:var(--gold)}
+  .achip b{font-size:11px;background:var(--panel2);color:var(--muted);border-radius:6px;padding:1px 6px}
+  .achip.on b{background:var(--gold);color:#04120c}
+  .calhead{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+  .calhead .mo{font-size:17px;font-weight:800;min-width:150px;text-align:center}
+  .calhead button{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:9px;width:34px;height:34px;font-size:16px;cursor:pointer}
+  .calhead button:hover{border-color:var(--gold);color:var(--gold)}
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
+  .dow span{text-align:center;font-size:11px;font-weight:800;color:var(--faint)}
+  .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .calcell{min-height:104px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 6px 5px;display:flex;flex-direction:column;gap:4px;overflow:hidden}
+  .calcell.other{opacity:.4}
+  .calcell.today{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
+  .calcell .cd{font-size:12px;font-weight:800;color:var(--muted)}
+  .calcell.today .cd{color:var(--gold)}
+  .calcell .cd .sun{color:#e0574b}
+  .ev{font-size:10.5px;font-weight:700;background:var(--panel2);border-radius:5px;padding:3px 5px 3px 6px;border-left:3px solid var(--gold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;line-height:1.35}
+  .ev .evt{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:800}
+  .ev .mini{display:inline-flex;gap:3px;margin-left:3px}
+  .ev .mini i{font-style:normal;border-radius:4px;padding:0 4px;font-size:10px}
+  .ev .ap{background:var(--insta);color:#fff;cursor:pointer}
+  .ev .rj{background:var(--danger);color:#fff;cursor:pointer}
+  .apwait{background:color-mix(in srgb,#f59e0b 12%,transparent);border:1px solid color-mix(in srgb,#f59e0b 45%,transparent);border-radius:10px;padding:12px 14px;margin-bottom:16px}
+  .apwait h4{font-size:13.5px;margin-bottom:8px;color:#f59e0b}
+  /* 유튜브 짤 빨간 재생버튼 아이콘 (이미지 없이 CSS) */
+  .ytplay{display:inline-flex;align-items:center;justify-content:center;width:20px;height:14px;background:#ff0033;border-radius:4px;vertical-align:-2px;flex:0 0 auto}
+  .ytplay::before{content:"";border-style:solid;border-width:4px 0 4px 7px;border-color:transparent transparent transparent #fff;margin-left:1px}
+  .ytplay.sm{width:17px;height:12px}.ytplay.sm::before{border-width:3.5px 0 3.5px 6px}
+  /* IE 수출 팩 선택 리스트 */
+  .iepacklist{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow:auto}
+  .ieprow{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel);cursor:pointer;font-size:13px;font-weight:700}
+  .ieprow:hover{border-color:var(--line2)}
+  .ieprow.on{border-color:var(--gold);background:color-mix(in srgb,var(--gold) 12%,transparent)}
+  .ieprow .tt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* IE 수입 방식 · 인스타 수집 결과 */
+  .igcard{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--panel)}
+  .igcard img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#000}
+  .igcard .ib{padding:9px 10px}
+  .iggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
   .topbar .sp{flex:1}
   .codepill{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:7px 11px}
   .codepill input{border:0;background:transparent;color:var(--ink);font-size:12.5px;width:82px;outline:none}
@@ -99,9 +150,20 @@
   .tgal{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:14px}
   .tg{border:2px solid var(--line);border-radius:13px;overflow:hidden;cursor:pointer}
   .tg.on{border-color:var(--gold)}
-  .tg .pv{aspect-ratio:4/5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-weight:800;color:#fff;font-size:13px;text-align:center;padding:12px}
+  .tg .pv{aspect-ratio:4/5;overflow:hidden;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:12px;text-align:center;padding:8px}
+  .tg .pv img{width:100%;height:100%;object-fit:cover;display:block}
   .tg .lb{padding:9px 11px;background:var(--panel);font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:6px}
   .tg.on .lb{color:var(--gold)}
+  /* 스타일 프리셋 (내용구성 학습) */
+  .styrow{display:flex;gap:10px;flex-wrap:wrap}
+  .styp{width:84px;border:2px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;position:relative;background:var(--panel)}
+  .styp.on{border-color:var(--gold)}
+  .styp img{width:100%;height:64px;object-fit:cover;display:block}
+  .styp .nm{font-size:11px;font-weight:700;padding:4px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .styp .x{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;cursor:pointer}
+  .styp.base{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:92px;font-size:11px;font-weight:700;color:var(--muted);text-align:center;gap:3px}
+  .stylearn{display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:var(--panel2);border:1px dashed var(--line2);border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:700;color:var(--muted);margin-top:10px}
+  .stylearn:hover{color:var(--ink);border-color:var(--gold)}
   .recos{margin-top:22px}
   .reco{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
   .reco:hover{border-color:var(--line2)}
@@ -266,12 +328,18 @@
   <div class="topbar">
     <div class="brand"><span class="dot"></span>짤공장</div>
     <div class="tabs" id="tabs">
-      <button data-t="jjal" class="on">🖼 <span>짤</span></button>
-      <button data-t="card">🗂 <span>카드뉴스</span></button>
-      <button data-t="reel">🎬 <span>릴스</span></button>
-      <button data-t="ie">🔄 <span>수입·수출</span></button>
-      <button data-t="sched">🗓 <span>예약·승인</span></button>
-      <button data-t="result">📦 <span>결과물</span></button>
+      <div class="tabdrop" id="studioDrop">
+        <button type="button" class="on" id="studioBtn">🏭 <span>제작소</span> <b class="caret">▾</b></button>
+        <div class="dropmenu">
+          <button type="button" data-t="jjal">🖼 <span>짤</span></button>
+          <button type="button" data-t="card">🗂 <span>카드뉴스</span></button>
+          <button type="button" data-t="reel">🎬 <span>릴스</span></button>
+        </div>
+      </div>
+      <button type="button" data-t="ie">🔄 <span>수입·수출</span></button>
+      <button type="button" data-t="sched">🗓 <span>예약·승인</span></button>
+      <button type="button" data-t="result">📦 <span>결과물</span></button>
+      <button type="button" data-t="members" id="membersTab" style="display:none">👥 <span>회원관리</span></button>
     </div>
     <div class="sp"></div>
     <div class="codepill">🔑 <input id="code" placeholder="접속코드" type="password" value="0000"></div>
@@ -367,11 +435,23 @@
   const grad=s=>{const h=HUES[((s%HUES.length)+HUES.length)%HUES.length];return `linear-gradient(150deg,hsl(${h} 60% 32%),hsl(${(h+40)%360} 55% 20%))`;};
   const $=id=>document.getElementById(id);
 
-  /* ============ TAB ROUTER ============ */
+  /* ============ TAB ROUTER (제작소 드롭다운 통합) ============ */
   const tabsEl=$('tabs');
+  const STUDIO=['jjal','card','reel'];
+  const STUDIO_LABEL={jjal:'짤',card:'카드뉴스',reel:'릴스'};
+  let STUDIO_CUR='jjal';
   tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
-    [...tabsEl.children].forEach(x=>x.classList.toggle('on',x===b));route(b.dataset.t);});
-  function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,ie:renderIE,sched:renderSchedule,result:renderResults}[t])();}
+    if(b.id==='studioBtn'){setActive(STUDIO_CUR);return;}
+    if(b.dataset.t)setActive(b.dataset.t);});
+  function setActive(t){
+    if(STUDIO.includes(t))STUDIO_CUR=t;
+    $('studioBtn').classList.toggle('on',STUDIO.includes(t));
+    const lab=$('studioBtn').querySelector('span');
+    if(lab)lab.textContent=STUDIO.includes(t)?('제작소 · '+STUDIO_LABEL[t]):'제작소';
+    document.querySelectorAll('#tabs [data-t]').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
+    route(t);
+  }
+  function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,ie:renderIE,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
 
   /* ============ 공용: 접속코드 · API · 잡 폴링 ============ */
   const CODE=$('code');
@@ -404,6 +484,8 @@
       const ds=el.querySelector('.ds');
       if(ds) ds.textContent=isAdmin()?'바로 인스타에 게시':'관리자만 가능 — 예약을 이용하세요';
     });
+    // 회원관리 탭: 관리자만 노출
+    const mt=$('membersTab'); if(mt) mt.style.display=isAdmin()?'':'none';
   }
   CODE.addEventListener('change',()=>{localStorage.setItem('mfcode',code());refreshMe();
     if(typeof loadStyles==='function'){} });
@@ -459,7 +541,7 @@
         <button class="btn primary" onclick="gotoTab('result')">📦 결과물에서 편집·업로드</button></div>`;
     box.prepend(div);
   }
-  function gotoTab(t){[...tabsEl.children].forEach(x=>x.classList.toggle('on',x.dataset.t===t));route(t);}
+  function gotoTab(t){setActive(t);}
 
   /* ============ 짤 TAB ============ */
   let jState={tpl:0,site:'전체',sort:0,issue:'community'};
@@ -630,20 +712,74 @@
       <main class="mainpane">
         <div id="jjobs"></div>
         <div id="jresult"></div>
-        <div class="panehead"><h2>🎨 템플릿</h2><span class="n">눌러서 고르세요</span></div>
-        <div class="tgal" id="tgal">${THEMES.map((t,i)=>`<div class="tg ${cState.theme===i?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(t[3])}">${t[0].split(' ')[0]}<span style="font-size:11px;opacity:.85">${t[2]}</span></div><div class="lb">${t[0]}</div></div>`).join('')}</div>
-        <div class="recos"><div class="panehead"><h2 style="font-size:15px">💡 추천 소재</h2></div>
+        <div class="panehead"><h2>🎨 템플릿</h2><span class="n">눌러서 미리보기로 고르세요</span></div>
+        <div class="tgal" id="tgal">${THEMES.map((t,i)=>`<div class="tg ${cState.theme===i?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(t[3])}"><img src="/themeprev/${t[0]}" alt="${esch(t[1])}" loading="lazy" onerror="this.remove()"></div><div class="lb">${esch(t[1])} <span style="opacity:.6;font-weight:600">${esch(t[2])}</span></div></div>`).join('')}</div>
+        <div class="panehead" style="margin-top:22px"><h2 style="font-size:15px">🧩 스타일 프리셋</h2><span class="n">내용 구성 스타일 — 참고 캐러셀로 학습</span></div>
+        <div class="styrow" id="stylerow"><div style="color:var(--faint);font-size:13px">불러오는 중…</div></div>
+        <label class="stylearn">📎 참고 이미지 올려서 새 스타일 학습
+          <input id="styfile" type="file" accept="image/*" multiple style="display:none" onchange="analyzeStyle(this)"></label>
+        <span id="styhint" class="caphint" style="margin-left:10px"></span>
+        <div class="recos" style="margin-top:22px"><div class="panehead"><h2 style="font-size:15px">💡 추천 소재</h2></div>
           <div class="chips" style="margin-bottom:12px"><button class="btn" onclick="loadRecos('trend')">🔥 오늘의 주제</button><button class="btn" onclick="loadRecos('ins')">🤖 AI 인사이트</button></div>
           <div id="recolist"><div style="color:var(--faint);font-size:13px">버튼을 눌러 추천 주제를 불러오세요. 클릭하면 주제로 채워져요.</div></div></div>
       </main>
     </div>`;
     $('tgal').addEventListener('click',e=>{const t=e.target.closest('.tg');if(!t)return;cState.theme=+t.dataset.i;
       [...$('tgal').children].forEach((c,i)=>c.classList.toggle('on',i===cState.theme));});
+    loadStyles();
+  }
+  /* ---- 스타일 프리셋 (내용 구성 학습) ---- */
+  let STYLES=[], STYLE_ID='', STYLE_ACCENT='';
+  async function loadStyles(){
+    if(!code())return;
+    let d; try{d=await apiJson('/api/style/list',{code:code()});}catch(e){return;}
+    if(d.ok){STYLES=d.styles||[];renderStyles();}
+  }
+  function renderStyles(){
+    const box=$('stylerow'); if(!box)return;
+    let h=`<div class="styp base${STYLE_ID?'':' on'}" onclick="pickStyle('')">✖<br>기본<br>(없음)</div>`;
+    STYLES.forEach(s=>{
+      const th=s.thumb?`<img src="${s.thumb}" alt="">`:`<div style="height:64px;background:var(--panel2)"></div>`;
+      const dot=s.accent?`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esch(s.accent)};margin-right:3px;vertical-align:middle"></span>`:'';
+      h+=`<div class="styp${STYLE_ID===s.id?' on':''}" onclick="pickStyle('${s.id}')" title="${esch(s.summary||'')}">
+        <b class="x" onclick="event.stopPropagation();delStyle('${s.id}')">✕</b>${th}
+        <div class="nm">${dot}${esch(s.name||'')}</div></div>`;
+    });
+    box.innerHTML=h;
+  }
+  function pickStyle(id){
+    STYLE_ID=id; renderStyles();
+    const s=STYLES.find(x=>x.id===id);
+    STYLE_ACCENT=(s&&s.accent)?s.accent:'';
+    if(s&&s.theme){const ti=THEMES.findIndex(t=>t[0]===s.theme);if(ti>=0){cState.theme=ti;[...$('tgal').children].forEach((c,i)=>c.classList.toggle('on',i===ti));}}
+    if($('styhint'))$('styhint').textContent=id?('🧩 적용: '+(s?s.name:'')+' — 톤·구성 반영'):'';
+  }
+  async function delStyle(id){
+    if(!confirm('이 스타일 프리셋을 삭제할까요?'))return;
+    try{await apiJson('/api/style/delete',{code:code(),id});}catch(e){}
+    if(STYLE_ID===id)STYLE_ID='';
+    loadStyles();
+  }
+  async function analyzeStyle(inp){
+    if(!code()){flash('접속코드를 먼저 입력하세요');inp.value='';return;}
+    const files=[...inp.files].slice(0,4); inp.value='';
+    if(!files.length)return;
+    if($('styhint'))$('styhint').textContent='🧩 레퍼런스 분석 중… (10~20초)';
+    try{
+      const imgs=await Promise.all(files.map(f=>new Promise((res,rej)=>{
+        const rd=new FileReader();rd.onload=()=>res(rd.result);rd.onerror=rej;rd.readAsDataURL(f);})));
+      const d=await apiJson('/api/style/analyze',{code:code(),images:imgs});
+      if(!d.ok){if($('styhint'))$('styhint').textContent='❌ '+d.error;return;}
+      STYLE_ID=d.style.id; await loadStyles();
+      pickStyle(d.style.id);
+      if($('styhint'))$('styhint').textContent='✅ 학습 완료: '+d.style.name+' — 적용됨';
+    }catch(e){if($('styhint'))$('styhint').textContent='❌ 분석 오류';}
   }
   function makeCard(){
     const topic=($('ctopic')&&$('ctopic').value.trim())||'';
     if(topic.length<4){flash('주제를 4자 이상 구체적으로 적어주세요');return;}
-    startJob('/api/card/make',{code:code(),topic,
+    const sty=STYLES.find(x=>x.id===STYLE_ID);
+    const body={code:code(),topic,
       mode:['normal','proof','story'][cState.mode],
       theme:THEMES[cState.theme][0],
       items:parseInt(($('citems')&&$('citems').value)||'60',10),
@@ -652,7 +788,10 @@
       body_images:$('cBodyimg')?$('cBodyimg').checked:false,
       auto_upload:$('cAutoup')?$('cAutoup').checked:false,
       ebook:$('cEbook')?$('cEbook').checked:true,
-      account:($('cacct')&&$('cacct').value)||''},'🗂 '+topic.slice(0,30));
+      account:($('cacct')&&$('cacct').value)||''};
+    if(sty&&sty.guide)body.context=sty.guide;
+    if(STYLE_ACCENT)body.accent=STYLE_ACCENT;
+    startJob('/api/card/make',body,'🗂 '+topic.slice(0,30));
   }
   function toggleEbook(){const on=!$('cEbook')||$('cEbook').checked;
     if($('citems')){$('citems').disabled=!on;$('citems').style.opacity=on?'1':'.4';}
@@ -745,7 +884,7 @@
   function onReelAcct(){ const s=$('racctSel'), cap=$('rcap'); if(!s||!cap)return; cap.value=swapHandle(cap.value,'@'+s.value); syncSchedAcct(); }
 
   /* ============ 수입·수출 TAB ============ */
-  let ieMode='export', ieLangSel='ja', ieKindSel='meme', ieImgs=[];
+  let ieMode='export', ieLangSel='ja', ieKindSel='meme', ieImgs=[], iePackSel='', ieImpMethod='capture';
   function renderIE(){
     $('view').innerHTML=`
     <div class="view">
@@ -770,15 +909,27 @@
     const b=$('iebody'); if(!b)return;
     if(ieMode==='export'){
       b.innerHTML=`
-        <div class="step"><div class="sh"><span class="num">1</span><span class="st">원본 카드뉴스</span><span class="sd">결과물에서</span></div>
-          <select class="in" id="iepack"><option>불러오는 중…</option></select>
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">수출할 팩</span><span class="sd">결과물에서</span></div>
+          <div id="iepacklist" class="iepacklist"><div style="color:var(--faint)">불러오는 중…</div></div>
           <button class="btn" style="margin-top:8px;width:100%" onclick="loadIEPacks()">🔄 목록 새로고침</button></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">도착 언어</span></div>
           <div class="chips"><span class="chip ${ieLangSel==='ja'?'on':''}" data-t="ja" onclick="ieLang(this)">🇯🇵 일본어</span><span class="chip ${ieLangSel==='en'?'on':''}" data-t="en" onclick="ieLang(this)">🇺🇸 영어</span></div></div>
         <button class="go" onclick="ieExport()">🌍 변환하기 (1~4분)</button>`;
-      $('ieinfo').innerHTML='<b>수출</b> — 만든 팩을 일본어/영어로 번역·재렌더해 새 팩으로. 해외 계정 발행용.<br>· 🗂 <b>카드뉴스</b>: 번역+현지 폰트 재렌더(전자책 제외)<br>· ▶️ <b>유튜브 짤</b>: source.json(대본)+프레임으로 후킹·뒷장 재렌더<br><br><span style="color:var(--faint)">커뮤 짤(스크린샷)은 이미지 속 글자를 못 바꿔 수출 미지원.</span>';
+      $('ieinfo').innerHTML='<b>수출</b> — 만든 팩을 일본어/영어로 번역·재렌더해 새 팩으로. 해외 계정 발행용.<br>· 🗂 <b>카드뉴스</b>: 번역+현지 폰트 재렌더(전자책 제외)<br>· <span class="ytplay"></span> <b>유튜브 짤</b>: source.json(대본)+프레임으로 후킹·뒷장 재렌더<br><br><span style="color:var(--faint)">커뮤 짤(스크린샷)은 이미지 속 글자를 못 바꿔 수출 미지원.</span>';
       loadIEPacks();
     } else {
+      b.innerHTML=`
+        <div class="chips" style="margin-bottom:14px">
+          <span class="chip ${ieImpMethod==='capture'?'on':''}" onclick="ieMethod('capture')">📎 해외 캡처</span>
+          <span class="chip ${ieImpMethod==='insta'?'on':''}" onclick="ieMethod('insta')">📸 인스타 수집</span></div>
+        <div id="ieimpbody"></div>`;
+      renderIEImport();
+    }
+  }
+  function ieMethod(m){ieImpMethod=m;renderIEBody();}
+  function renderIEImport(){
+    const b=$('ieimpbody'); if(!b)return;
+    if(ieImpMethod==='capture'){
       b.innerHTML=`
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">만들 종류</span></div>
           <div class="chips"><span class="chip ${ieKindSel==='meme'?'on':''}" data-k="meme" onclick="ieKind(this)">🖼 짤</span><span class="chip ${ieKindSel==='card'?'on':''}" data-k="card" onclick="ieKind(this)">🗂 카드뉴스</span></div></div>
@@ -788,21 +939,95 @@
           <input id="iefile" type="file" accept="image/*" multiple style="display:none" onchange="iePick(this)">
           <textarea class="in" id="iecap" style="min-height:70px;margin-top:8px" placeholder="캡션 원문(선택) — 있으면 더 정확"></textarea></div>
         <button class="go" onclick="ieImport()">🇰🇷 한국판으로 변환 (1~4분)</button>`;
-      $('ieinfo').innerHTML='<b>수입</b> — 미국·일본 등 해외에서 터진 게시물 <b>캡처</b>를 올리면 AI가 소재만 뽑아 <b>한국 타깃 새 짤/카드</b>로 만듭니다. 인스타 크롤 안 함(계정 안전).';
+      $('ieinfo').innerHTML='<b>수입 · 해외 캡처</b> — 해외에서 터진 게시물 <b>캡처</b>를 올리면 AI가 소재만 뽑아 <b>한국 타깃 새 짤/카드</b>로 만듭니다. 인스타 크롤 안 함(계정 안전).';
+    } else {
+      b.innerHTML=`
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">수집 대상 계정</span><span class="sd">부계정으로 수집</span></div>
+          <div id="igtargets" style="display:flex;flex-direction:column;gap:6px"><div style="color:var(--faint)">불러오는 중…</div></div>
+          ${isAdmin()?`<div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="igadd" placeholder="계정 아이디(@없이)" style="flex:1"><button class="btn" onclick="igAddTarget()">＋추가</button></div>`:'<div class="caphint" style="margin-top:6px">대상 계정 편집은 관리자만 가능</div>'}</div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">이미지 게시물 수집</span><span class="sd">릴스 제외</span></div>
+          <label style="font-size:12px;color:var(--faint)">계정당 가져올 개수
+            <select class="in" id="igper" style="width:auto;margin-left:6px"><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option></select></label>
+          <button class="go" style="margin-top:8px" onclick="igFetch()">📸 수집하기</button></div>`;
+      $('ieinfo').innerHTML='<b>수입 · 인스타 수집</b> — 등록한 <b>부계정</b>으로 로그인해 지정 계정의 <b>이미지 게시물(캐러셀)</b>만 가져옵니다(릴스 제외). 캡션 원문 자동 수집. 인기순은 좋아요 기준.<br><br><span style="color:var(--danger);font-weight:700">⚠ 수집 로그인은 반드시 버너(부계정)로. 업로드 계정과 절대 분리됩니다.</span><br><span style="color:var(--faint)">부계정 로그인은 config의 ig_import_login에 설정(사장님 PC).</span>';
+      igLoadTargets();
     }
   }
   async function loadIEPacks(){
-    const sel=$('iepack'); if(!sel)return;
-    if(!code()){sel.innerHTML='<option value="">접속코드 입력</option>';return;}
+    const box=$('iepacklist'); if(!box)return;
+    if(!code()){box.innerHTML='<div style="color:var(--danger)">접속코드 입력</div>';return;}
     let d; try{d=await apiJson('/api/packs',{code:code()});}catch(e){d={ok:false};}
     const list=(d.packs||[]).filter(p=>p.exportable);
-    sel.innerHTML=list.length?list.map(p=>`<option value="${p.name}">${p.type==='cardnews'?'🗂':'▶️'} ${esch(p.title)}</option>`).join('')
-      :'<option value="">수출할 팩이 없어요 (카드뉴스 또는 유튜브 짤)</option>';
+    if(!list.length){box.innerHTML='<div style="color:var(--faint)">수출할 팩이 없어요 (카드뉴스 또는 유튜브 짤)</div>';iePackSel='';return;}
+    if(!list.some(p=>p.name===iePackSel))iePackSel=list[0].name;
+    box.innerHTML=list.map(p=>`<div class="ieprow${p.name===iePackSel?' on':''}" data-pk="${esch(p.name)}">
+      ${p.type==='cardnews'?'🗂':'<span class="ytplay sm"></span>'}<span class="tt">${esch(p.title)}</span></div>`).join('');
+    box.querySelectorAll('[data-pk]').forEach(r=>r.onclick=()=>{iePackSel=r.dataset.pk;
+      box.querySelectorAll('.ieprow').forEach(x=>x.classList.toggle('on',x===r));});
   }
   function ieExport(){
-    const pack=$('iepack')&&$('iepack').value;
-    if(!pack){flash('수출할 팩을 고르세요');return;}
-    startJob('/api/pack/translate',{code:code(),pack,target:ieLangSel},(ieLangSel==='ja'?'🇯🇵':'🇺🇸')+' '+pack.slice(0,22));
+    if(!iePackSel){flash('수출할 팩을 고르세요');return;}
+    startJob('/api/pack/translate',{code:code(),pack:iePackSel,target:ieLangSel},(ieLangSel==='ja'?'🇯🇵':'🇺🇸')+' '+iePackSel.slice(0,22));
+  }
+  /* ---- 인스타 수집(수입) ---- */
+  async function igLoadTargets(){
+    const box=$('igtargets'); if(!box)return;
+    let d; try{d=await apiJson('/api/ie/insta/targets',{code:code(),action:'list'});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){box.innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
+    const login=d.login?('버너 로그인: @'+esch(d.login)):'⚠ 부계정 로그인 미설정';
+    box.innerHTML=`<div class="caphint" style="margin:0 0 4px;color:${d.login?'var(--faint)':'var(--danger)'}">${login}</div>`
+      +((d.targets||[]).map(u=>`<div class="ieprow"><span class="tt">@${esch(u)}</span>${isAdmin()?`<button data-rmig="${esch(u)}" style="padding:4px 9px">삭제</button>`:''}</div>`).join('')
+        ||'<div style="color:var(--faint)">등록된 대상 계정이 없어요.</div>');
+    box.querySelectorAll('[data-rmig]').forEach(b=>b.onclick=async()=>{
+      await apiJson('/api/ie/insta/targets',{code:code(),action:'remove',username:b.dataset.rmig});igLoadTargets();});
+  }
+  async function igAddTarget(){
+    const u=($('igadd')&&$('igadd').value.trim())||''; if(!u){flash('계정 아이디를 입력하세요');return;}
+    const r=await apiJson('/api/ie/insta/targets',{code:code(),action:'add',username:u});
+    if(!r.ok){flash('❌ '+r.error);return;} $('igadd').value=''; igLoadTargets();
+  }
+  async function igFetch(){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    const per=($('igper')&&$('igper').value)||4;
+    const box=$('ieimpbody');
+    let d; try{d=await apiJson('/api/ie/insta/fetch',{code:code(),per:+per});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    flash('📸 인스타 수집 중… (로그인·요청에 시간이 걸릴 수 있어요)');
+    igPollFetch(d.job);
+  }
+  async function igPollFetch(jid){
+    try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);const d=await r.json();
+      if(!d.ok){flash('❌ '+d.error);return;}
+      if(d.status==='error'){flash('❌ 수집 실패: '+d.error);igPaintPosts([],d.error);return;}
+      if(d.status==='done'){igPaintPosts((d.result&&d.result.posts)||[]);return;}
+      setTimeout(()=>igPollFetch(jid),1600);
+    }catch(e){setTimeout(()=>igPollFetch(jid),2600);}
+  }
+  function igPaintPosts(posts,err){
+    const b=$('ieimpbody'); if(!b)return;
+    let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><button class="btn" onclick="renderIEImport()">‹ 다시 수집</button><span class="n" style="color:var(--faint)">${posts.length}개 이미지 게시물</span></div>`;
+    if(!posts.length){h+=`<div style="color:var(--faint)">가져온 이미지 게시물이 없어요.${err?' ('+esch(err)+')':''}<br><span style="font-size:12px">부계정 로그인(ig_import_login)·대상 계정을 확인하세요.</span></div>`;b.innerHTML=h;return;}
+    h+='<div class="iggrid">'+posts.map(p=>`<div class="igcard">
+      <img src="${esch(p.thumb||'')}" loading="lazy" onerror="this.style.opacity=.25">
+      <div class="ib"><div style="font-size:11px;color:var(--faint);margin-bottom:3px">@${esch(p.username)} · ♥ ${(p.likes||0).toLocaleString()} · ${p.n||1}장</div>
+        <div style="font-size:12px;line-height:1.45;max-height:54px;overflow:hidden;color:var(--muted)">${esch((p.caption||'').slice(0,90))}</div>
+        <button class="btn primary" style="width:100%;margin-top:8px" data-imp="${esch(p.shortcode)}" data-u="${esch(p.username)}">가져오기</button></div></div>`).join('')+'</div>';
+    b.innerHTML=h;
+    b.querySelectorAll('[data-imp]').forEach(btn=>btn.onclick=()=>igImport(btn.dataset.imp,btn.dataset.u,posts.find(p=>p.shortcode===btn.dataset.imp)));
+  }
+  async function igImport(shortcode,username,post){
+    flash('⬇ 가져오는 중…');
+    let d; try{d=await apiJson('/api/ie/insta/import',{code:code(),shortcode,username,caption:(post&&post.caption)||''});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    igPollImport(d.job);
+  }
+  async function igPollImport(jid){
+    try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);const d=await r.json();
+      if(!d.ok){flash('❌ '+d.error);return;}
+      if(d.status==='error'){flash('❌ 가져오기 실패: '+d.error);return;}
+      if(d.status==='done'){flash('✅ 결과물에 추가됨 — 결과물 탭에서 편집·업로드');return;}
+      setTimeout(()=>igPollImport(jid),1400);
+    }catch(e){setTimeout(()=>igPollImport(jid),2400);}
   }
   function iePick(inp){
     const files=[...(inp.files||[])].slice(0,8); ieImgs=[];
@@ -1161,28 +1386,126 @@
     flash('🗓 예약 완료 — '+schedStr()+' @'+acct+' · 예약·승인 탭에서 확인');
   }
 
-  /* ============ 예약·승인 TAB ============ */
+  /* ============ 예약·승인 TAB (계정 선택 → 월간 캘린더 + 승인) ============ */
+  let SVIEW={acct:undefined, ym:null, items:[], admin:false};
+  const ST_C={await:'#f59e0b',pending:'var(--gold)',done:'var(--insta)',failed:'var(--danger)',missed:'var(--pend)',rejected:'var(--faint)'};
+  const ST_L={await:'⏳ 승인대기',pending:'🕒 예약확정',done:'✅ 게시됨',failed:'❌ 실패',missed:'⏭ 놓침(서버 꺼짐)',rejected:'🚫 반려'};
   function renderSchedule(){
     $('view').innerHTML=`
     <div class="view">
       <main class="mainpane">
-        <div class="panehead"><h2>🗓 예약 · 승인</h2><span class="n">전체 예약 업로드 일정</span>
+        <div class="panehead"><h2>🗓 예약 · 승인</h2><span class="n">인스타 계정별 업로드 일정</span>
           <button class="btn" style="margin-left:auto" onclick="loadSched()">🔄 새로고침</button></div>
-        <div class="caphint" style="margin-bottom:14px">결과물에서 팩 열고 📤 업로드 → 예약으로 등록하면 여기 뜹니다. 예약 시간에 서버(사장님 PC)가 켜져 있으면 자동 게시.</div>
-        <div id="schedlist"><div style="color:var(--faint)">불러오는 중…</div></div>
-        <div id="memberpanel" style="display:none;margin-top:30px;padding-top:22px;border-top:1px solid var(--line)"></div>
+        <div id="acctpick"></div>
+        <div id="schedbody"><div style="color:var(--faint)">불러오는 중…</div></div>
       </main>
     </div>`;
+    if(!SVIEW.ym){const t=new Date();SVIEW.ym={y:t.getFullYear(),m:t.getMonth()};}
     loadSched();
+  }
+  async function loadSched(){
+    const body=$('schedbody'); if(!body)return;
+    if(!code()){body.innerHTML='<div style="color:var(--danger)">접속코드를 입력하세요</div>';return;}
+    let d; try{d=await apiJson('/api/schedule/list',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){body.innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
+    SVIEW.items=d.items||[]; SVIEW.admin=!!d.admin;
+    paintAcctPick(); paintSchedBody();
+  }
+  function schedAccounts(){
+    const s=new Set(ACCTS); SVIEW.items.forEach(e=>{if(e.account)s.add(e.account);});
+    return [...s];
+  }
+  function paintAcctPick(){
+    const box=$('acctpick'); if(!box)return;
+    const cur=SVIEW.acct;
+    const mk=(a,label)=>{const on=(cur===a);const cnt=SVIEW.items.filter(e=>a==='__all__'||e.account===a).length;
+      return `<button class="achip${on?' on':''}" data-acct="${esch(a)}">${label} <b>${cnt}</b></button>`;};
+    box.innerHTML='<div class="acclabel">👇 인스타 계정을 선택하면 해당 계정의 업로드 캘린더가 열립니다</div><div class="acrow">'
+      +mk('__all__','📋 전체')+schedAccounts().map(a=>mk(a,'@'+esch(a))).join('')+'</div>';
+    box.querySelectorAll('button[data-acct]').forEach(b=>b.onclick=()=>{SVIEW.acct=b.dataset.acct;paintAcctPick();paintSchedBody();});
+  }
+  function schedFiltered(){
+    const a=SVIEW.acct;
+    return SVIEW.items.filter(e=>a==='__all__'||e.account===a);
+  }
+  function paintSchedBody(){
+    const body=$('schedbody'); if(!body)return;
+    if(SVIEW.acct===undefined){body.innerHTML='<div style="color:var(--faint);padding:24px 4px">위에서 계정을 먼저 선택하세요.</div>';return;}
+    const FI=schedFiltered();
+    let h='';
+    // 승인 대기 (관리자)
+    if(SVIEW.admin){
+      const waits=FI.filter(e=>e.status==='await').sort((x,y)=>(x.ts||0)-(y.ts||0));
+      if(waits.length){
+        h+=`<div class="apwait"><h4>⏳ 승인 대기 ${waits.length}건 — 일반 회원이 올린 예약입니다</h4>`;
+        waits.forEach(e=>{h+=`<div class="hot" style="align-items:center;margin-bottom:6px">
+          <div class="th" style="width:44px;height:56px;flex:0 0 44px;border-radius:7px;overflow:hidden;padding:0;background:#000">${e.thumb?`<img src="${e.thumb}" style="width:100%;height:100%;object-fit:cover">`:'📦'}</div>
+          <div class="info"><div class="src">🕒 ${esch(e.when||'')} · @${esch(e.account||'')} · 신청 ${esch(e.by_name||e.by_code||'')}</div>
+            <div class="tt">${esch(e.title||e.pack)}</div></div>
+          <button class="btn primary" style="padding:7px 12px" data-ap="${e.id}">승인</button>
+          <button data-rj="${e.id}">반려</button></div>`;});
+        h+=`</div>`;
+      }
+    }
+    // 월간 캘린더
+    h+=calMonthHTML(FI);
+    body.innerHTML=h;
+    body.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>approveSched(b.dataset.ap));
+    body.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>rejectSched(b.dataset.rj));
+    body.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>cancelSched(b.dataset.cancel));
+    body.querySelectorAll('.ev[data-ev]').forEach(b=>b.onclick=e=>{
+      if(e.target.closest('[data-ap],[data-rj]'))return; evDetail(b.dataset.ev);});
+  }
+  function calMonthHTML(items){
+    const {y,m}=SVIEW.ym;
+    const first=new Date(y,m,1), start=first.getDay(), days=new Date(y,m+1,0).getDate();
+    const today=new Date(), tk=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+    const byDay={};
+    items.forEach(e=>{const k=(e.when||'').slice(0,10); if(k)(byDay[k]=byDay[k]||[]).push(e);});
+    Object.values(byDay).forEach(a=>a.sort((x,z)=>(x.ts||0)-(z.ts||0)));
+    let h=`<div class="calhead"><button onclick="calNav(-1)">‹</button><div class="mo">${y}년 ${m+1}월</div><button onclick="calNav(1)">›</button>
+      <span class="n" style="margin-left:6px;color:var(--faint);font-size:12px">${SVIEW.acct==='__all__'?'전체 계정':'@'+esch(SVIEW.acct)} · ${items.length}건</span></div>`;
+    h+='<div class="dow"><span style="color:#e0574b">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="calgrid">';
+    const cells=Math.ceil((start+days)/7)*7;
+    for(let i=0;i<cells;i++){
+      const dnum=i-start+1, inMonth=(dnum>=1&&dnum<=days);
+      if(!inMonth){h+='<div class="calcell other"></div>';continue;}
+      const key=y+'-'+String(m+1).padStart(2,'0')+'-'+String(dnum).padStart(2,'0');
+      const dow=new Date(y,m,dnum).getDay();
+      const evs=(byDay[key]||[]).map(e=>{
+        const col=ST_C[e.status]||'var(--faint)';
+        const admWait=(SVIEW.admin&&e.status==='await')?`<span class="mini"><i class="ap" data-ap="${e.id}">✓</i><i class="rj" data-rj="${e.id}">✕</i></span>`:'';
+        return `<div class="ev" data-ev="${e.id}" style="border-left-color:${col}" title="${esch(ST_L[e.status]||e.status)} · ${esch(e.title||e.pack)}"><span class="evt">${esch((e.when||'').slice(11,16))}</span> ${esch((e.title||e.pack).slice(0,9))}${admWait}</div>`;
+      }).join('');
+      h+=`<div class="calcell${key===tk?' today':''}"><div class="cd"><span class="${dow===0?'sun':''}">${dnum}</span></div>${evs}</div>`;
+    }
+    return h+'</div>';
+  }
+  function calNav(d){let{y,m}=SVIEW.ym;m+=d;if(m<0){m=11;y--;}if(m>11){m=0;y++;}SVIEW.ym={y,m};paintSchedBody();}
+  function evDetail(id){
+    const e=SVIEW.items.find(x=>x.id===id); if(!e)return;
+    const can=(e.status==='pending'||e.status==='await');
+    const msg=`${ST_L[e.status]||e.status}\n${e.when||''} · @${e.account||''}\n${e.title||e.pack}`+(e.by_name?`\n신청: ${e.by_name}`:'')+(e.error?`\n오류: ${e.error}`:'');
+    if(can&&confirm(msg+'\n\n이 예약을 취소할까요?'))cancelSched(id);
+    else if(!can)flash(msg.split('\n')[0]);
+  }
+  async function approveSched(id){const r=await apiJson('/api/schedule/approve',{code:code(),id});if(!r.ok){flash('❌ '+r.error);return;}flash('✅ 승인됨 — 예약 확정');loadSched();}
+  async function rejectSched(id){if(!confirm('이 예약을 반려할까요?'))return;const r=await apiJson('/api/schedule/reject',{code:code(),id});if(!r.ok){flash('❌ '+r.error);return;}flash('🚫 반려됨');loadSched();}
+  async function cancelSched(id){const r=await apiJson('/api/schedule/cancel',{code:code(),id});if(!r.ok){flash('❌ '+(r.error||'실패'));return;}flash('🗑 예약 취소됨');loadSched();}
+
+  /* ============ 회원 관리 TAB (관리자 전용) ============ */
+  function renderMembers(){
+    if(!isAdmin()){$('view').innerHTML='<div class="view"><main class="mainpane"><div style="color:var(--danger);padding:24px">관리자 전용 화면입니다.</div></main></div>';return;}
+    $('view').innerHTML=`<div class="view"><main class="mainpane">
+      <div class="panehead"><h2>👥 회원 관리</h2><span class="n">4자리 코드 · 권한</span></div>
+      <div id="memberpanel"></div></main></div>`;
     loadMembers();
   }
-
-  /* ============ 회원 관리 (관리자 전용) ============ */
   async function loadMembers(){
     const box=$('memberpanel'); if(!box)return;
     if(!isAdmin()){box.style.display='none';return;}
     box.style.display='';
-    box.innerHTML='<h2 style="font-size:16px;margin-bottom:4px">👥 회원 관리 <span class="n" style="font-weight:400;color:var(--faint);font-size:12px">관리자 전용</span></h2>'
+    box.innerHTML=''
       +'<div class="caphint" style="margin-bottom:12px">회원코드는 숫자 4자리. 일반 회원은 <b>예약만</b> 가능하고, 관리자는 즉시 업로드까지 가능합니다.</div>'
       +'<div id="memberlist" style="color:var(--faint)">불러오는 중…</div>'
       +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px">'
@@ -1243,7 +1566,10 @@
     box.innerHTML=h;
     box.querySelectorAll('button[data-cancel]').forEach(b=>{b.onclick=async()=>{if(!confirm('이 예약을 취소할까요?'))return;await apiJson('/api/schedule/cancel',{code:code(),id:b.dataset.cancel});loadSched();};});
   }
-  document.addEventListener('click',e=>{const pop=$('pop');if(pop.classList.contains('open')&&!pop.contains(e.target)&&e.target.id!=='upBtn')closePop();});
+  document.addEventListener('click',e=>{const pop=$('pop');if(!pop.classList.contains('open'))return;
+    // composedPath: 클릭 순간의 경로(리렌더로 노드가 분리돼도 유효) — 캘린더 날짜 클릭 시 오닫힘 방지
+    const path=e.composedPath?e.composedPath():[];
+    if(path.indexOf(pop)===-1&&!pop.contains(e.target)&&e.target.id!=='upBtn')closePop();});
 
   /* ---- misc ---- */
   function flash(msg){const t=document.createElement('div');t.textContent=msg;

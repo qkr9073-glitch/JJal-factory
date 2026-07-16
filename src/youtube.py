@@ -303,7 +303,7 @@ def detect_caption_box(cfg, image_path, log=print):
         return None
 
 
-def blur_region(src, box, dest=None, pad=0.012, blur_ratio=0.7, log=print):
+def blur_region(src, box, dest=None, pad=0.012, blur_ratio=0.35, log=print):
     """box(0~1000) 영역을 일반 가우시안 블러(사각형, 페더 없음)로 처리해 저장.
     blur_ratio 는 영역 높이 대비 블러 세기 비율(자막 높이에 따라 자동 스케일)."""
     from PIL import Image, ImageFilter
@@ -326,9 +326,12 @@ def blur_region(src, box, dest=None, pad=0.012, blur_ratio=0.7, log=print):
     return dest
 
 
+_FALLBACK_W = (100.0, 900.0)   # 감지 실패 프레임: 전체 너비의 80%(중앙 10~90%) 고정 블러
+
+
 def clean_card_frames(cfg, cards, out_dir, log=print):
-    """카드 프레임 자막을 감지 → '공유 세로 밴드(위치·높이 통일) + 프레임별 너비'로 페더 블러.
-    (자막이 프레임마다 위아래로 튀지 않게 세로 위치를 통일하고 너비만 다르게)"""
+    """카드 프레임 자막을 감지 → '공유 세로 밴드(위치·높이 통일) + 프레임별 너비'로 블러.
+    감지 실패한 프레임은 세로 위치·높이는 공유 밴드로 동일, 너비만 전체폭 80% 고정으로 안전 블러."""
     import statistics
     from PIL import Image
     os.makedirs(out_dir, exist_ok=True)
@@ -337,16 +340,15 @@ def clean_card_frames(cfg, cards, out_dir, log=print):
     for c in cards:
         c["_cap"] = detect_caption_box(cfg, c["frame"]) if c.get("frame") else None
 
-    # 2) 감지된 자막들로 공유 세로 밴드(위치·높이) + 폴백 너비(합집합) 계산
+    # 2) 감지된 자막들로 공유 세로 밴드(위치·높이) 계산
     caps = [c["_cap"] for c in cards if c.get("_cap")]
-    band = fbx = None
+    band = None
     if caps:
         band = (statistics.median(b[0] for b in caps),   # y0 중앙값
                 statistics.median(b[2] for b in caps))    # y1 중앙값
-        fbx = (min(b[1] for b in caps), max(b[3] for b in caps))  # 감지 실패 프레임용 폴백 너비
 
     # 3) 자막이 하나라도 있으면(=자막형 영상) 모든 카드 프레임을 블러.
-    #    감지된 프레임은 자기 너비, 감지 실패한 프레임은 폴백 너비 (세로 위치는 공유 밴드로 통일).
+    #    감지된 프레임은 자기 너비, 감지 실패한 프레임은 전체폭 80% 고정 (세로는 공유 밴드로 통일).
     for i, c in enumerate(cards):
         fr = c.get("frame")
         if not fr:
@@ -354,9 +356,9 @@ def clean_card_frames(cfg, cards, out_dir, log=print):
         dest = os.path.join(out_dir, f"clean_{i:02d}.jpg")
         cap = c.get("_cap")
         if band:
-            x0, x1 = (cap[1], cap[3]) if cap else fbx
+            x0, x1 = (cap[1], cap[3]) if cap else _FALLBACK_W
             if not cap:
-                log(f"      (카드{i + 1} 자막 감지 실패 → 공유 밴드+폴백 너비로 블러)")
+                log(f"      (카드{i + 1} 자막 감지 실패 → 공유 밴드+전체폭 80% 고정 블러)")
             region = [band[0], x0, band[1], x1]           # y=공유밴드, x=자기 or 폴백 너비
             blur_region(fr, region, dest, log=log)
             c["cap_region"] = region
@@ -646,8 +648,9 @@ def _yt_item(it, region=""):
             "views": int(st.get("viewCount", 0) or 0), "thumb": thumb, "region": region}
 
 
-def trending_shorts(cfg, regions=("KR", "US", "JP"), per=10, max_sec=180):
-    """지역별 트렌딩(mostPopular) 중 쇼츠(≤3분)만 지역당 per개."""
+def trending_shorts(cfg, regions=("KR", "US", "JP"), per=10, max_sec=90):
+    """지역별 트렌딩(mostPopular) 중 90초 미만 세로 쇼츠만 지역당 per개.
+    (유튜브 API는 화면비를 안 줘서 세로 여부는 직접 못 거르지만, 90초 미만은 사실상 세로 쇼츠)"""
     key = _yt_key(cfg)
     if not key:
         raise RuntimeError("유튜브 API 키가 없습니다 (config youtube_api_key)")
@@ -696,8 +699,8 @@ def _translate_query(cfg, query):
         return []
 
 
-def search_shorts(cfg, query, count=30, translate=True, max_sec=180):
-    """검색어로 인기 쇼츠 검색(조회순). 한국어면 영/일로도 번역해 합침."""
+def search_shorts(cfg, query, count=30, translate=True, max_sec=90):
+    """검색어로 인기 쇼츠 검색(조회순, 90초 미만 세로만). 한국어면 영/일로도 번역해 합침."""
     key = _yt_key(cfg)
     if not key:
         raise RuntimeError("유튜브 API 키가 없습니다 (config youtube_api_key)")

@@ -21,6 +21,8 @@ usage.json
 jobs_pending.json
 schedule.json
 members.json
+ig_targets.json
+ig_session/
 
 # ── 임시 폴더 ──
 _covertmp/
