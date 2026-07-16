@@ -236,6 +236,7 @@
   .popopt{display:flex;align-items:center;gap:11px;padding:12px;border-radius:10px}
   .popopt:hover{background:var(--panel2)}
   .popopt .e{font-size:20px}.popopt .tt{font-size:13.5px;font-weight:800}.popopt .ds{font-size:11.5px;color:var(--faint);margin-top:1px}
+  .popopt.locked{opacity:.5}.popopt.locked .tt::after{content:' 🔒';font-size:11px}
   .popsep{height:1px;background:var(--line);margin:4px 8px}
   .sched{display:none;padding:6px 6px 8px}
   .sched.open{display:block}
@@ -330,7 +331,7 @@
 <!-- 공유 업로드 팝오버 (결과물·릴스 공용, 화면 우하단 고정) -->
 <div class="pop" id="pop">
   <div id="popMenu">
-    <div class="popopt" onclick="uploadNow()"><span class="e">⚡</span><div><div class="tt">지금 업로드</div><div class="ds">바로 인스타에 게시</div></div></div>
+    <div class="popopt now" onclick="uploadNow()"><span class="e">⚡</span><div><div class="tt">지금 업로드</div><div class="ds">바로 인스타에 게시</div></div></div>
     <div class="popsep"></div>
     <div class="popopt" onclick="openSchedule()"><span class="e">🕒</span><div><div class="tt">예약</div><div class="ds">날짜·시간 지정해서 자동 게시</div></div></div>
   </div>
@@ -375,8 +376,37 @@
   /* ============ 공용: 접속코드 · API · 잡 폴링 ============ */
   const CODE=$('code');
   CODE.value=localStorage.getItem('mfcode')||'0000';
-  CODE.addEventListener('change',()=>localStorage.setItem('mfcode',CODE.value.trim()));
   const code=()=>CODE.value.trim();
+
+  /* ============ 계정: 로그인 확인 · 권한(관리자/일반) ============ */
+  let ME={ok:false,admin:false,role:'',name:''};
+  const isAdmin=()=>!!ME.admin;
+  async function refreshMe(){
+    const c=code();
+    if(!c){ME={ok:false,admin:false,role:'',name:''};paintMe();return;}
+    try{const d=await apiJson('/api/auth/me',{code:c});
+      ME=d.ok?{ok:true,admin:!!d.admin,role:d.role,name:d.name}:{ok:false,admin:false,role:'',name:''};
+    }catch(e){ME={ok:false,admin:false,role:'',name:''};}
+    paintMe();
+  }
+  function paintMe(){
+    const pill=document.querySelector('.codepill');
+    let tag=pill&&pill.querySelector('.whoami');
+    if(pill&&!tag){tag=document.createElement('span');tag.className='whoami';pill.appendChild(tag);}
+    if(tag){
+      if(ME.ok){tag.textContent=(ME.admin?'👑 ':'🙂 ')+(ME.name||'')+(ME.admin?' · 관리자':' · 일반');
+        tag.style.cssText='margin-left:8px;font-size:12px;font-weight:800;white-space:nowrap;color:'+(ME.admin?'var(--gold)':'var(--muted)');}
+      else{tag.textContent=code()?' ⚠ 잘못된 코드':'';tag.style.cssText='margin-left:8px;font-size:12px;font-weight:800;color:var(--danger)';}
+    }
+    // 즉시 업로드 옵션: 일반 사용자는 비활성 표시
+    document.querySelectorAll('.popopt.now').forEach(el=>{
+      el.classList.toggle('locked',!isAdmin());
+      const ds=el.querySelector('.ds');
+      if(ds) ds.textContent=isAdmin()?'바로 인스타에 게시':'관리자만 가능 — 예약을 이용하세요';
+    });
+  }
+  CODE.addEventListener('change',()=>{localStorage.setItem('mfcode',code());refreshMe();
+    if(typeof loadStyles==='function'){} });
   const esch=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   async function apiJson(path,body){
     const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -1062,6 +1092,7 @@
   function openSchedule(){$('popMenu').style.display='none';$('sched').classList.add('open');initSched();}
   function backToMenu(){$('popMenu').style.display='';$('sched').classList.remove('open');}
   async function uploadNow(){
+    if(!isAdmin()){flash('⛔ 즉시 업로드는 관리자만 가능합니다. 예약을 이용하세요');openSchedule();return;}
     closePop();
     if(popCtx==='reel'){ reelUploadNow(); return; }
     if(!PK)return;
@@ -1139,9 +1170,45 @@
           <button class="btn" style="margin-left:auto" onclick="loadSched()">🔄 새로고침</button></div>
         <div class="caphint" style="margin-bottom:14px">결과물에서 팩 열고 📤 업로드 → 예약으로 등록하면 여기 뜹니다. 예약 시간에 서버(사장님 PC)가 켜져 있으면 자동 게시.</div>
         <div id="schedlist"><div style="color:var(--faint)">불러오는 중…</div></div>
+        <div id="memberpanel" style="display:none;margin-top:30px;padding-top:22px;border-top:1px solid var(--line)"></div>
       </main>
     </div>`;
     loadSched();
+    loadMembers();
+  }
+
+  /* ============ 회원 관리 (관리자 전용) ============ */
+  async function loadMembers(){
+    const box=$('memberpanel'); if(!box)return;
+    if(!isAdmin()){box.style.display='none';return;}
+    box.style.display='';
+    box.innerHTML='<h2 style="font-size:16px;margin-bottom:4px">👥 회원 관리 <span class="n" style="font-weight:400;color:var(--faint);font-size:12px">관리자 전용</span></h2>'
+      +'<div class="caphint" style="margin-bottom:12px">회원코드는 숫자 4자리. 일반 회원은 <b>예약만</b> 가능하고, 관리자는 즉시 업로드까지 가능합니다.</div>'
+      +'<div id="memberlist" style="color:var(--faint)">불러오는 중…</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px">'
+      +'<input id="m_code" class="in" style="width:110px" maxlength="4" inputmode="numeric" placeholder="코드 4자리">'
+      +'<input id="m_name" class="in" style="width:150px" placeholder="이름/메모">'
+      +'<select id="m_role" class="in" style="width:auto"><option value="user">일반</option><option value="admin">관리자</option></select>'
+      +'<button class="btn primary" onclick="addMember()">＋ 추가 / 수정</button></div>';
+    let d; try{d=await apiJson('/api/members/list',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
+    const lb=$('memberlist'); if(!lb)return;
+    if(!d.ok){lb.innerHTML='<span style="color:var(--danger)">❌ '+esch(d.error)+'</span>';return;}
+    lb.innerHTML=(d.items||[]).map(m=>`<div class="hot" style="align-items:center">
+      <div class="info"><div class="tt">${m.role==='admin'?'👑':'🙂'} <code style="font-size:14px">${esch(m.code)}</code> · ${esch(m.name||'')}</div>
+        <div class="mt" style="color:${m.role==='admin'?'var(--gold)':'var(--muted)'}">${m.role==='admin'?'관리자 (즉시 업로드 가능)':'일반 (예약만)'}${m.locked?' · 기본 관리자':''}</div></div>
+      ${m.locked?'':`<button data-rm="${esch(m.code)}">삭제</button>`}</div>`).join('')
+      ||'<div style="color:var(--faint)">등록된 회원이 없어요.</div>';
+    lb.querySelectorAll('button[data-rm]').forEach(b=>{b.onclick=async()=>{
+      if(!confirm('회원코드 '+b.dataset.rm+' 를 삭제할까요?'))return;
+      const r=await apiJson('/api/members/remove',{code:code(),ncode:b.dataset.rm});
+      if(!r.ok){flash('❌ '+r.error);return;} flash('🗑 삭제됨'); loadMembers();};});
+  }
+  async function addMember(){
+    const ncode=$('m_code').value.trim(), name=$('m_name').value.trim(), role=$('m_role').value;
+    if(!/^\d{4}$/.test(ncode)){flash('회원코드는 숫자 4자리');return;}
+    const r=await apiJson('/api/members/add',{code:code(),ncode,name,role});
+    if(!r.ok){flash('❌ '+r.error);return;}
+    flash('✅ 저장됨'); $('m_code').value='';$('m_name').value=''; loadMembers();
   }
   async function loadSched(){
     const box=$('schedlist'); if(!box)return;
@@ -1195,4 +1262,5 @@
     r.setAttribute('data-theme',cur==='dark'?'light':'dark');}
 
   renderJjal();
+  refreshMe();
 </script>

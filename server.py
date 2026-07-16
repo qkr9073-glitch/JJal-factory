@@ -1646,8 +1646,50 @@ def load_config():
     return json.loads((BASE / "config.json").read_text(encoding="utf-8"))
 
 
+MEMBERS_FILE = BASE / "members.json"
+_members_lock = threading.Lock()
+
+
+def _members_load(cfg=None):
+    """회원코드→{name,role} 사전. 파일 없으면 config의 access_code를 관리자 1명으로 시드."""
+    try:
+        m = json.loads(MEMBERS_FILE.read_text(encoding="utf-8"))
+        if isinstance(m, dict) and m:
+            return m
+    except Exception:
+        pass
+    cfg = cfg or load_config()
+    seed = str(cfg.get("access_code", "") or "").strip()
+    return {seed: {"name": "관리자", "role": "admin"}} if seed else {}
+
+
+def _members_save(m):
+    with _members_lock:
+        MEMBERS_FILE.write_text(json.dumps(m, ensure_ascii=False, indent=2),
+                                encoding="utf-8")
+
+
+def _member(cfg, code):
+    """유효한 회원이면 {name,role} 반환, 아니면 None. access_code는 항상 관리자로 인정."""
+    code = (code or "").strip()
+    if not code:
+        return None
+    if code == str(cfg.get("access_code", "") or "").strip():
+        return {"name": "관리자", "role": "admin"}
+    return _members_load(cfg).get(code)
+
+
 def _check_code(cfg, code):
-    return (code or "").strip() == str(cfg.get("access_code", ""))
+    return _member(cfg, code) is not None
+
+
+def _role_for(cfg, code):
+    m = _member(cfg, code)
+    return m.get("role") if m else None
+
+
+def _is_admin(cfg, code):
+    return _role_for(cfg, code) == "admin"
 
 
 def _pack_payload(result):
@@ -2450,6 +2492,8 @@ def api_reel_upload():
     cfg = load_config()
     if not _check_code(cfg, request.form.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    if not _is_admin(cfg, request.form.get("code")):
+        return jsonify(ok=False, error="즉시 업로드는 관리자만 가능합니다. 예약을 이용하세요."), 403
     now = time.time()
     name, err = _stage_reel_video(now)
     if err:
@@ -3083,6 +3127,8 @@ def api_insta_publish():
     cfg = load_config()
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="즉시 업로드는 관리자만 가능합니다. 예약을 이용하세요."), 403
     pack = (data.get("pack") or "").strip()
     pack_dir = OUTPUT / pack
     if not pack or "/" in pack or "\\" in pack or not pack_dir.is_dir():
@@ -3244,6 +3290,67 @@ def api_schedule_cancel():
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     sid = (data.get("id") or "").strip()
     _sched_save([e for e in _sched_load() if e.get("id") != sid])
+    return jsonify(ok=True)
+
+
+# ── 계정 시스템: 로그인 확인 · 회원 관리(관리자 전용) ──────────────
+@app.post("/api/auth/me")
+def api_auth_me():
+    """접속코드 확인 → 이름·권한 반환. 프런트가 관리자/일반 UI를 가른다."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    m = _member(cfg, data.get("code"))
+    if not m:
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, name=m.get("name", ""), role=m.get("role", "user"),
+                   admin=(m.get("role") == "admin"))
+
+
+@app.post("/api/members/list")
+def api_members_list():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    m = _members_load(cfg)
+    admin_code = str(cfg.get("access_code", "") or "").strip()
+    items = [{"code": c, "name": v.get("name", ""), "role": v.get("role", "user"),
+              "locked": (c == admin_code)}
+             for c, v in sorted(m.items())]
+    return jsonify(ok=True, items=items)
+
+
+@app.post("/api/members/add")
+def api_members_add():
+    """회원 추가/수정 (관리자 전용). 4자리 숫자 코드."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    ncode = (data.get("ncode") or "").strip()
+    if not re.fullmatch(r"\d{4}", ncode):
+        return jsonify(ok=False, error="회원코드는 숫자 4자리여야 합니다"), 400
+    role = "admin" if data.get("role") == "admin" else "user"
+    name = (data.get("name") or "").strip() or "회원"
+    m = _members_load(cfg)
+    m[ncode] = {"name": name, "role": role}
+    _members_save(m)
+    return jsonify(ok=True)
+
+
+@app.post("/api/members/remove")
+def api_members_remove():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    ncode = (data.get("ncode") or "").strip()
+    if ncode == str(cfg.get("access_code", "") or "").strip():
+        return jsonify(ok=False, error="기본 관리자 코드는 삭제할 수 없습니다"), 400
+    m = _members_load(cfg)
+    if ncode in m:
+        m.pop(ncode)
+        _members_save(m)
     return jsonify(ok=True)
 
 
