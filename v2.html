@@ -252,7 +252,7 @@
       <button data-t="result">📦 <span>결과물</span></button>
     </div>
     <div class="sp"></div>
-    <div class="codepill">🔑 <input placeholder="접속코드" type="password" value="0000"></div>
+    <div class="codepill">🔑 <input id="code" placeholder="접속코드" type="password" value="0000"></div>
     <button class="iconbtn" onclick="toggleTheme()" title="테마 전환">◐</button>
   </div>
   <div id="view"></div>
@@ -337,59 +337,148 @@
     [...tabsEl.children].forEach(x=>x.classList.toggle('on',x===b));route(b.dataset.t);});
   function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,result:renderResults}[t])();}
 
+  /* ============ 공용: 접속코드 · API · 잡 폴링 ============ */
+  const CODE=$('code');
+  CODE.value=localStorage.getItem('mfcode')||'0000';
+  CODE.addEventListener('change',()=>localStorage.setItem('mfcode',CODE.value.trim()));
+  const code=()=>CODE.value.trim();
+  const esch=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  async function apiJson(path,body){
+    const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    return r.json();
+  }
+  async function startJob(endpoint,body,label){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    let d; try{d=await apiJson(endpoint,body);}catch(e){flash('❌ 통신 오류: '+e);return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const box=$('jjobs'); if(!box) return;
+    const div=document.createElement('div'); div.id='row-'+d.job;
+    div.style.cssText='background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:10px 13px;margin-bottom:8px;font-size:13px';
+    div.innerHTML=`<b>${esch(label)}</b>
+      <div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
+      <span class="jm" style="color:var(--gold)">접수됨…</span>`;
+    box.prepend(div);
+    pollJob(d.job);
+  }
+  async function pollJob(jid){
+    const row=$('row-'+jid); if(!row) return;
+    const fill=row.querySelector('.jbar>div'), jm=row.querySelector('.jm');
+    let d; try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}
+    catch(e){setTimeout(()=>pollJob(jid),2500);return;}
+    if(!d.ok){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='queued'){const ahead=Math.max(0,(d.pos||1)-1);jm.textContent=ahead?`🕐 대기 중 — 앞에 ${ahead}개`:'🕐 곧 시작…';}
+    else{if(fill)fill.style.width=(d.pct||5)+'%';jm.textContent='⏳ '+(d.msg||'작업 중…');}
+    if(d.status==='error'){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';renderResultJ(d.result,row);return;}
+    setTimeout(()=>pollJob(jid),1300);
+  }
+  function renderResultJ(d,row){
+    if(row){row.querySelector('.jm').innerHTML=`✅ 완성 — <a href="/packs/${encodeURIComponent(d.pack)}/review.html" target="_blank" style="color:var(--gold);font-weight:700">미리보기 ↗</a>`;}
+    const box=$('jresult'); if(!box) return;
+    const thumbs=(d.thumbs||[]).map((t,i)=>`<div style="flex:1"><img src="${t}" style="width:100%;border-radius:10px;border:2px solid ${i===0?'var(--gold)':'var(--line)'};display:block"><div style="text-align:center;font-size:11px;color:var(--faint);margin-top:4px">${i===0?'대표':'후보 '+(i+1)}</div></div>`).join('');
+    const div=document.createElement('div');
+    div.style.cssText='background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px';
+    div.innerHTML=`<div style="font-weight:800;margin-bottom:10px">✅ 완성팩 생성됨</div>
+      <div style="display:flex;gap:8px">${thumbs}</div>
+      ${d.skip?`<div style="margin-top:9px;color:var(--pend);font-size:12px">⚠️ ${esch(d.skip_reason)}</div>`:''}
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn" href="/packs/${encodeURIComponent(d.pack)}/review.html" target="_blank" style="text-decoration:none">🔎 검수 미리보기</a>
+        <button class="btn primary" onclick="gotoTab('result')">📦 결과물에서 편집·업로드</button></div>`;
+    box.prepend(div);
+  }
+  function gotoTab(t){[...tabsEl.children].forEach(x=>x.classList.toggle('on',x.dataset.t===t));route(t);}
+
   /* ============ 짤 TAB ============ */
-  const HOT=[
-    {s:'디시',c:'실베',t:'회사 그만두고 싶을 때 보는 짤.jpg',recs:842,views:52100,rep:210,age:'12분전',u:false},
-    {s:'루리웹',c:'유머',t:'고양이가 집사 길들이는 3단계',recs:521,views:31000,rep:88,age:'34분전',u:true},
-    {s:'에펨',c:'포텐',t:'알바하다 겪은 손님 레전드.txt',recs:410,views:22400,rep:150,age:'1시간전',u:false},
-    {s:'디시',c:'실베',t:'자취생 냉장고 클라스 甲',recs:388,views:19800,rep:64,age:'2시간전',u:false},
-    {s:'루리웹',c:'유머',t:'강아지 산책 거부 3종 세트',recs:302,views:15600,rep:47,age:'2시간전',u:false},
-    {s:'에펨',c:'축구',t:'경기 보다 빡친 사람들 모음',recs:266,views:12000,rep:120,age:'3시간전',u:true},
-  ];
-  const SITES=['전체','디시','루리웹','에펨'], SORTS=['👍 추천순','👀 조회순','💬 댓글순','🕐 최신순'];
-  let jState={tpl:0,clean:'none',site:'전체',sort:0};
+  let jState={tpl:0,site:'전체',sort:0,issue:'community'};
+  const TPLS=[['🏭','클래식','classic'],['🖼','자막형','plain'],['📖','스토리','story']];
   function renderJjal(){
-    const tiles=[['🏭','클래식'],['🖼','자막형'],['📖','스토리']];
     $('view').innerHTML=`
     <div class="view">
       <aside class="side">
-        <div class="step"><div class="sh"><span class="num">1</span><span class="st">소재 넣기</span><span class="sd">링크 또는 →인기글</span></div>
-          <input class="in" placeholder="게시물 링크 붙여넣기 (디시·루리웹·에펨)"></div>
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">소재 넣기</span><span class="sd">링크 붙여넣기</span></div>
+          <input class="in" id="jurl" placeholder="커뮤니티 링크 또는 🎬 유튜브 쇼츠 URL"></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">옵션</span><span class="sd">비워도 됨</span></div>
           <label class="fld">🎨 템플릿</label>
-          <div class="tpl" id="jtpl">${tiles.map((t,i)=>`<div class="t ${i===jState.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}">${t[0]}</div><div class="nm">${t[1]}</div></div>`).join('')}</div>
+          <div class="tpl" id="jtpl">${TPLS.map((t,i)=>`<div class="t ${i===jState.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}">${t[0]}</div><div class="nm">${t[1]}</div></div>`).join('')}</div>
           <label class="fld" style="margin-top:13px">🧹 짤에 박힌 글씨</label>
           <select class="in" id="jclean"><option value="none">그대로 두기 (0원)</option><option value="bar">하단/상단 바로 가리기</option><option value="ai">AI로 완전 제거 (장당 55원)</option></select>
           <label class="fld" style="margin-top:13px">🧭 방향 힌트 (선택)</label>
-          <input class="in" placeholder="예: 댓글 반응 위주로, 반전 강조"></div>
+          <input class="in" id="jguide" placeholder="예: 댓글 반응 위주로, 반전 강조"></div>
         <div class="step"><div class="sh"><span class="num">3</span><span class="st">만들기</span></div>
-          <button class="go" onclick="flash('🏭 완성팩 만드는 중… (데모)')">완성팩 만들기</button></div>
-        <details class="collapse"><summary>↔ 해외글 가져와서 변환 · 🇯🇵 일본 이관</summary>
-          <div class="cbody">해외 커뮤 캡처를 올리면 한국 짤로, 옛 스토리는 일본판(kangaroostory.jp)으로 변환합니다. 자주 안 쓰는 도구라 여기 접어뒀어요.</div></details>
+          <button class="go" onclick="makeJjal()">완성팩 만들기</button></div>
+        <details class="collapse"><summary>↔ 수입·수출 (해외 변환 · 일본 이관)</summary>
+          <div class="cbody">짤의 언어를 전환하는 '수입·수출'은 별도 탭으로 준비 중입니다.</div></details>
       </aside>
       <main class="mainpane">
-        <div class="panehead"><h2>🔥 지금 인기글</h2><span class="n">커뮤니티 3곳 · 선택하면 바로 제작</span></div>
-        <div class="chips" style="margin-bottom:10px">${SITES.map((s,i)=>`<span class="chip ${jState.site===s?'on':''}" onclick="jSite('${s}')">${s}</span>`).join('')}</div>
-        <div class="chips" style="margin-bottom:16px">${SORTS.map((s,i)=>`<span class="chip ${jState.sort===i?'on':''}" onclick="jSort(${i})">${s}</span>`).join('')}</div>
-        <div class="hotgrid" id="hotgrid"></div>
+        <div class="panehead"><h2>🔥 이슈</h2><span class="n">유튜브 · 커뮤니티에서 소재 고르기</span></div>
+        <div class="chips" style="margin-bottom:14px">
+          <span class="chip ${jState.issue==='youtube'?'on':''}" onclick="issueTab('youtube')">▶️ 유튜브</span>
+          <span class="chip ${jState.issue==='community'?'on':''}" onclick="issueTab('community')">🗨 커뮤니티</span></div>
+        <div id="issue"></div>
+        <div id="jjobs" style="margin-top:18px"></div>
+        <div id="jresult" style="margin-top:6px"></div>
       </main>
     </div>`;
     $('jtpl').addEventListener('click',e=>{const t=e.target.closest('.t');if(!t)return;jState.tpl=+t.dataset.i;
       [...$('jtpl').children].forEach((c,i)=>c.classList.toggle('on',i===jState.tpl));});
-    paintHot();
+    renderIssue();
   }
-  function jSite(s){jState.site=s;renderJjal();}
-  function jSort(i){jState.sort=i;renderJjal();}
-  function paintHot(){
-    let list=HOT.filter(h=>jState.site==='전체'||h.s===jState.site);
-    $('hotgrid').innerHTML=list.map((h,i)=>`
-      <div class="hot ${h.u?'used':''}">
-        <div class="th" style="background:${grad(i+4)}">${h.s==='디시'?'🎮':h.s==='루리웹'?'🐰':'⚽'}</div>
-        <div class="info"><div class="src">[${h.s}·${h.c}]</div><div class="tt">${h.t}</div>
-          <div class="mt">👍 ${h.recs} · 👀 ${h.views.toLocaleString()} · 💬 ${h.rep} · ${h.age}${h.u?' · ✅제작됨':''}</div></div>
-        <button onclick="flash('🏭 &quot;${h.t.slice(0,14)}…&quot; 제작 시작 (데모)')">${h.u?'다시':'만들기'}</button>
-      </div>`).join('');
+  function issueTab(t){jState.issue=t;
+    [...document.querySelectorAll('.mainpane .chips .chip')].forEach(c=>c.classList.toggle('on',c.textContent.includes(t==='youtube'?'유튜브':'커뮤니티')));
+    renderIssue();}
+  function renderIssue(){
+    const host=$('issue'); if(!host) return;
+    if(jState.issue==='youtube'){
+      host.innerHTML=`<div style="background:var(--panel);border:1px dashed var(--line2);border-radius:14px;padding:26px 22px;text-align:center;color:var(--muted)">
+        <div style="font-size:32px">🎬</div>
+        <div style="font-weight:800;margin-top:8px;color:var(--ink)">인기 쇼츠 목록은 준비 중</div>
+        <div style="font-size:12.5px;margin-top:7px;line-height:1.65">지금은 왼쪽 <b>소재 넣기</b>에 <b>유튜브 쇼츠 URL</b>을 붙여넣고<br>완성팩 만들기를 누르면 — 대본·프레임·자막 블러까지 자동으로 짤이 나옵니다.<br><span style="color:var(--faint)">(트렌딩/검색 브라우징은 다음 업데이트)</span></div></div>`;
+    }else{
+      host.innerHTML=`<div style="margin-bottom:12px"><button class="btn primary" id="candbtn" onclick="loadCand()">🔥 지금 인기글 불러오기</button></div>
+        <div id="candlist"><div style="color:var(--faint);font-size:13px">위 버튼을 눌러 디시·루리웹·에펨 인기글을 불러오세요. (첫 로딩 30초쯤)</div></div>`;
+    }
   }
+  let CAND=[];
+  async function loadCand(){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    const btn=$('candbtn'); if(btn){btn.disabled=true;btn.textContent='⏳ 커뮤니티 훑는 중… (30초쯤)';}
+    let d; try{d=await apiJson('/api/candidates',{code:code()});}catch(e){d={ok:false,error:'통신 오류: '+e};}
+    if(btn){btn.disabled=false;btn.textContent='🔄 인기글 새로고침';}
+    if(!d.ok){$('candlist').innerHTML=`<div style="color:var(--danger)">❌ ${esch(d.error)}</div>`;return;}
+    CAND=d.items||[]; paintCand();
+  }
+  function paintCand(){
+    const box=$('candlist'); if(!box) return;
+    const sites=['전체',...[...new Set(CAND.map(i=>i.site))]];
+    const keys=['recs','views','replies','age_min'], labels=['👍 추천순','👀 조회순','💬 댓글순','🕐 최신순'];
+    let list=CAND.filter(i=>jState.site==='전체'||i.site===jState.site);
+    const k=keys[jState.sort];
+    list.sort((a,b)=>jState.sort===3?((a.age_min||0)-(b.age_min||0)):((b[k]||0)-(a[k]||0)));
+    const sc=sites.map(s=>`<span class="chip ${jState.site===s?'on':''}" onclick="jSite('${s}')">${esch(s)}</span>`).join('');
+    const oc=labels.map((s,i)=>`<span class="chip ${jState.sort===i?'on':''}" onclick="jSort(${i})">${s}</span>`).join('');
+    const rows=list.map(it=>{
+      const p=[]; if(it.recs)p.push('👍 '+it.recs); if(it.views)p.push('👀 '+it.views.toLocaleString()); if(it.replies)p.push('💬 '+it.replies);
+      const ic=it.site==='디시'?'🎮':it.site==='루리웹'?'🐰':it.site==='에펨'?'⚽':'📝';
+      const lab=esch((it.title||'').slice(0,18)).replace(/'/g,'’');
+      return `<div class="hot ${it.used?'used':''}">
+        <div class="th" style="background:${grad((it.site||'x').length+(it.title||'').length)}">${ic}</div>
+        <div class="info"><div class="src">[${esch(it.site)}·${esch(it.category||'')}]</div>
+          <div class="tt">${esch(it.title)}</div><div class="mt">${p.join(' · ')}${it.used?' · ✅제작됨':''}</div></div>
+        <button onclick="makeUrl('${it.url}','${lab}')">${it.used?'다시':'만들기'}</button></div>`;
+    }).join('');
+    box.innerHTML=`<div class="chips" style="margin-bottom:8px">${sc}</div><div class="chips" style="margin-bottom:14px">${oc}</div>
+      <div class="hotgrid">${rows||'<div style="color:var(--faint)">불러온 인기글이 없어요</div>'}</div>`;
+  }
+  function jSite(s){jState.site=s;paintCand();}
+  function jSort(i){jState.sort=i;paintCand();}
+  function makeUrl(url,label){
+    if(!url){flash('링크를 입력하세요');return;}
+    const yt=url.includes('youtube.com')||url.includes('youtu.be');
+    const body=yt?{code:code(),url}
+      :{code:code(),url,template:TPLS[jState.tpl][2],clean:($('jclean')&&$('jclean').value)||'none',guide:(($('jguide')&&$('jguide').value)||'').trim()};
+    startJob(yt?'/api/youtube/make':'/api/make',body,(yt?'🎬 ':'')+(label||url.slice(0,40)));
+  }
+  function makeJjal(){const u=($('jurl')&&$('jurl').value.trim())||'';makeUrl(u,u.replace(/^https?:\/\//,'').slice(0,40));if($('jurl'))$('jurl').value='';}
 
   /* ============ 카드뉴스 TAB ============ */
   const THEMES=[['hunter','🎮 유튜브 네온','다크',268],['cream','🧡 크림 클래식','라이트',28],['news','🗞 뉴스 에디토리얼','라이트',210],['punch','💥 다크 강펀치','골드',45],['info','📋 인포그래픽','체크리스트',150],['pastel','🧸 파스텔 소프트','부드럽게',340]];
