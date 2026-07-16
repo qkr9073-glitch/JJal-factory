@@ -3007,6 +3007,33 @@ def api_insta_publish():
     return jsonify(ok=True, job=jid)
 
 
+@app.post("/api/pack/drive")
+def api_pack_drive():
+    """전자책 PDF → 구글 드라이브 업로드 → '링크 있는 사람 보기' 공유 링크."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    d = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not d.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    pdf = d / "ebook.pdf"
+    if not pdf.exists():
+        return jsonify(ok=False, error="이 팩엔 전자책 PDF가 없어요"), 400
+    try:
+        import drive
+        title = pack
+        try:
+            title = json.loads((d / "meta.json").read_text(encoding="utf-8")).get("title") or pack
+        except Exception:
+            pass
+        r = drive.upload_pdf(cfg, BASE, str(pdf), name=f"{title}.pdf")
+        return jsonify(ok=True, link=r["link"])
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
+
+
 @app.get("/packs/<path:subpath>")
 def packs(subpath):
     return send_from_directory(OUTPUT, subpath)

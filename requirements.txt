@@ -7,3 +7,7 @@ beautifulsoup4==4.15.0
 # 유튜브 → 짤 (다운로드 + 번들 ffmpeg, 시스템 ffmpeg 설치 불필요)
 yt-dlp==2026.7.4
 imageio-ffmpeg==0.6.0
+# 전자책 구글 드라이브 업로드 (OAuth)
+google-api-python-client
+google-auth
+google-auth-oauthlib

@@ -285,6 +285,7 @@
       <span class="mstat" id="mStat"></span>
       <div class="sp"></div>
       <button class="iconbtn" id="mEbook" title="전자책 PDF 받기" style="display:none">📕</button>
+      <button class="iconbtn" id="mDrive" title="전자책 드라이브 업로드 → 공유링크" style="display:none">📁</button>
       <button class="iconbtn" id="mZip" title="zip 받기">⬇</button>
       <button class="iconbtn" id="mDel" title="삭제" style="color:var(--danger)">🗑</button>
       <button class="iconbtn" onclick="closeModal()" title="닫기 (Esc)">✕</button>
@@ -784,6 +785,7 @@
     if(zb) zb.onclick=()=>{ if(d.zip) window.open(`${packBase(d.name)}/${encodeURIComponent(d.zip)}`,'_blank'); else flash('zip 없음'); };
     if(db) db.onclick=()=>delPack(d.name);
     if(eb){ eb.style.display=d.ebook?'':'none'; eb.onclick=()=>window.open(`${packBase(d.name)}/ebook.pdf`,'_blank'); }
+    const dv=$('mDrive'); if(dv){ dv.style.display=d.ebook?'':'none'; dv.onclick=()=>uploadDrive(); }
     $('scrim').classList.add('open'); closePop();
   }
   function closeModal(){$('scrim').classList.remove('open');closePop();PK=null;}
@@ -849,6 +851,15 @@
     if(!PK)return;
     const d=await apiJson('/api/caption/save',{code:code(),pack:PK.name,caption:$('capta').value});
     if(!d.ok){flash('❌ '+d.error);return;} flash('💾 캡션 저장 완료');
+  }
+  async function uploadDrive(){
+    if(!PK)return;
+    flash('📁 드라이브 업로드 중… (10~20초)');
+    let d; try{d=await apiJson('/api/pack/drive',{code:code(),pack:PK.name});}catch(e){flash('통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    try{ if(navigator.clipboard) await navigator.clipboard.writeText(d.link); }catch(_){}
+    flash('✅ 드라이브 업로드 완료 — 공유링크 복사됨');
+    prompt('전자책 공유 링크 (Ctrl+C 복사 → 인포크링크에 붙여넣기):', d.link);
   }
   async function delPack(name){
     if(!confirm('이 팩을 삭제할까요? (휴지통으로 이동 · 복구 가능)'))return;

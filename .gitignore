@@ -5,6 +5,9 @@
 
 # ── 비밀 · 개인정보 (유출 시 계정 탈취 / 사생활 노출) ──
 config.json
+drive_client.json
+drive_token.json
+drive_sa.json
 자료서랍/
 _사용완료/
 
