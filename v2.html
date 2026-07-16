@@ -933,7 +933,7 @@
         <div id="rstatus" class="caphint" style="margin-top:12px;color:var(--gold)"></div>
         <div style="display:flex;margin-top:18px;justify-content:flex-end">
           <button class="btn primary" onclick="togglePop(event,'reel')" style="font-size:14.5px">📤 업로드</button></div>
-        <div class="caphint" style="margin-top:14px">⚠️ '지금 업로드'는 선택한 실계정 릴스로 바로 올라갑니다.</div>
+        <div class="caphint" style="margin-top:14px">📤 업로드 → <b>지금 게시</b>(관리자) 또는 <b>예약</b> 선택. 예약하면 영상이 보관됐다가 그 시간에 자동 릴스 게시돼요.</div>
       </main>
     </div>`;
     if($('rname')&&RVIDEO)$('rname').textContent='🎬 '+RVIDEO.name;
@@ -1526,7 +1526,23 @@
       if(!d.ok){flash('❌ '+d.error);return;}
       flash('🕒 예약 시간 변경됨 — '+schedStr()); RESCHED=null; popCtx='result'; loadSched(); return;
     }
-    if(popCtx==='reel'){flash('🕒 릴스 예약은 준비 중(영상 보관 필요) — 지금은 게시물 예약만');return;}
+    if(popCtx==='reel'){
+      if(!RVIDEO&&!RSTAGED){flash('먼저 영상을 선택하세요');return;}
+      if(ts0<=Math.floor(Date.now()/1000)+60){flash('⛔ 예약 시간은 현재보다 미래여야 합니다');return;}
+      const acct=$('racctSel')?$('racctSel').value:'';
+      const fd=new FormData();
+      fd.append('code',code()); fd.append('account',acct);
+      fd.append('caption',($('rcap')&&$('rcap').value.trim())||'');
+      fd.append('ts',ts0); fd.append('when',schedStr());
+      fd.append('title','릴스 · '+((RVIDEO&&RVIDEO.name)||'영상'));
+      if(RSTAGED)fd.append('video_name',RSTAGED); else fd.append('video',RVIDEO);
+      flash('🗓 릴스 예약 등록 중… (영상 업로드, 용량 크면 잠깐)');
+      let d; try{const r=await fetch('/api/reel/schedule',{method:'POST',body:fd});d=await r.json();}catch(e){flash('통신 오류');return;}
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const rst=d.status==='await'?'승인 대기 등록됨 (관리자 승인 후 게시)':'예약 완료';
+      flash('🎬 릴스 '+rst+' — '+schedStr()+' @'+acct+' · 예약·승인 탭에서 확인');
+      return;
+    }
     if(!PK){flash('팩을 먼저 여세요');return;}
     const ts=ts0;
     if(ts<=Math.floor(Date.now()/1000)+60){flash('⛔ 예약 시간은 현재보다 미래여야 합니다 (지난 시간 선택됨)');return;}

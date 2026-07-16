@@ -2537,9 +2537,9 @@ def _stage_reel_video(now):
         return None, (jsonify(ok=False, error="영상 파일을 올려주세요"), 400)
     if Path(f.filename).suffix.lower() not in (".mp4", ".mov", ".m4v"):
         return None, (jsonify(ok=False, error="MP4/MOV 영상만 올려주세요"), 400)
-    for old in vdir.glob("*.mp4"):     # 1시간 지난 옛 영상 정리(용량)
+    for old in vdir.glob("*.mp4"):     # 1시간 지난 옛 영상 정리(용량). 예약(sched_)은 건드리지 않음
         try:
-            if now - old.stat().st_mtime > 3600:
+            if not old.name.startswith("sched_") and now - old.stat().st_mtime > 3600:
                 old.unlink()
         except OSError:
             pass
@@ -2612,6 +2612,48 @@ def api_reel_upload():
     JOBQ.put((jid, _run_reel_job,
               (jid, str(OUTPUT / "_videos" / name), video_url, caption, account, cfg)))
     return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/reel/schedule")
+def api_reel_schedule():
+    """영상(MP4) + 시간 → 릴스 예약. 영상은 예약 시간까지 보관(sched_), 스케줄러가 게시."""
+    cfg = load_config()
+    code = request.form.get("code")
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    try:
+        ts = float(request.form.get("ts") or 0)
+    except (TypeError, ValueError):
+        ts = 0
+    if ts <= time.time() + 30:
+        return jsonify(ok=False, error="예약 시간은 현재보다 미래여야 합니다"), 400
+    now = time.time()
+    name, err = _stage_reel_video(now)
+    if err:
+        return err
+    # 예약 영상은 오래 보관해야 하므로 'sched_' 접두로 이름 변경(자동정리 제외)
+    vdir = OUTPUT / "_videos"
+    sname = "sched_" + uuid.uuid4().hex[:14] + ".mp4"
+    try:
+        (vdir / name).rename(vdir / sname)
+    except OSError:
+        sname = name
+    who = _member(cfg, code) or {}
+    admin = who.get("role") == "admin"
+    entry = {"id": uuid.uuid4().hex[:10], "type": "reel", "pack": "",
+             "video": sname,
+             "account": (request.form.get("account") or "").strip(),
+             "caption": (request.form.get("caption") or "").strip(),
+             "ts": ts, "when": (request.form.get("when") or "").strip(),
+             "title": (request.form.get("title") or "릴스 영상").strip(),
+             "status": "pending" if admin else "await",
+             "by_code": (code or "").strip(), "by_name": who.get("name", ""),
+             "by_role": who.get("role", "user"),
+             "created": datetime.now().isoformat(timespec="seconds")}
+    items = _sched_load()
+    items.append(entry)
+    _sched_save(items)
+    return jsonify(ok=True, id=entry["id"], status=entry["status"])
 
 
 @app.get("/api/job/<jid>")
@@ -3335,12 +3377,28 @@ def _scheduler_loop():
                 cfg = load_config()
                 for e in due:
                     try:
-                        pack_dir = OUTPUT / e["pack"]
-                        if not pack_dir.is_dir():
-                            raise RuntimeError("팩 없음(삭제됨?)")
-                        r = insta.publish_pack(cfg, BASE, pack_dir,
-                                               lead=e.get("lead") or None,
-                                               account=e.get("account") or None)
+                        if e.get("type") == "reel":          # 릴스 예약: 영상 URL로 발행
+                            vn = e.get("video") or ""
+                            vpath = OUTPUT / "_videos" / vn
+                            if not vn or not vpath.exists():
+                                raise RuntimeError("예약 영상 없음(만료/삭제됨?)")
+                            public = (cfg.get("public_base_url")
+                                      or "https://jjal.traffic-charger.com").rstrip("/")
+                            video_url = f"{public}/packs/_videos/{vn}"
+                            r = insta.publish_reel(cfg, BASE, video_url,
+                                                   e.get("caption") or "",
+                                                   account=e.get("account") or None)
+                            try:
+                                vpath.unlink()               # 게시 후 영상 정리
+                            except OSError:
+                                pass
+                        else:                                # 게시물(캐러셀) 예약
+                            pack_dir = OUTPUT / e["pack"]
+                            if not pack_dir.is_dir():
+                                raise RuntimeError("팩 없음(삭제됨?)")
+                            r = insta.publish_pack(cfg, BASE, pack_dir,
+                                                   lead=e.get("lead") or None,
+                                                   account=e.get("account") or None)
                         e["status"] = "done"
                         e["permalink"] = r.get("permalink", "")
                     except Exception as ex:
@@ -3401,6 +3459,13 @@ def api_schedule_list():
         mycode = (data.get("code") or "").strip()
         items = [e for e in items if e.get("by_code") == mycode]
     for e in items:
+        if e.get("type") == "reel":                 # 릴스 예약: 영상 미리보기
+            vn = e.get("video") or ""
+            e["video"] = (f"/packs/_videos/{vn}"
+                          if vn and (OUTPUT / "_videos" / vn).exists() else "")
+            e["images"] = []
+            e["thumb"] = ""
+            continue
         pd = OUTPUT / e.get("pack", "")
         e["thumb"] = f"/packs/{e['pack']}/thumb.jpg" if (pd / "thumb.jpg").exists() else ""
         # 미리보기용 이미지/영상 목록 — 실제 게시 순서와 동일(썸네일/lead가 첫 장, 그다음 본문)
