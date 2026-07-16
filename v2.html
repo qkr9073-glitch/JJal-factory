@@ -167,6 +167,12 @@
   .tg .pv img{width:100%;height:100%;object-fit:cover;display:block}
   .tg .lb{padding:9px 11px;background:var(--panel);font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:6px}
   .tg.on .lb{color:var(--gold)}
+  .tg.add{border-style:dashed;cursor:pointer}
+  .tg.add .pv{background:var(--panel2);color:var(--muted);flex-direction:column;gap:4px}
+  .tg.add .lb{justify-content:center;text-align:center;line-height:1.3}
+  .tg.add:hover{border-color:var(--gold)}
+  .tg.add:hover .pv,.tg.add:hover .lb{color:var(--gold)}
+  .tg.add .plus{font-size:34px;font-weight:300;line-height:1}
   /* 스타일 프리셋 (내용구성 학습) */
   .styrow{display:flex;gap:10px;flex-wrap:wrap}
   .styp{width:84px;border:2px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;position:relative;background:var(--panel)}
@@ -739,7 +745,7 @@
         <div id="jjobs"></div>
         <div id="jresult"></div>
         <div class="panehead"><h2>🎨 템플릿</h2><span class="n">눌러서 미리보기로 고르세요</span></div>
-        <div class="tgal" id="tgal">${THEMES.map((t,i)=>`<div class="tg ${cState.theme===i?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(t[3])}"><img src="/themeprev/${t[0]}" alt="${esch(t[1])}" loading="lazy" onerror="this.remove()"></div><div class="lb">${esch(t[1])} <span style="opacity:.6;font-weight:600">${esch(t[2])}</span></div></div>`).join('')}</div>
+        <div class="tgal" id="tgal">${THEMES.map((t,i)=>`<div class="tg ${cState.theme===i?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(t[3])}"><img src="/themeprev/${t[0]}" alt="${esch(t[1])}" loading="lazy" onerror="this.remove()"></div><div class="lb">${esch(t[1])} <span style="opacity:.6;font-weight:600">${esch(t[2])}</span></div></div>`).join('')}<div class="tg add" onclick="document.getElementById('styfile').click()" title="참고 이미지·PDF로 새 템플릿(스타일) 학습"><div class="pv"><span class="plus">＋</span></div><div class="lb">새 템플릿 학습<br><span style="opacity:.6;font-weight:600">이미지·PDF</span></div></div></div>
         <div class="panehead" style="margin-top:22px"><h2 style="font-size:15px">🧩 스타일 프리셋</h2><span class="n">내용 구성 스타일 — 참고 캐러셀로 학습</span></div>
         <div class="styrow" id="stylerow"><div style="color:var(--faint);font-size:13px">불러오는 중…</div></div>
         <input id="styfile" type="file" accept="image/*,application/pdf,.pdf" multiple style="display:none" onchange="analyzeStyle(this)">
@@ -749,8 +755,8 @@
           <div id="recolist"><div style="color:var(--faint);font-size:13px">버튼을 눌러 추천 주제를 불러오세요. 클릭하면 주제로 채워져요.</div></div></div>
       </main>
     </div>`;
-    $('tgal').addEventListener('click',e=>{const t=e.target.closest('.tg');if(!t)return;cState.theme=+t.dataset.i;
-      [...$('tgal').children].forEach((c,i)=>c.classList.toggle('on',i===cState.theme));});
+    $('tgal').addEventListener('click',e=>{const t=e.target.closest('.tg');if(!t||t.classList.contains('add'))return;cState.theme=+t.dataset.i;
+      [...$('tgal').querySelectorAll('.tg')].forEach(c=>c.classList.toggle('on',+c.dataset.i===cState.theme));});
     loadStyles();
   }
   /* ---- 스타일 프리셋 (내용 구성 학습) ---- */
