@@ -3524,6 +3524,7 @@ def api_schedule_reject():
             e["status"] = "rejected"
             e["reject_reason"] = (data.get("reason") or "").strip()
             e["rejected_at"] = datetime.now().isoformat(timespec="seconds")
+            _cleanup_reel_video(e)        # 반려된 릴스 영상 정리
     _sched_save(items)
     return jsonify(ok=True)
 
@@ -3558,6 +3559,17 @@ def api_schedule_reschedule():
     return jsonify(ok=hit, error=None if hit else "예약을 찾을 수 없습니다")
 
 
+def _cleanup_reel_video(entry):
+    """릴스 예약 취소/반려 시 보관하던 영상 파일 정리(고아 영상 방지)."""
+    if entry and entry.get("type") == "reel":
+        vn = entry.get("video") or ""
+        if vn.startswith("sched_"):
+            try:
+                (OUTPUT / "_videos" / vn).unlink()
+            except OSError:
+                pass
+
+
 @app.post("/api/schedule/cancel")
 def api_schedule_cancel():
     data = request.get_json(silent=True) or {}
@@ -3565,7 +3577,11 @@ def api_schedule_cancel():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     sid = (data.get("id") or "").strip()
-    _sched_save([e for e in _sched_load() if e.get("id") != sid])
+    items = _sched_load()
+    for e in items:                       # 취소되는 릴스 예약 영상 정리
+        if e.get("id") == sid:
+            _cleanup_reel_video(e)
+    _sched_save([e for e in items if e.get("id") != sid])
     return jsonify(ok=True)
 
 
