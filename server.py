@@ -3468,6 +3468,11 @@ def api_schedule_list():
             continue
         pd = OUTPUT / e.get("pack", "")
         e["thumb"] = f"/packs/{e['pack']}/thumb.jpg" if (pd / "thumb.jpg").exists() else ""
+        try:      # 게시될 캡션(예약 상세에서 확인용) — 게시물은 caption.txt
+            cap_f = pd / "caption.txt"
+            e["caption"] = cap_f.read_text(encoding="utf-8") if cap_f.exists() else ""
+        except Exception:
+            e["caption"] = ""
         # 미리보기용 이미지/영상 목록 — 실제 게시 순서와 동일(썸네일/lead가 첫 장, 그다음 본문)
         if pd.is_dir():
             numbered = [p.name for p in sorted(pd.glob("[0-9][0-9].jpg"))]

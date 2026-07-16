@@ -84,7 +84,9 @@
   .smnav{position:absolute;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:50%;border:0;background:rgba(0,0,0,.5);color:#fff;font-size:18px;cursor:pointer;z-index:2}
   .smnav.l{left:8px}.smnav.r{right:8px}
   .smcount{position:absolute;bottom:8px;right:10px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;z-index:2}
-  .sminfo{padding:12px 15px;font-size:13px;font-weight:700;color:var(--muted);line-height:1.6}
+  .sminfo{padding:12px 15px 6px;font-size:13px;font-weight:700;color:var(--muted);line-height:1.6}
+  .smcap{margin:0 15px 12px;padding:9px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;font-size:12px;color:var(--muted);line-height:1.5;white-space:pre-wrap;max-height:110px;overflow:auto}
+  .smcap .cl{font-size:11px;font-weight:800;color:var(--faint);display:block;margin-bottom:4px}
   .smfoot{display:flex;align-items:center;gap:8px;padding:12px 15px;border-top:1px solid var(--line)}
   /* 유튜브 짤 빨간 재생버튼 아이콘 (이미지 없이 CSS) */
   .ytplay{display:inline-flex;align-items:center;justify-content:center;width:20px;height:14px;background:#ff0033;border-radius:4px;vertical-align:-2px;flex:0 0 auto}
@@ -445,6 +447,7 @@
       <div class="sp"></div><button class="iconbtn" onclick="closeSModal()" title="닫기">✕</button></div>
     <div class="smprev" id="smPrev"></div>
     <div class="sminfo" id="smInfo"></div>
+    <div class="smcap" id="smCap" style="display:none"></div>
     <div class="smfoot">
       <button class="btn primary" id="smEdit">🕒 예약 변경</button>
       <div class="sp"></div>
@@ -988,8 +991,8 @@
             <button class="btn" onclick="bulkAddTime()">＋추가</button></div>
           <label class="fld" style="margin-top:10px">올릴 계정</label>
           <select class="in" id="bulkacct" onchange="BULK.account=this.value;bulkPreview()">${REEL_ACCTS}</select>
-          <label class="fld" style="margin-top:10px">공통 캡션 <span style="font-weight:400;color:var(--faint)">— 선택(모든 영상 공통)</span></label>
-          <textarea class="in" id="bulkcap" style="min-height:64px" onchange="BULK.caption=this.value" placeholder="비우면 캡션 없이 예약"></textarea></div>
+          <label class="fld" style="margin-top:10px">공통 캡션 <span style="font-weight:400;color:var(--faint)">— 비우면 영상마다 AI 자동 생성</span></label>
+          <textarea class="in" id="bulkcap" style="min-height:64px" onchange="BULK.caption=this.value" placeholder="여기 쓰면 모든 영상 공통 캡션 · 비우면 영상별로 AI가 자동 작성(확인 없이 바로 예약)"></textarea></div>
       </aside>
       <main class="mainpane">
         <div class="panehead"><h2>🗓 이렇게 예약됩니다</h2><span class="n" id="bulkcount"></span></div>
@@ -1069,6 +1072,20 @@
       return `<div class="prow"><span class="pn">${i+1}</span><span class="pv">🎬 ${esch(v.name)}</span><span class="pt">${s?esch(s.when.replace(' ',` (${dow}) `)):'—'}</span></div>`;
     }).join('');
   }
+  // 영상 → AI 캡션 자동생성(+스테이징). 반환 {caption, video(스테이징명)}
+  async function reelCaptionFor(file, account){
+    const fd=new FormData(); fd.append('code',code()); fd.append('account',account); fd.append('hint','');
+    fd.append('video',file);
+    const r=await fetch('/api/reel/caption',{method:'POST',body:fd}); const d=await r.json();
+    if(!d.ok) throw new Error(d.error||'캡션 요청 실패');
+    for(let k=0;k<80;k++){
+      await new Promise(res=>setTimeout(res,1500));
+      const jr=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`); const jd=await jr.json();
+      if(jd.status==='done') return jd.result||{};
+      if(jd.status==='error') throw new Error(jd.error||'캡션 생성 실패');
+    }
+    throw new Error('캡션 생성 시간 초과');
+  }
   async function bulkConfirm(){
     if(!code()){flash('접속코드를 입력하세요');return;}
     const n=BULK.videos.length;
@@ -1076,16 +1093,24 @@
     if(!BULK.date||!BULK.times.length){flash('시작 날짜와 시간을 정하세요');return;}
     const slots=bulkSlots(n);
     if(slots.length<n){flash('시간대가 부족해요 — 시간을 더 추가하거나 시작 날짜를 조정하세요');return;}
-    if(!confirm(n+'개 영상을 예약할까요? (업로드에 시간이 좀 걸립니다)'))return;
+    const auto=!(BULK.caption||'').trim();   // 공통 캡션 없으면 영상별 AI 자동생성
+    if(!confirm(n+'개 영상을 예약할까요?'+(auto?' (캡션은 영상마다 AI가 자동 작성 — 확인 없이 바로 예약, 시간이 좀 걸려요)':' (업로드에 시간이 좀 걸립니다)')))return;
     $('bulkgo').disabled=true;
     let ok=0, fail=0;
     for(let i=0;i<n;i++){
       const v=BULK.videos[i], s=slots[i];
-      if($('bulkstatus'))$('bulkstatus').textContent=`⬆ ${i+1}/${n} 업로드·예약 중… (${v.name})`;
+      let cap=BULK.caption||'', staged=null;
+      if(auto){
+        if($('bulkstatus'))$('bulkstatus').textContent=`✨ ${i+1}/${n} AI 캡션 생성 중… (${v.name})`;
+        try{const rc=await reelCaptionFor(v,BULK.account); cap=rc.caption||''; staged=rc.video||null;}
+        catch(e){ cap=''; staged=null; }   // 캡션 실패해도 캡션 없이 예약은 진행
+      }
+      if($('bulkstatus'))$('bulkstatus').textContent=`⬆ ${i+1}/${n} 예약 등록 중… (${v.name})`;
       const fd=new FormData();
       fd.append('code',code()); fd.append('account',BULK.account);
-      fd.append('caption',BULK.caption||''); fd.append('ts',s.ts); fd.append('when',s.when);
-      fd.append('title','릴스 · '+v.name); fd.append('video',v);
+      fd.append('caption',cap); fd.append('ts',s.ts); fd.append('when',s.when);
+      fd.append('title','릴스 · '+v.name);
+      if(staged) fd.append('video_name',staged); else fd.append('video',v);
       try{const r=await fetch('/api/reel/schedule',{method:'POST',body:fd});const d=await r.json();
         if(d.ok)ok++; else {fail++; console.warn('예약 실패',v.name,d.error);}
       }catch(e){fail++;}
@@ -1797,6 +1822,9 @@
       +(e.status==='await'?' · <span style="color:#f59e0b">승인 대기</span>':'')
       +(e.error?`<div style="color:var(--danger);font-weight:600">${esch(e.error)}</div>`:'');
     paintSPrev();
+    const cap=(e.caption||'').trim();
+    if($('smCap')){ $('smCap').style.display=cap?'':'none';
+      $('smCap').innerHTML='<span class="cl">📝 올릴 캡션</span>'+esch(cap); }
     const canEdit=(e.status==='pending'||e.status==='await');
     $('smEdit').style.display=canEdit?'':'none';
     $('smCancel').style.display=canEdit?'':'none';
