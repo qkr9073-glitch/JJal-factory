@@ -522,7 +522,6 @@
 
   /* ============ 카드뉴스 TAB ============ */
   const THEMES=[['hunter','🎮 유튜브 네온','다크',268],['cream','🧡 크림 클래식','라이트',28],['news','🗞 뉴스 에디토리얼','라이트',210],['punch','💥 다크 강펀치','골드',45],['info','📋 인포그래픽','체크리스트',150],['pastel','🧸 파스텔 소프트','부드럽게',340]];
-  const RECOS=[['🔥','쇼츠 알고리즘 2026년 변화 총정리','오늘의 주제'],['🔥','인스타 릴스 vs 유튜브 쇼츠 수익 비교','오늘의 주제'],['🤖','ChatGPT로 대본 10배 빨리 쓰는 법','AI 인사이트'],['🤖','자동화 툴 5개로 채널 운영','AI 인사이트']];
   let cState={mode:0,theme:0};
   function renderCard(){
     const modes=[['📚','일반','전자책 포함'],['🧾','증빙','후기·수익 캡처'],['📖','내 스토리','서사형']];
@@ -530,32 +529,58 @@
     <div class="view">
       <aside class="side">
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">주제</span></div>
-          <input class="in" placeholder="예: 쇼츠 조회수 터지는 후킹 문장"></div>
+          <input class="in" id="ctopic" placeholder="예: 쇼츠 조회수 터지는 후킹 문장"></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">모드</span></div>
           <div class="chips">${modes.map((m,i)=>`<span class="chip ${cState.mode===i?'on':''}" onclick="cMode(${i})">${m[0]} ${m[1]}</span>`).join('')}</div>
           <div class="caphint" style="margin-top:7px">${modes[cState.mode][0]} <b>${modes[cState.mode][1]}</b> — ${modes[cState.mode][2]}</div></div>
         <div class="step"><div class="sh"><span class="num">3</span><span class="st">옵션</span></div>
           <label class="fld">전자책 개수 · 댓글 키워드</label>
-          <div style="display:flex;gap:8px"><select class="in" style="flex:0 0 120px"><option>30개</option><option>40개</option><option selected>60개</option></select>
-          <input class="in" placeholder="댓글 키워드 (비우면 AI)"></div>
+          <div style="display:flex;gap:8px"><select class="in" id="citems" style="flex:0 0 120px"><option value="30">30개</option><option value="40">40개</option><option value="60" selected>60개</option></select>
+          <input class="in" id="ckeyword" placeholder="댓글 키워드 (비우면 AI)"></div>
           <div class="checks" style="margin-top:11px">
-            <label class="ck"><input type="checkbox" checked> <span>🖼 표지 사진 자동 <b>(Pexels)</b></span></label>
-            <label class="ck"><input type="checkbox"> <span>🏞 본문 사이에도 사진</span></label>
-            <label class="ck warn"><input type="checkbox"> <span>📤 <b>생성되면 인스타 자동 게시</b> — 검수 없이 바로 공개!</span></label>
+            <label class="ck"><input type="checkbox" id="cAutocover" checked> <span>🖼 표지 사진 자동 <b>(Pexels)</b></span></label>
+            <label class="ck"><input type="checkbox" id="cBodyimg"> <span>🏞 본문 사이에도 사진</span></label>
+            <label class="ck warn"><input type="checkbox" id="cAutoup"> <span>📤 <b>생성되면 인스타 자동 게시</b> — 검수 없이 바로 공개!</span></label>
           </div></div>
-        <button class="go" onclick="flash('🗂 카드뉴스+전자책 만드는 중… (데모)')">카드뉴스 + 전자책 만들기</button>
-        <details class="collapse"><summary>🌏 해외 인기글 → 한국판으로 변환</summary>
-          <div class="cbody">해외 캐러셀 스샷을 올리면 소재만 뽑아 한국 타깃 새 카드로. 인스타 크롤 안 함 — 계정 안전.</div></details>
+        <button class="go" onclick="makeCard()">카드뉴스 + 전자책 만들기</button>
+        <details class="collapse"><summary>🌏 수입·수출 (해외 변환)</summary>
+          <div class="cbody">짤·카드의 언어를 전환하는 '수입·수출'은 별도 탭으로 준비 중입니다.</div></details>
       </aside>
       <main class="mainpane">
+        <div id="jjobs"></div>
+        <div id="jresult"></div>
         <div class="panehead"><h2>🎨 템플릿</h2><span class="n">눌러서 고르세요</span></div>
         <div class="tgal" id="tgal">${THEMES.map((t,i)=>`<div class="tg ${cState.theme===i?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(t[3])}">${t[0].split(' ')[0]}<span style="font-size:11px;opacity:.85">${t[2]}</span></div><div class="lb">${t[0]}</div></div>`).join('')}</div>
-        <div class="recos"><div class="panehead"><h2 style="font-size:15px">💡 추천 소재</h2><span class="n">🔥 오늘의 주제 · 🤖 AI 인사이트</span></div>
-          ${RECOS.map(r=>`<div class="reco" onclick="flash('주제로 채웠어요: ${r[1]}')"><span class="hz">${r[0]}</span><span class="tt">${r[1]}</span><span class="tag">${r[2]}</span></div>`).join('')}</div>
+        <div class="recos"><div class="panehead"><h2 style="font-size:15px">💡 추천 소재</h2></div>
+          <div class="chips" style="margin-bottom:12px"><button class="btn" onclick="loadRecos('trend')">🔥 오늘의 주제</button><button class="btn" onclick="loadRecos('ins')">🤖 AI 인사이트</button></div>
+          <div id="recolist"><div style="color:var(--faint);font-size:13px">버튼을 눌러 추천 주제를 불러오세요. 클릭하면 주제로 채워져요.</div></div></div>
       </main>
     </div>`;
     $('tgal').addEventListener('click',e=>{const t=e.target.closest('.tg');if(!t)return;cState.theme=+t.dataset.i;
       [...$('tgal').children].forEach((c,i)=>c.classList.toggle('on',i===cState.theme));});
+  }
+  function makeCard(){
+    const topic=($('ctopic')&&$('ctopic').value.trim())||'';
+    if(topic.length<4){flash('주제를 4자 이상 구체적으로 적어주세요');return;}
+    startJob('/api/card/make',{code:code(),topic,
+      mode:['normal','proof','story'][cState.mode],
+      theme:THEMES[cState.theme][0],
+      items:parseInt(($('citems')&&$('citems').value)||'60',10),
+      keyword:($('ckeyword')&&$('ckeyword').value.trim())||'',
+      auto_cover:$('cAutocover')?$('cAutocover').checked:true,
+      body_images:$('cBodyimg')?$('cBodyimg').checked:false,
+      auto_upload:$('cAutoup')?$('cAutoup').checked:false},'🗂 '+topic.slice(0,30));
+  }
+  async function loadRecos(kind){
+    const box=$('recolist'); if(!box)return;
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    box.innerHTML='<div style="color:var(--faint);font-size:13px">불러오는 중…</div>';
+    let d; try{d=await apiJson(kind==='ins'?'/api/card/insights':'/api/card/trends',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!d.ok){box.innerHTML=`<div style="color:var(--danger)">❌ ${esch(d.error)}</div>`;return;}
+    const items=d.items||[]; const topicOf=it=>(it&&(it.title||it.topic||it.text||it.headline))||String(it);
+    if(!items.length){box.innerHTML='<div style="color:var(--faint)">추천이 없어요</div>';return;}
+    box.innerHTML=items.slice(0,12).map((it,i)=>`<div class="reco" data-i="${i}"><span class="hz">${kind==='ins'?'🤖':'🔥'}</span><span class="tt">${esch(topicOf(it))}</span><span class="tag">${kind==='ins'?'AI 인사이트':'오늘의 주제'}</span></div>`).join('');
+    box.querySelectorAll('.reco').forEach(el=>{el.onclick=()=>{if($('ctopic'))$('ctopic').value=topicOf(items[+el.dataset.i]);flash('주제로 채웠어요 — 왼쪽에서 확인');};});
   }
   function cMode(i){cState.mode=i;renderCard();}
 
