@@ -214,7 +214,22 @@
   .btn.ghost{background:transparent;color:var(--muted)}
   .btn.primary{background:var(--gold);color:var(--gold-ink);border-color:var(--gold);font-weight:800;padding:11px 22px;box-shadow:0 6px 18px -8px color-mix(in srgb,var(--gold) 70%,transparent)}
   .btn.primary:hover{filter:brightness(1.05)}
-  .pop{position:absolute;bottom:64px;right:18px;width:280px;background:var(--raised);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:8px;display:none;z-index:10}
+  .pop{position:absolute;bottom:64px;right:18px;width:300px;max-height:74vh;overflow:auto;background:var(--raised);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:8px;display:none;z-index:10}
+  .cal{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px}
+  .calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:13px;font-weight:800}
+  .calhead button{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:7px;width:26px;height:26px;font-size:15px;line-height:1;padding:0}
+  .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+  .caldow span{text-align:center;font-size:10.5px;color:var(--faint);padding:2px 0}
+  .cd{text-align:center;font-size:12px;padding:6px 0;border-radius:7px;cursor:pointer;color:var(--ink)}
+  .cd:hover{background:var(--raised)}
+  .cd.today{outline:1px solid var(--line2)}
+  .cd.on{background:var(--gold);color:var(--gold-ink);font-weight:800}
+  .timerow{display:flex;align-items:center;gap:6px}
+  .tsel{width:auto;flex:0 0 auto;padding:8px 9px}
+  .ampm{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .ampm button{background:var(--panel2);border:0;color:var(--muted);font-size:12px;font-weight:700;padding:8px 11px;cursor:pointer}
+  .ampm button.on{background:var(--gold);color:var(--gold-ink)}
+  .seldt{margin-top:8px;font-size:12.5px;color:var(--gold);font-weight:800;text-align:center}
   .pop.open{display:block;animation:pop .16s ease}
   @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   .popopt{display:flex;align-items:center;gap:11px;padding:12px;border-radius:10px}
@@ -309,7 +324,13 @@
           </div>
           <div class="sched" id="sched">
             <button class="back" onclick="backToMenu()">‹ 뒤로</button>
-            <div class="schrow"><label>예약 날짜 · 시간</label><input type="datetime-local" value="2026-07-17T09:00"></div>
+            <div class="schrow"><label>예약 날짜</label><div class="cal" id="scal"></div></div>
+            <div class="schrow"><label>시간</label>
+              <div class="timerow">
+                <div class="ampm"><button type="button" data-ap="am" class="on" onclick="setAmpm('am')">오전</button><button type="button" data-ap="pm" onclick="setAmpm('pm')">오후</button></div>
+                <select class="in tsel" id="thour"></select><span style="color:var(--faint);font-weight:800">:</span><select class="in tsel" id="tmin"></select>
+              </div>
+              <div class="seldt" id="seldt"></div></div>
             <div class="schrow"><label>올릴 계정</label><select><option>@sowho77 (짤공장)</option><option>@kangarooshort (카드뉴스)</option><option>@kangaroostory.jp (일본)</option></select></div>
             <div class="schrow"><label>캡션 (미리보기)</label><input value="오늘의 레전드 짤 모음 🔥 #유머 #짤"></div>
             <button class="btn primary" style="width:100%" onclick="confirmSchedule()">🕒 이 시간에 예약</button>
@@ -812,7 +833,7 @@
   /* ---- upload popover (실제) ---- */
   function togglePop(e){e.stopPropagation();$('pop').classList.toggle('open');backToMenu();}
   function closePop(){$('pop').classList.remove('open');}
-  function openSchedule(){$('popMenu').style.display='none';$('sched').classList.add('open');}
+  function openSchedule(){$('popMenu').style.display='none';$('sched').classList.add('open');initSched();}
   function backToMenu(){$('popMenu').style.display='';$('sched').classList.remove('open');}
   async function uploadNow(){
     closePop(); if(!PK)return;
@@ -830,7 +851,44 @@
       flash('📤 '+(d.msg||'업로드 중…'));setTimeout(()=>pollUpload(jid),1500);
     }catch(e){setTimeout(()=>pollUpload(jid),2500);}
   }
-  function confirmSchedule(){closePop();flash('🕒 예약 업로드는 준비 중이에요 (스케줄러 필요 · 다음 업데이트)');}
+  /* ---- 예약 커스텀 캘린더 (앱 테마 통일) ---- */
+  let SCHED={y:2026,m:6,d:17,hour:9,min:0};
+  function initSched(){
+    const t=new Date(); t.setDate(t.getDate()+1);
+    SCHED={y:t.getFullYear(),m:t.getMonth(),d:t.getDate(),hour:9,min:0};
+    buildTimeSelects(); renderCal(); syncTimeUI(); showSeldt();
+  }
+  function buildTimeSelects(){
+    const h=$('thour'), mi=$('tmin'); if(!h||!mi)return;
+    h.innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('');
+    mi.innerHTML=Array.from({length:12},(_,i)=>`<option value="${i*5}">${String(i*5).padStart(2,'0')}</option>`).join('');
+    h.onchange=mi.onchange=readTime;
+  }
+  function ampmOn(){const b=document.querySelector('.ampm button.on');return b?b.dataset.ap:'am';}
+  function syncTimeUI(){
+    const ap=SCHED.hour>=12?'pm':'am'; let h12=SCHED.hour%12; if(h12===0)h12=12;
+    if($('thour'))$('thour').value=h12; if($('tmin'))$('tmin').value=SCHED.min;
+    document.querySelectorAll('.ampm button').forEach(b=>b.classList.toggle('on',b.dataset.ap===ap));
+  }
+  function setAmpm(ap){ if(ampmOn()===ap)return; SCHED.hour=(SCHED.hour+12)%24;
+    document.querySelectorAll('.ampm button').forEach(b=>b.classList.toggle('on',b.dataset.ap===ap)); showSeldt(); }
+  function readTime(){ let h12=+$('thour').value%12; SCHED.hour=ampmOn()==='pm'?h12+12:h12; SCHED.min=+$('tmin').value; showSeldt(); }
+  function renderCal(){
+    const cal=$('scal'); if(!cal)return;
+    const start=new Date(SCHED.y,SCHED.m,1).getDay(), days=new Date(SCHED.y,SCHED.m+1,0).getDate();
+    const t=new Date(), isT=d=>SCHED.y===t.getFullYear()&&SCHED.m===t.getMonth()&&d===t.getDate();
+    let cells=''; for(let i=0;i<start;i++)cells+='<span></span>';
+    for(let d=1;d<=days;d++)cells+=`<span class="cd ${d===SCHED.d?'on':''} ${isT(d)?'today':''}" onclick="pickDay(${d})">${d}</span>`;
+    cal.innerHTML=`<div class="calhead"><button type="button" onclick="calMove(-1)">‹</button><b>${SCHED.y}년 ${SCHED.m+1}월</b><button type="button" onclick="calMove(1)">›</button></div>
+      <div class="calgrid caldow">${['일','월','화','수','목','금','토'].map(w=>`<span>${w}</span>`).join('')}</div>
+      <div class="calgrid">${cells}</div>`;
+  }
+  function calMove(dm){let m=SCHED.m+dm,y=SCHED.y;if(m<0){m=11;y--;}if(m>11){m=0;y++;}SCHED.m=m;SCHED.y=y;renderCal();}
+  function pickDay(d){SCHED.d=d;renderCal();showSeldt();}
+  function schedStr(){let h=SCHED.hour%12;if(h===0)h=12;const ap=SCHED.hour>=12?'오후':'오전';
+    return `${SCHED.y}-${String(SCHED.m+1).padStart(2,'0')}-${String(SCHED.d).padStart(2,'0')} ${ap} ${h}:${String(SCHED.min).padStart(2,'0')}`;}
+  function showSeldt(){if($('seldt'))$('seldt').textContent='📅 '+schedStr();}
+  function confirmSchedule(){closePop();flash('🕒 '+schedStr()+' 예약 (준비 중 · 스케줄러 필요)');}
   document.addEventListener('click',e=>{const pop=$('pop');if(pop.classList.contains('open')&&!pop.contains(e.target)&&e.target.id!=='upBtn')closePop();});
 
   /* ---- misc ---- */
