@@ -247,14 +247,18 @@ def _link_icon(canvas, x, cy, s, lk):
                       (bx + w / 2 + tw * 0.78, cy)], fill=(255, 255, 255))
         return
     if any(t in key for t in ("kakao", "openchat", "오픈", "채팅", "카톡", "커뮤니티", "톡방")):
+        # 카카오톡 스타일: 노란 라운드 사각 배경 + 진한 갈색 말풍선
         bx, by = x, cy - s / 2
-        draw.rounded_rectangle([bx, by, bx + s, by + s * 0.80], radius=s * 0.30, fill=(254, 229, 0))
-        draw.polygon([(bx + s * 0.24, by + s * 0.74), (bx + s * 0.46, by + s * 0.74),
-                      (bx + s * 0.24, by + s)], fill=(254, 229, 0))
-        r = s * 0.06
-        for dxp in (0.34, 0.5, 0.66):
-            ccx, ccy = bx + s * dxp, by + s * 0.38
-            draw.ellipse([ccx - r, ccy - r, ccx + r, ccy + r], fill=(60, 45, 20))
+        brown = (58, 30, 30)
+        draw.rounded_rectangle([bx, by, bx + s, by + s], radius=s * 0.28, fill=(254, 229, 0))
+        m = s * 0.20
+        bub = [bx + m, by + m, bx + s - m, by + s - m * 1.55]
+        draw.rounded_rectangle(bub, radius=s * 0.17, fill=brown)
+        # 말풍선 꼬리 (왼쪽 아래)
+        tx0 = bx + s * 0.33
+        by1 = by + s - m * 1.55
+        draw.polygon([(tx0, by1 - 1), (tx0 + s * 0.16, by1 - 1),
+                      (tx0 - s * 0.03, by + s - m * 0.45)], fill=brown)
         return
     try:
         ef = ImageFont.truetype("C:/Windows/Fonts/seguiemj.ttf", int(s))
