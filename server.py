@@ -1991,7 +1991,7 @@ def api_card_translate():
         return jsonify(ok=False,
                        error="이 팩은 번역 데이터가 없어요 — 카드뉴스 팩만 일본어판 제작이 가능해요"), 400
     target = (data.get("target") or "ja").strip()
-    if target != "ja":
+    if target not in ("ja", "en"):
         target = "ja"
     now = time.time()
     for k in [k for k, v in JOBS.items() if now - v["ts"] > 3600]:

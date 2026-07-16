@@ -268,6 +268,7 @@
       <button data-t="jjal" class="on">🖼 <span>짤</span></button>
       <button data-t="card">🗂 <span>카드뉴스</span></button>
       <button data-t="reel">🎬 <span>릴스</span></button>
+      <button data-t="ie">🔄 <span>수입·수출</span></button>
       <button data-t="result">📦 <span>결과물</span></button>
     </div>
     <div class="sp"></div>
@@ -368,7 +369,7 @@
   const tabsEl=$('tabs');
   tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
     [...tabsEl.children].forEach(x=>x.classList.toggle('on',x===b));route(b.dataset.t);});
-  function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,result:renderResults}[t])();}
+  function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,ie:renderIE,result:renderResults}[t])();}
 
   /* ============ 공용: 접속코드 · API · 잡 폴링 ============ */
   const CODE=$('code');
@@ -670,6 +671,78 @@
     }catch(e){setTimeout(()=>reelPoll(jid,kind),2500);}
   }
   function onReelAcct(){ const s=$('racctSel'), cap=$('rcap'); if(!s||!cap)return; cap.value=swapHandle(cap.value,'@'+s.value); syncSchedAcct(); }
+
+  /* ============ 수입·수출 TAB ============ */
+  let ieMode='export', ieLangSel='ja', ieKindSel='meme', ieImgs=[];
+  function renderIE(){
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        <div class="chips" style="margin-bottom:16px">
+          <span class="chip ${ieMode==='export'?'on':''}" onclick="ieTab('export')">🌍 수출 (한국→해외)</span>
+          <span class="chip ${ieMode==='import'?'on':''}" onclick="ieTab('import')">🇰🇷 수입 (해외→한국)</span></div>
+        <div id="iebody"></div>
+      </aside>
+      <main class="mainpane">
+        <div id="jjobs"></div><div id="jresult"></div>
+        <div class="panehead"><h2>🔄 수입·수출</h2><span class="n">짤·카드뉴스 언어 전환</span></div>
+        <div id="ieinfo" style="color:var(--muted);font-size:13px;line-height:1.75;max-width:62ch"></div>
+      </main>
+    </div>`;
+    renderIEBody();
+  }
+  function ieTab(m){ieMode=m;renderIE();}
+  function ieLang(el){ieLangSel=el.dataset.t;[...el.parentNode.children].forEach(c=>c.classList.toggle('on',c===el));}
+  function ieKind(el){ieKindSel=el.dataset.k;[...el.parentNode.children].forEach(c=>c.classList.toggle('on',c===el));}
+  function renderIEBody(){
+    const b=$('iebody'); if(!b)return;
+    if(ieMode==='export'){
+      b.innerHTML=`
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">원본 카드뉴스</span><span class="sd">결과물에서</span></div>
+          <select class="in" id="iepack"><option>불러오는 중…</option></select>
+          <button class="btn" style="margin-top:8px;width:100%" onclick="loadIEPacks()">🔄 목록 새로고침</button></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">도착 언어</span></div>
+          <div class="chips"><span class="chip ${ieLangSel==='ja'?'on':''}" data-t="ja" onclick="ieLang(this)">🇯🇵 일본어</span><span class="chip ${ieLangSel==='en'?'on':''}" data-t="en" onclick="ieLang(this)">🇺🇸 영어</span></div></div>
+        <button class="go" onclick="ieExport()">🌍 변환하기 (2~4분)</button>`;
+      $('ieinfo').innerHTML='<b>수출</b> — 이미 만든 <b>카드뉴스</b>를 일본어/영어로 번역하고 현지 폰트로 다시 렌더해 새 팩으로 만듭니다(전자책 제외). 해외 계정 발행용.<br><br><span style="color:var(--faint)">짤 팩은 원문이 이미지에 박혀 있어 v1 미지원(유튜브 짤은 추후 source.json으로 지원).</span>';
+      loadIEPacks();
+    } else {
+      b.innerHTML=`
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">만들 종류</span></div>
+          <div class="chips"><span class="chip ${ieKindSel==='meme'?'on':''}" data-k="meme" onclick="ieKind(this)">🖼 짤</span><span class="chip ${ieKindSel==='card'?'on':''}" data-k="card" onclick="ieKind(this)">🗂 카드뉴스</span></div></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">해외 캡처 올리기</span><span class="sd">여러 장</span></div>
+          <div class="drop" style="padding:24px" onclick="document.getElementById('iefile').click()">
+            <div class="big">📎</div><div class="t1" id="iefname">해외 게시물 캡처 고르기</div></div>
+          <input id="iefile" type="file" accept="image/*" multiple style="display:none" onchange="iePick(this)">
+          <textarea class="in" id="iecap" style="min-height:70px;margin-top:8px" placeholder="캡션 원문(선택) — 있으면 더 정확"></textarea></div>
+        <button class="go" onclick="ieImport()">🇰🇷 한국판으로 변환 (1~4분)</button>`;
+      $('ieinfo').innerHTML='<b>수입</b> — 미국·일본 등 해외에서 터진 게시물 <b>캡처</b>를 올리면 AI가 소재만 뽑아 <b>한국 타깃 새 짤/카드</b>로 만듭니다. 인스타 크롤 안 함(계정 안전).';
+    }
+  }
+  async function loadIEPacks(){
+    const sel=$('iepack'); if(!sel)return;
+    if(!code()){sel.innerHTML='<option value="">접속코드 입력</option>';return;}
+    let d; try{d=await apiJson('/api/packs',{code:code()});}catch(e){d={ok:false};}
+    const cards=(d.packs||[]).filter(p=>p.type==='cardnews'&&!isJp(p));
+    sel.innerHTML=cards.length?cards.map(p=>`<option value="${p.name}">${esch(p.title)}</option>`).join('')
+      :'<option value="">번역할 한국어 카드뉴스 팩이 없어요</option>';
+  }
+  function ieExport(){
+    const pack=$('iepack')&&$('iepack').value;
+    if(!pack){flash('원본 카드뉴스 팩을 고르세요');return;}
+    startJob('/api/card/translate',{code:code(),pack,target:ieLangSel},(ieLangSel==='ja'?'🇯🇵':'🇺🇸')+' '+pack.slice(0,22));
+  }
+  function iePick(inp){
+    const files=[...(inp.files||[])].slice(0,8); ieImgs=[];
+    if(!files.length){if($('iefname'))$('iefname').textContent='해외 게시물 캡처 고르기';return;}
+    let done=0;
+    files.forEach(f=>{const r=new FileReader();r.onload=()=>{ieImgs.push(r.result);done++;if($('iefname'))$('iefname').textContent=`📎 ${done}/${files.length}장 준비됨`;};r.readAsDataURL(f);});
+  }
+  function ieImport(){
+    if(!ieImgs.length){flash('해외 캡처를 올려주세요');return;}
+    const ep=ieKindSel==='meme'?'/api/make_images':'/api/card/localize';
+    startJob(ep,{code:code(),images:ieImgs,caption:($('iecap')&&$('iecap').value.trim())||'',localize:true},'🇰🇷 수입: '+(ieKindSel==='meme'?'짤':'카드'));
+  }
 
   /* ============ 결과물 TAB (실데이터) ============ */
   let PACKS=[], rUp='all', rKind='all';
