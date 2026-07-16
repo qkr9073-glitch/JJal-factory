@@ -371,8 +371,26 @@ def clean_card_frames(cfg, cards, out_dir, log=print):
 
 
 # ─────────────────────────── 6) 렌더 (대표 썸네일 + 장문 뒷장) ───────────────────────────
-def _body_font(size, bold=False):
+_JA_FONTS = ["C:/Windows/Fonts/YuGothB.ttc", "C:/Windows/Fonts/meiryob.ttc",
+             "C:/Windows/Fonts/msgothic.ttc"]
+
+
+def _ja_font_path():
+    for p in _JA_FONTS:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def _body_font(size, bold=False, lang="ko"):
     from PIL import ImageFont
+    if lang == "ja":
+        jp = _ja_font_path()
+        if jp:
+            try:
+                return ImageFont.truetype(jp, size)
+            except Exception:
+                pass
     p = _ASSETS / ("Pretendard-ExtraBold.otf" if bold else "Pretendard-SemiBold.otf")
     if p.exists():
         return ImageFont.truetype(str(p), size)
@@ -422,7 +440,7 @@ def _wrap_text(draw, text, font, max_w):
     return out
 
 
-def render_back_card(frame, text, watermark, out_path, cfg=None):
+def render_back_card(frame, text, watermark, out_path, cfg=None, lang="ko"):
     """뒷장 카드: 프레임(4:5 꽉채움) 위에 대본 장문을 작은 글씨로 얹는다.
     frame 이 없으면 에메랄드 그라데이션 템플릿 배경(폴백)."""
     from PIL import Image, ImageDraw
@@ -441,13 +459,13 @@ def render_back_card(frame, text, watermark, out_path, cfg=None):
     max_h = int(CARD_H * 0.45)
     size = 44
     while size >= 26:
-        font = _body_font(size)
+        font = _body_font(size, lang=lang)
         lines = _wrap_text(draw, text, font, CARD_W - CARD_MARGIN * 2)
         lh = int(size * 1.4)
         if lh * len(lines) <= max_h:
             break
         size -= 2
-    font = _body_font(size)
+    font = _body_font(size, lang=lang)
     lh = int(size * 1.4)
     lines = _wrap_text(draw, text, font, CARD_W - CARD_MARGIN * 2)
     block_h = lh * len(lines)
@@ -467,23 +485,24 @@ def render_back_card(frame, text, watermark, out_path, cfg=None):
         draw.text((CARD_MARGIN + 2, y + 2), ln, font=font, fill=(0, 0, 0))     # 그림자
         draw.text((CARD_MARGIN, y), ln, font=font, fill=(255, 255, 255))
     if watermark:
-        wf = _body_font(30)
+        wf = _body_font(30, lang=lang)
         ww = draw.textlength(watermark, font=wf)
         draw.text(((CARD_W - ww) // 2, CARD_H - 74), watermark, font=wf, fill=(205, 205, 205))
     canvas.save(out_path, "JPEG", quality=93)
     return str(out_path)
 
 
-def render_youtube_thumb(bg_path, line1, line2, watermark, out_path):
+def render_youtube_thumb(bg_path, line1, line2, watermark, out_path, lang="ko"):
     """대표 썸네일: 유튜브 썸네일(또는 프레임)을 4:5 꽉채움 배경으로 후킹 2줄 렌더.
-    기존 thumbnail.render 재사용(가짜 커뮤 헤더 없이 자막형)."""
+    기존 thumbnail.render 재사용(가짜 커뮤 헤더 없이 자막형). lang='ja'면 일본어 폰트."""
     from PIL import Image
     tmp = str(Path(out_path).with_suffix(".bg.jpg"))
     if bg_path and Path(bg_path).exists():
         _cover_fill(Image.open(bg_path).convert("RGB"), CARD_W, CARD_H).save(tmp, "JPEG", quality=92)
     else:
         Image.new("RGB", (CARD_W, CARD_H), (18, 44, 36)).save(tmp, "JPEG", quality=92)
-    thumbnail.render(tmp, line1, line2, watermark, out_path, header=None)
+    fp = _ja_font_path() if lang == "ja" else None
+    thumbnail.render(tmp, line1, line2, watermark, out_path, header=None, font_path=fp)
     try:
         Path(tmp).unlink()
     except Exception:
@@ -580,6 +599,11 @@ def build_from_youtube(url, cfg, base_dir, mock=False, log=print):
         }
         (Path(pack) / "source.json").write_text(
             _json.dumps(source, ensure_ascii=False, indent=2), encoding="utf-8")
+        if yt_thumb and Path(yt_thumb).exists():      # 재수출 대표 썸네일 배경용
+            try:
+                shutil.copy(str(yt_thumb), str(Path(pack) / "ytthumb.jpg"))
+            except Exception:
+                pass
         for i, c in enumerate(cards, 1):
             fr = c.get("frame_clean") or c.get("frame")
             if fr and Path(fr).exists():
@@ -712,3 +736,102 @@ def search_shorts(cfg, query, count=30, translate=True, max_sec=180):
             continue
     out.sort(key=lambda v: v["views"], reverse=True)
     return out
+
+
+# ─────────────────────────── 9) 유튜브 짤 수출 (번역 + 재렌더) ───────────────────────────
+def _translate_source(cfg, src, lang_label):
+    """source.json(후킹·카드·캡션)을 도착 언어로 번역. 반환 {title, hooks, cards, caption}."""
+    import json as _json
+    key = _key(cfg)
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    payload = {"hooks": src.get("hooks", []),
+               "cards": [c.get("text", "") for c in src.get("cards", [])],
+               "caption": src.get("caption", "")}
+    prompt = (f"아래 한국어 인스타 '짤 뉴스' 콘텐츠를 {lang_label}로 자연스럽게 번역·현지화하라. "
+              f"{lang_label} 원어민이 처음부터 쓴 것처럼(번역투 금지). 구조·개수·의미 유지.\n"
+              '출력 JSON만: {"title":"짧은 제목(파일명용)","hooks":[{"line1":"..","line2":".."}],'
+              '"cards":["장별 문구",".."],"caption":"인스타 본문"}\n\n입력:\n'
+              + _json.dumps(payload, ensure_ascii=False))
+    resp = requests.post(brain.GEMINI_URL.format(model=model), params={"key": key},
+                         json={"contents": [{"parts": [{"text": prompt}]}],
+                               "generationConfig": {"response_mime_type": "application/json",
+                                                    "temperature": 0.7, "maxOutputTokens": 4096,
+                                                    "thinkingConfig": {"thinkingBudget": 0}}},
+                         timeout=150)
+    if resp.status_code != 200:
+        raise RuntimeError(f"번역 API 오류 {resp.status_code}")
+    cand = resp.json()["candidates"][0]
+    j = brain._parse_json("".join(p.get("text", "") for p in cand["content"]["parts"]))
+    return {"title": j.get("title", ""), "hooks": j.get("hooks", []),
+            "cards": j.get("cards", []), "caption": j.get("caption", "")}
+
+
+def build_youtube_translated(pack_dir, cfg, base_dir, target="ja", log=print):
+    """유튜브 짤 팩(source.json+frameNN.jpg) → 도착 언어로 번역·재렌더한 새 팩."""
+    import json as _json
+    import shutil
+    import tempfile
+    from datetime import datetime
+    pd = Path(pack_dir)
+    try:
+        src = _json.loads((pd / "source.json").read_text(encoding="utf-8"))
+    except Exception:
+        raise RuntimeError("유튜브 짤 팩이 아니에요 (source.json 없음)")
+    if src.get("source") != "youtube":
+        raise RuntimeError("유튜브 짤만 수출 가능해요")
+    lang_label = {"ja": "일본어", "en": "영어"}.get(target, "일본어")
+
+    log(f"[1/3] {lang_label} 번역...")
+    tr = _translate_source(cfg, src, lang_label)
+    hooks = (tr.get("hooks") or src.get("hooks", []))[:3]
+    cards_txt = tr.get("cards") or [c.get("text", "") for c in src.get("cards", [])]
+
+    root = Path(base_dir) / cfg.get("output_dir", "결과물")
+    root.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="ytx_", dir=root))
+    try:
+        log("[2/3] 렌더링 (대표 썸네일 + 뒷장)...")
+        bg = pd / "ytthumb.jpg"
+        if not bg.exists():
+            bg = pd / "frame01.jpg"
+        bg = str(bg) if bg.exists() else None
+        thumb_paths = []
+        for i, h in enumerate(hooks or [{"line1": tr.get("title", ""), "line2": ""}]):
+            tp = work / ("thumb.jpg" if i == 0 else f"thumb{i + 1}.jpg")
+            render_youtube_thumb(bg, h.get("line1", ""), h.get("line2", ""),
+                                 cfg.get("watermark", ""), str(tp), lang=target)
+            thumb_paths.append(tp)
+        card_paths = []
+        for i, text in enumerate(cards_txt, 1):
+            fr = pd / f"frame{i:02d}.jpg"
+            cp = work / f"card{i:02d}.jpg"
+            render_back_card(str(fr) if fr.exists() else None, text,
+                             cfg.get("watermark", ""), str(cp), cfg, lang=target)
+            card_paths.append(str(cp))
+
+        log("[3/3] 완성팩 패키징...")
+        caption = tr.get("caption", "") or src.get("caption", "")
+        meta = {"title": tr.get("title") or (src.get("url", "")[:20]),
+                "site": "유튜브", "url": src.get("url", ""),
+                "template": "youtube", "source": "youtube", "lang": target,
+                "hooks": hooks, "skip": False, "skip_reason": "",
+                "created": datetime.now().isoformat(timespec="seconds")}
+        pack = packer.build_pack(root, meta, card_paths, thumb_paths, caption)
+        newsrc = dict(src)
+        newsrc.update({"lang_src": target, "caption": caption, "hooks": hooks,
+                       "cards": [{"text": t} for t in cards_txt]})
+        (Path(pack) / "source.json").write_text(
+            _json.dumps(newsrc, ensure_ascii=False, indent=2), encoding="utf-8")
+        for i in range(1, len(cards_txt) + 1):     # 재수출 대비 프레임 복사
+            fr = pd / f"frame{i:02d}.jpg"
+            if fr.exists():
+                shutil.copy(str(fr), str(Path(pack) / f"frame{i:02d}.jpg"))
+        if (pd / "ytthumb.jpg").exists():
+            shutil.copy(str(pd / "ytthumb.jpg"), str(Path(pack) / "ytthumb.jpg"))
+        return {"pack": pack, "meta": meta, "caption": caption,
+                "cards": [Path(c).name for c in card_paths],
+                "num_images": len(card_paths), "num_thumbs": len(thumb_paths)}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)

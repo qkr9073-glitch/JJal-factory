@@ -1977,6 +1977,57 @@ def api_card_localize():
     return jsonify(ok=True, job=jid)
 
 
+def _run_youtube_translate_job(jid, pack_name, target, cfg):
+    """유튜브 짤 팩 → 도착 언어 번역·재렌더 잡."""
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        step = re.match(r"\[(\d)/3\]", m)
+        if step:
+            job["pct"] = {1: 30, 2: 65, 3: 88}.get(int(step.group(1)), job["pct"])
+
+    try:
+        result = youtube.build_youtube_translated(OUTPUT / pack_name, cfg, BASE,
+                                                  target=target, log=log)
+        job["result"] = _pack_payload(result)
+        job["pct"] = 100
+        job["status"] = "done"
+    except Exception as e:
+        job["error"] = str(e)
+        job["status"] = "error"
+
+
+@app.post("/api/pack/translate")
+def api_pack_translate():
+    """짤·카드뉴스 팩 → 도착 언어(ja/en). source.json=유튜브짤, items.json=카드뉴스."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    if not pack or "/" in pack or "\\" in pack or ".." in pack:
+        return jsonify(ok=False, error="팩 이름이 올바르지 않습니다"), 400
+    d = OUTPUT / pack
+    target = (data.get("target") or "ja").strip()
+    if target not in ("ja", "en"):
+        target = "ja"
+    now = time.time()
+    for k in [k for k, v in JOBS.items() if now - v["ts"] > 3600]:
+        JOBS.pop(k, None)
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
+                 "result": None, "error": None, "ts": now}
+    if (d / "source.json").exists():
+        JOBQ.put((jid, _run_youtube_translate_job, (jid, pack, target, cfg)))
+    elif (d / "items.json").exists():
+        JOBQ.put((jid, _run_translate_job, (jid, pack, target, cfg)))
+    else:
+        return jsonify(ok=False, error="이 팩은 수출(번역) 데이터가 없어요"), 400
+    return jsonify(ok=True, job=jid)
+
+
 @app.post("/api/card/translate")
 def api_card_translate():
     """🇯🇵 완성된 카드뉴스 팩 → 해외 발행용 번역판(현재 일본어)."""
@@ -2485,10 +2536,11 @@ def api_packs():
                        if m in mgrs]
             is_story = meta.get("template") == "story"
             nimg = len(list(d.glob("[0-9][0-9].jpg")))
+            exportable = (d / "items.json").exists() or (d / "source.json").exists()
             packs.append({"name": d.name,
                           "title": meta.get("title") or d.name,
                           "created": meta.get("created", ""),
-                          "n": nimg,
+                          "n": nimg, "exportable": exportable,
                           "type": "cardnews" if meta.get("type") == "cardnews" else "meme",
                           "site": meta.get("site", "") or
                                   ("카드뉴스" if meta.get("type") == "cardnews" else ""),

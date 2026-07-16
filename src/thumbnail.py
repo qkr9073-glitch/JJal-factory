@@ -104,7 +104,7 @@ def _draw_header(canvas, header):
                            outline=(225, 30, 30), width=6)
 
 
-def render(src_image, line1, line2, watermark, out_path, header=None):
+def render(src_image, line1, line2, watermark, out_path, header=None, font_path=None):
     canvas = Image.new("RGB", (W, H), (8, 8, 10))
     top = HEADER_H if header else 0
 
@@ -133,15 +133,23 @@ def render(src_image, line1, line2, watermark, out_path, header=None):
 
     draw = ImageDraw.Draw(canvas)
 
+    def _cf(s):                       # 카피 폰트 (font_path 주면 그걸로 — 일본어 등)
+        if font_path:
+            try:
+                return ImageFont.truetype(str(font_path), s)
+            except Exception:
+                pass
+        return _font(s)
+
     # 카피 2줄 — 긴 줄 기준으로 폰트 크기 자동 조절
     lines = [l for l in (line1, line2) if l and l.strip()]
     size = 96
     while size > 40:
-        font = _font(size)
+        font = _cf(size)
         if max((_text_w(draw, l, font) for l in lines), default=0) <= W - MARGIN_X * 2:
             break
         size -= 4
-    font = _font(size)
+    font = _cf(size)
     line_h = int(size * 1.22)
     base_y = H - 150 - line_h * len(lines)
     for i, line in enumerate(lines):
@@ -151,7 +159,7 @@ def render(src_image, line1, line2, watermark, out_path, header=None):
 
     # 워터마크 (하단 중앙)
     if watermark:
-        wm_font = _font(34)
+        wm_font = _cf(34)
         wm_w = _text_w(draw, watermark, wm_font)
         draw.text(((W - wm_w) // 2, H - 78), watermark, font=wm_font, fill=(190, 190, 190))
 

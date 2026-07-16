@@ -745,8 +745,8 @@
           <button class="btn" style="margin-top:8px;width:100%" onclick="loadIEPacks()">🔄 목록 새로고침</button></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">도착 언어</span></div>
           <div class="chips"><span class="chip ${ieLangSel==='ja'?'on':''}" data-t="ja" onclick="ieLang(this)">🇯🇵 일본어</span><span class="chip ${ieLangSel==='en'?'on':''}" data-t="en" onclick="ieLang(this)">🇺🇸 영어</span></div></div>
-        <button class="go" onclick="ieExport()">🌍 변환하기 (2~4분)</button>`;
-      $('ieinfo').innerHTML='<b>수출</b> — 이미 만든 <b>카드뉴스</b>를 일본어/영어로 번역하고 현지 폰트로 다시 렌더해 새 팩으로 만듭니다(전자책 제외). 해외 계정 발행용.<br><br><span style="color:var(--faint)">짤 팩은 원문이 이미지에 박혀 있어 v1 미지원(유튜브 짤은 추후 source.json으로 지원).</span>';
+        <button class="go" onclick="ieExport()">🌍 변환하기 (1~4분)</button>`;
+      $('ieinfo').innerHTML='<b>수출</b> — 만든 팩을 일본어/영어로 번역·재렌더해 새 팩으로. 해외 계정 발행용.<br>· 🗂 <b>카드뉴스</b>: 번역+현지 폰트 재렌더(전자책 제외)<br>· ▶️ <b>유튜브 짤</b>: source.json(대본)+프레임으로 후킹·뒷장 재렌더<br><br><span style="color:var(--faint)">커뮤 짤(스크린샷)은 이미지 속 글자를 못 바꿔 수출 미지원.</span>';
       loadIEPacks();
     } else {
       b.innerHTML=`
@@ -765,14 +765,14 @@
     const sel=$('iepack'); if(!sel)return;
     if(!code()){sel.innerHTML='<option value="">접속코드 입력</option>';return;}
     let d; try{d=await apiJson('/api/packs',{code:code()});}catch(e){d={ok:false};}
-    const cards=(d.packs||[]).filter(p=>p.type==='cardnews'&&!isJp(p));
-    sel.innerHTML=cards.length?cards.map(p=>`<option value="${p.name}">${esch(p.title)}</option>`).join('')
-      :'<option value="">번역할 한국어 카드뉴스 팩이 없어요</option>';
+    const list=(d.packs||[]).filter(p=>p.exportable);
+    sel.innerHTML=list.length?list.map(p=>`<option value="${p.name}">${p.type==='cardnews'?'🗂':'▶️'} ${esch(p.title)}</option>`).join('')
+      :'<option value="">수출할 팩이 없어요 (카드뉴스 또는 유튜브 짤)</option>';
   }
   function ieExport(){
     const pack=$('iepack')&&$('iepack').value;
-    if(!pack){flash('원본 카드뉴스 팩을 고르세요');return;}
-    startJob('/api/card/translate',{code:code(),pack,target:ieLangSel},(ieLangSel==='ja'?'🇯🇵':'🇺🇸')+' '+pack.slice(0,22));
+    if(!pack){flash('수출할 팩을 고르세요');return;}
+    startJob('/api/pack/translate',{code:code(),pack,target:ieLangSel},(ieLangSel==='ja'?'🇯🇵':'🇺🇸')+' '+pack.slice(0,22));
   }
   function iePick(inp){
     const files=[...(inp.files||[])].slice(0,8); ieImgs=[];
