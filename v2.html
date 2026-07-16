@@ -358,8 +358,13 @@
       <div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
       <span class="jm" style="color:var(--gold)">접수됨…</span>`;
     box.prepend(div);
-    const sc=box.closest('.mainpane'); if(sc) sc.scrollTo({top:0,behavior:'smooth'});
+    scrollTopPane(box);      // 문서/패널 어느 쪽이 스크롤되든 맨 위로
     pollJob(d.job);
+  }
+  function scrollTopPane(el){
+    const sc=el&&el.closest('.mainpane');
+    if(sc&&sc.scrollHeight>sc.clientHeight+4) sc.scrollTo({top:0,behavior:'smooth'});
+    window.scrollTo({top:0,behavior:'smooth'});   // 문서 전체가 스크롤되는 경우 대비
   }
   async function pollJob(jid){
     const row=$('row-'+jid); if(!row) return;
