@@ -293,6 +293,8 @@
   .tpick .tag{position:absolute;bottom:0;left:0;right:0;font-size:10px;font-weight:700;text-align:center;padding:3px;background:rgba(0,0,0,.5);color:#fff}
   .tpick.sel .tag{background:var(--gold);color:var(--gold-ink)}
   .tpick .tko{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--panel2);padding:4px 5px;text-align:center;line-height:1.32;border-top:1px solid var(--line)}
+  .tpblur{position:absolute;top:5px;right:5px;background:rgba(0,0,0,.55);color:#fff;border:0;border-radius:7px;width:27px;height:24px;font-size:12px;cursor:pointer;z-index:3}
+  .tpblur:hover{background:var(--gold);color:#04120c}
   .capta{width:100%;min-height:88px;resize:vertical;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:13px;line-height:1.6;padding:11px;outline:none}
   .capta:focus{border-color:var(--gold)}
   .caphint{font-size:11px;color:var(--faint);margin-top:6px}
@@ -426,7 +428,7 @@
           <div class="grp"><h4>② 본문 캡션 <span class="kbd">바로 편집</span></h4>
             <textarea class="capta" id="capta"></textarea>
             <div style="display:flex;align-items:center;gap:8px;margin-top:7px"><button class="btn" onclick="saveCap()">💾 캡션 저장</button><span class="caphint">기본 캡션은 자동 반영 · <b>수정했을 때만 저장</b>하세요</span></div></div>
-          <div class="grp"><h4>③ 짤 순서·제외·모자이크 <span class="kbd">⠿ 드래그로 이동</span></h4><div class="strip" id="strip"></div>
+          <div class="grp"><h4>③ 짤 순서·제외·블러 가리기 <span class="kbd">⠿ 드래그로 이동</span></h4><div class="strip" id="strip"></div>
             <button class="btn" id="stripsave" style="margin-top:10px;display:none" onclick="saveArr()">💾 순서·제외 저장</button></div>
         </div>
         <div class="mfoot">
@@ -487,7 +489,7 @@
   <div class="mosbar">
     <button class="btn ghost" onclick="mosClear()">↩ 다 지우기</button>
     <button class="btn" onclick="closeMosaic()">취소</button>
-    <button class="btn primary" onclick="applyMosaic()">✅ 모자이크 적용</button>
+    <button class="btn primary" onclick="applyMosaic()">✅ 블러 적용</button>
   </div>
 </div>
 
@@ -1531,6 +1533,7 @@
       const hk=(PK.hooks&&PK.hooks[i])||{}; const on=fn===LEAD;
       return `<div class="tpick ${on?'sel':''}" data-fn="${fn}" onclick="pickLead('${fn}')">
         <div class="tp" style="padding:0"><img src="${base}/${fn}?t=${TS}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block">
+          <button class="tpblur" onclick="event.stopPropagation();openMosaic('${fn}')" title="블러로 가리기">🟦</button>
           <div class="tag">${on?'✅ 첫 장':'후보 '+(i+1)}</div></div>
         ${hk.ko?`<div class="tko" title="${esch(hk.ko)}">🇰🇷 ${esch(hk.ko)}</div>`:''}</div>`;
     }).join('')||'<div class="caphint">대표 썸네일 없음</div>';
@@ -1560,7 +1563,7 @@
         <span class="mini"><img src="${base}/${o.fn}?t=${TS}" style="width:100%;height:100%;object-fit:cover"></span>
         <span class="no"><b>${num}</b> <small>${esch(o.fn)}</small>${o.ex?' <span style="color:var(--danger)">제외</span>':''}</span>
         ${o.ex?'':`<button class="itbtn" onclick="mkThumb(${i})" title="이 짤을 대표 썸네일로">🖼</button>`}
-        ${o.ex?'':`<button class="itbtn" onclick="openMosaic(${i})" title="모자이크">🟦</button>`}
+        ${o.ex?'':`<button class="itbtn" onclick="openMosaic('${o.fn}')" title="블러로 가리기">🟦</button>`}
         <button class="itbtn ${o.ex?'exon':''}" onclick="toggleEx(${i})">${o.ex?'↩ 복구':'✕'}</button>
       </div>`;
     }).join('');
@@ -1635,8 +1638,8 @@
 
   /* ---- mosaic editor (실제 반영) ---- */
   let mosTarget=null,mosBoxes=[],mosDraw=null;
-  function openMosaic(i){
-    if(!PK)return; mosTarget=ORDER[i].fn; mosBoxes=[]; mosDraw=null;
+  function openMosaic(fn){
+    if(!PK)return; mosTarget=fn; mosBoxes=[]; mosDraw=null;
     const bg=$('mosbg');
     bg.style.backgroundImage=`url("${packBase(PK.name)}/${mosTarget}?t=${TS}")`;
     bg.style.backgroundSize='cover'; bg.style.backgroundPosition='center';
@@ -1669,7 +1672,7 @@
     const d=await apiJson('/api/pack/mosaic',{code:code(),pack:PK.name,base:mosTarget,boxes});
     closeMosaic();
     if(!d.ok){flash('❌ '+d.error);return;}
-    flash('🟦 모자이크 적용 완료'); reloadModal();
+    flash('🟦 블러 적용 완료'); reloadModal();
   }
 
   /* ---- upload popover (실제) ---- */

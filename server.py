@@ -3040,7 +3040,7 @@ def api_pack_arrange():
 
 @app.post("/api/pack/mosaic")
 def api_pack_mosaic():
-    """짤에 모자이크 박스 적용 — boxes=[{x,y,w,h}] 정규화(0~1) 영역을 픽셀화."""
+    """짤/썸네일에 블러 박스 적용 — boxes=[{x,y,w,h}] 정규화(0~1) 영역을 가우시안 블러."""
     data = request.get_json(silent=True) or {}
     cfg = load_config()
     if not _check_code(cfg, data.get("code")):
@@ -3050,13 +3050,15 @@ def api_pack_mosaic():
     if not pack or "/" in pack or "\\" in pack or not d.is_dir():
         return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
     base = (data.get("base") or "").strip()
-    if not re.fullmatch(r"\d{2}\.jpg", base) or not (d / base).exists():
-        return jsonify(ok=False, error="짤 파일을 찾을 수 없어요"), 404
+    # 본문 짤(NN.jpg) + 대표/후보 썸네일(thumb.jpg, thumb2.jpg …) 모두 허용
+    if not re.fullmatch(r"(?:\d{2}|thumb\d*)\.jpg", base) or not (d / base).exists():
+        return jsonify(ok=False, error="이미지 파일을 찾을 수 없어요"), 404
     boxes = data.get("boxes") or []
     if not isinstance(boxes, list) or not boxes:
-        return jsonify(ok=False, error="모자이크할 영역을 최소 1개 그려주세요"), 400
+        return jsonify(ok=False, error="가릴 영역을 최소 1개 그려주세요"), 400
     try:
         from PIL import Image as _Img
+        from PIL import ImageFilter as _F
         img = _Img.open(d / base).convert("RGB")
         W0, H0 = img.size
         applied = 0
@@ -3073,10 +3075,8 @@ def api_pack_mosaic():
             if px2 - px < 4 or py2 - py < 4:   # 너무 작은 박스 무시
                 continue
             region = img.crop((px, py, px2, py2))
-            factor = max(8, min(region.width, region.height) // 8)  # 약 8블록 모자이크
-            dw, dh = max(1, region.width // factor), max(1, region.height // factor)
-            region = region.resize((dw, dh), _Img.BILINEAR).resize(
-                (region.width, region.height), _Img.NEAREST)
+            radius = max(8, min(region.width, region.height) // 5)  # 영역 크기에 비례한 블러
+            region = region.filter(_F.GaussianBlur(radius))
             img.paste(region, (px, py))
             applied += 1
         if not applied:
@@ -3085,7 +3085,7 @@ def api_pack_mosaic():
         _rebuild_pack_zip(d)
         return jsonify(ok=True, image=base, applied=applied)
     except Exception as e:
-        return jsonify(ok=False, error=f"모자이크 실패: {str(e)[:80]}"), 500
+        return jsonify(ok=False, error=f"블러 실패: {str(e)[:80]}"), 500
 
 
 @app.post("/api/pack/rethumb")
