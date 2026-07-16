@@ -284,6 +284,7 @@
       <span class="mt" id="mTitle"></span>
       <span class="mstat" id="mStat"></span>
       <div class="sp"></div>
+      <button class="iconbtn" id="mEbook" title="전자책 PDF 받기" style="display:none">📕</button>
       <button class="iconbtn" id="mZip" title="zip 받기">⬇</button>
       <button class="iconbtn" id="mDel" title="삭제" style="color:var(--danger)">🗑</button>
       <button class="iconbtn" onclick="closeModal()" title="닫기 (Esc)">✕</button>
@@ -412,7 +413,9 @@
   function renderResultJ(d,row){
     if(row){row.querySelector('.jm').innerHTML=`✅ 완성 — <a href="/packs/${encodeURIComponent(d.pack)}/review.html" target="_blank" style="color:var(--gold);font-weight:700">미리보기 ↗</a>`;}
     const box=$('jresult'); if(!box) return;
-    const thumbs=(d.thumbs||[]).map((t,i)=>`<div style="flex:1"><img src="${t}" style="width:100%;border-radius:10px;border:2px solid ${i===0?'var(--gold)':'var(--line)'};display:block"><div style="text-align:center;font-size:11px;color:var(--faint);margin-top:4px">${i===0?'대표':'후보 '+(i+1)}</div></div>`).join('');
+    const imgs=(d.thumbs&&d.thumbs.length?d.thumbs:(d.cards||[])).slice(0,3);
+    const isCard=!(d.thumbs&&d.thumbs.length);
+    const thumbs=imgs.map((t,i)=>`<div style="flex:1"><img src="${t}" style="width:100%;border-radius:10px;border:2px solid ${i===0?'var(--gold)':'var(--line)'};display:block"><div style="text-align:center;font-size:11px;color:var(--faint);margin-top:4px">${isCard?(i+1)+'번째':(i===0?'대표':'후보 '+(i+1))}</div></div>`).join('');
     const div=document.createElement('div');
     div.style.cssText='background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px';
     div.innerHTML=`<div style="font-weight:800;margin-bottom:10px">✅ 완성팩 생성됨</div>
@@ -534,7 +537,8 @@
           <div class="chips">${modes.map((m,i)=>`<span class="chip ${cState.mode===i?'on':''}" onclick="cMode(${i})">${m[0]} ${m[1]}</span>`).join('')}</div>
           <div class="caphint" style="margin-top:7px">${modes[cState.mode][0]} <b>${modes[cState.mode][1]}</b> — ${modes[cState.mode][2]}</div></div>
         <div class="step"><div class="sh"><span class="num">3</span><span class="st">옵션</span></div>
-          <label class="fld">전자책 개수 · 댓글 키워드</label>
+          <label class="ck" style="margin-bottom:9px"><input type="checkbox" id="cEbook" checked onchange="toggleEbook()"> <span>📕 <b>전자책 포함</b> (PDF 리드마그넷)</span></label>
+          <label class="fld" id="citemsLbl">전자책 개수 · 댓글 키워드</label>
           <div style="display:flex;gap:8px"><select class="in" id="citems" style="flex:0 0 120px"><option value="30">30개</option><option value="40">40개</option><option value="60" selected>60개</option></select>
           <input class="in" id="ckeyword" placeholder="댓글 키워드 (비우면 AI)"></div>
           <div class="checks" style="margin-top:11px">
@@ -569,8 +573,12 @@
       keyword:($('ckeyword')&&$('ckeyword').value.trim())||'',
       auto_cover:$('cAutocover')?$('cAutocover').checked:true,
       body_images:$('cBodyimg')?$('cBodyimg').checked:false,
-      auto_upload:$('cAutoup')?$('cAutoup').checked:false},'🗂 '+topic.slice(0,30));
+      auto_upload:$('cAutoup')?$('cAutoup').checked:false,
+      ebook:$('cEbook')?$('cEbook').checked:true},'🗂 '+topic.slice(0,30));
   }
+  function toggleEbook(){const on=!$('cEbook')||$('cEbook').checked;
+    if($('citems')){$('citems').disabled=!on;$('citems').style.opacity=on?'1':'.4';}
+    if($('citemsLbl'))$('citemsLbl').style.opacity=on?'1':'.5';}
   async function loadRecos(kind){
     const box=$('recolist'); if(!box)return;
     if(!code()){flash('접속코드를 입력하세요');return;}
@@ -767,9 +775,10 @@
     $('mFootCount').textContent='짤 '+ORDER.length+'장';
     $('capta').value=swapHandle(d.caption||'','@'+a0);
     paintThumbs(); updateLead(); renderStrip(); renderTrack();
-    const zb=$('mZip'), db=$('mDel');
+    const zb=$('mZip'), db=$('mDel'), eb=$('mEbook');
     if(zb) zb.onclick=()=>{ if(d.zip) window.open(`${packBase(d.name)}/${encodeURIComponent(d.zip)}`,'_blank'); else flash('zip 없음'); };
     if(db) db.onclick=()=>delPack(d.name);
+    if(eb){ eb.style.display=d.ebook?'':'none'; eb.onclick=()=>window.open(`${packBase(d.name)}/ebook.pdf`,'_blank'); }
     $('scrim').classList.add('open'); closePop();
   }
   function closeModal(){$('scrim').classList.remove('open');closePop();PK=null;}

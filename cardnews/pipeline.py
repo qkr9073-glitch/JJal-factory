@@ -47,7 +47,7 @@ def _slug(title, limit=18):
 
 def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
                    teaser_count=None, mock=False, log=print,
-                   proof=False, context=None, context_kind="news"):
+                   proof=False, context=None, context_kind="news", make_ebook=True):
     """주제 → 완성팩. 반환 dict: pack, meta, caption, cards, ebook_pages
     proof=True: 자료서랍에서 증빙 캡처를 골라 CTA 앞에 증빙 카드 삽입.
     context: 근거 텍스트 (기획 프롬프트에 삽입)
@@ -157,8 +157,12 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
     cards.append(p)
     log(f"      카드 {len(cards)}장 완성")
 
-    log("[4/4] 전자책 PDF + 패키징...")
-    num_pages = ebook.build_ebook(plan, items, cfg, pack / "ebook.pdf", log=log)
+    if make_ebook:
+        log("[4/4] 전자책 PDF + 패키징...")
+        num_pages = ebook.build_ebook(plan, items, cfg, pack / "ebook.pdf", log=log)
+    else:
+        log("[4/4] 패키징... (전자책 미포함)")
+        num_pages = 0
 
     caption = _final_caption(plan, cfg)
     (pack / "caption.txt").write_text(caption, encoding="utf-8")
@@ -174,6 +178,7 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
         "categories": [{"name": c["name"], "count": len(c["items"])}
                        for c in plan["categories"]],
         "teaser": plan["teaser"],
+        "ebook": bool(make_ebook and num_pages),
         "created": datetime.now().isoformat(timespec="seconds"),
     }
     (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
@@ -190,7 +195,8 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
         for c in cards:
             zf.write(c, c.name)
         zf.write(pack / "caption.txt", "caption.txt")
-        zf.write(pack / "ebook.pdf", "ebook.pdf")
+        if make_ebook and (pack / "ebook.pdf").exists():
+            zf.write(pack / "ebook.pdf", "ebook.pdf")
 
     cards_html = "\n".join(f'<img src="{c.name}">' for c in cards)
     (pack / "review.html").write_text(REVIEW_TEMPLATE.format(
