@@ -991,8 +991,7 @@
             <button class="btn" onclick="bulkAddTime()">＋추가</button></div>
           <label class="fld" style="margin-top:10px">올릴 계정</label>
           <select class="in" id="bulkacct" onchange="BULK.account=this.value;bulkPreview()">${REEL_ACCTS}</select>
-          <label class="fld" style="margin-top:10px">공통 캡션 <span style="font-weight:400;color:var(--faint)">— 비우면 영상마다 AI 자동 생성</span></label>
-          <textarea class="in" id="bulkcap" style="min-height:64px" onchange="BULK.caption=this.value" placeholder="여기 쓰면 모든 영상 공통 캡션 · 비우면 영상별로 AI가 자동 작성(확인 없이 바로 예약)"></textarea></div>
+          <div class="caphint" style="margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 11px">✨ 캡션은 <b>영상마다 AI가 자동 생성</b>됩니다 (계정 톤 반영 · 확인 없이 바로 예약). 예약·승인에서 확인·수정 가능.</div></div>
       </aside>
       <main class="mainpane">
         <div class="panehead"><h2>🗓 이렇게 예약됩니다</h2><span class="n" id="bulkcount"></span></div>
@@ -1003,7 +1002,6 @@
       </main>
     </div>`;
     if($('bulkacct'))$('bulkacct').value=BULK.account;
-    if($('bulkcap'))$('bulkcap').value=BULK.caption;
     if($('bulkdate'))$('bulkdate').value=BULK.date;
     bulkRenderVideos(); bulkRenderTimes(); bulkPreview();
   }
