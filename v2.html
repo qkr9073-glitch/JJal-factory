@@ -74,6 +74,18 @@
   .ev .rj{background:var(--danger);color:#fff;cursor:pointer}
   .apwait{background:color-mix(in srgb,#f59e0b 12%,transparent);border:1px solid color-mix(in srgb,#f59e0b 45%,transparent);border-radius:10px;padding:12px 14px;margin-bottom:16px}
   .apwait h4{font-size:13.5px;margin-bottom:8px;color:#f59e0b}
+  /* 예약 상세 미리보기 모달 */
+  .smodal{width:min(440px,92vw);background:var(--raised);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+  .smhead{display:flex;align-items:center;gap:9px;padding:13px 15px;border-bottom:1px solid var(--line)}
+  .smhead b{font-size:14.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%}
+  .smstat{font-size:12px;font-weight:800}
+  .smprev{position:relative;background:#000;aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .smprev img,.smprev video{width:100%;height:100%;object-fit:contain;display:block}
+  .smnav{position:absolute;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:50%;border:0;background:rgba(0,0,0,.5);color:#fff;font-size:18px;cursor:pointer;z-index:2}
+  .smnav.l{left:8px}.smnav.r{right:8px}
+  .smcount{position:absolute;bottom:8px;right:10px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;z-index:2}
+  .sminfo{padding:12px 15px;font-size:13px;font-weight:700;color:var(--muted);line-height:1.6}
+  .smfoot{display:flex;align-items:center;gap:8px;padding:12px 15px;border-top:1px solid var(--line)}
   /* 유튜브 짤 빨간 재생버튼 아이콘 (이미지 없이 CSS) */
   .ytplay{display:inline-flex;align-items:center;justify-content:center;width:20px;height:14px;background:#ff0033;border-radius:4px;vertical-align:-2px;flex:0 0 auto}
   .ytplay::before{content:"";border-style:solid;border-width:4px 0 4px 7px;border-color:transparent transparent transparent #fff;margin-left:1px}
@@ -395,6 +407,21 @@
           <button class="btn primary" id="upBtn" onclick="togglePop(event,'result')">📤 업로드</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 예약 상세 미리보기 모달 (예약·승인 탭) -->
+<div class="scrim" id="sScrim" onclick="if(event.target===this)closeSModal()">
+  <div class="smodal" role="dialog" aria-modal="true">
+    <div class="smhead"><b id="smTitle"></b><span class="smstat" id="smStat"></span>
+      <div class="sp"></div><button class="iconbtn" onclick="closeSModal()" title="닫기">✕</button></div>
+    <div class="smprev" id="smPrev"></div>
+    <div class="sminfo" id="smInfo"></div>
+    <div class="smfoot">
+      <button class="btn primary" id="smEdit">🕒 예약 변경</button>
+      <div class="sp"></div>
+      <button class="btn" id="smCancel" style="color:var(--danger);border-color:var(--danger)">🗑 예약 취소</button>
     </div>
   </div>
 </div>
@@ -1382,9 +1409,17 @@
   function showSeldt(){if($('seldt'))$('seldt').textContent='📅 '+schedStr();}
   async function confirmSchedule(){
     closePop();
+    const ts0=Math.floor(new Date(SCHED.y,SCHED.m,SCHED.d,SCHED.hour,SCHED.min).getTime()/1000);
+    if(popCtx==='reschedule'){
+      if(!RESCHED){flash('변경할 예약이 없어요');return;}
+      if(ts0<=Math.floor(Date.now()/1000)+60){flash('⛔ 예약 시간은 현재보다 미래여야 합니다');return;}
+      let d; try{d=await apiJson('/api/schedule/reschedule',{code:code(),id:RESCHED.id,ts:ts0,when:schedStr()});}catch(e){flash('통신 오류');return;}
+      if(!d.ok){flash('❌ '+d.error);return;}
+      flash('🕒 예약 시간 변경됨 — '+schedStr()); RESCHED=null; popCtx='result'; loadSched(); return;
+    }
     if(popCtx==='reel'){flash('🕒 릴스 예약은 준비 중(영상 보관 필요) — 지금은 게시물 예약만');return;}
     if(!PK){flash('팩을 먼저 여세요');return;}
-    const ts=Math.floor(new Date(SCHED.y,SCHED.m,SCHED.d,SCHED.hour,SCHED.min).getTime()/1000);
+    const ts=ts0;
     if(ts<=Math.floor(Date.now()/1000)+60){flash('⛔ 예약 시간은 현재보다 미래여야 합니다 (지난 시간 선택됨)');return;}
     const acct=($('macct2')&&$('macct2').value)||acctOf(PK);
     let d; try{d=await apiJson('/api/schedule/add',{code:code(),pack:PK.name,account:acct,lead:LEAD||'',ts,when:schedStr(),title:PK.title});}catch(e){flash('통신 오류');return;}
@@ -1465,8 +1500,39 @@
     body.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>rejectSched(b.dataset.rj));
     body.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>cancelSched(b.dataset.cancel));
     body.querySelectorAll('.ev[data-ev]').forEach(b=>b.onclick=e=>{
-      if(e.target.closest('[data-ap],[data-rj]'))return; evDetail(b.dataset.ev);});
+      if(e.target.closest('[data-ap],[data-rj]'))return; openSchedItem(b.dataset.ev);});
   }
+  /* ---- 예약 상세 미리보기 모달 (이미지/영상 + 예약변경·취소) ---- */
+  let SITEM=null, SIDX=0;
+  function sImgs(e){return (e&&e.images&&e.images.length)?e.images:(e&&e.thumb?[e.thumb]:[]);}
+  function openSchedItem(id){
+    const e=SVIEW.items.find(x=>x.id===id); if(!e)return;
+    SITEM=e; SIDX=0;
+    $('smTitle').textContent=e.title||e.pack||'';
+    $('smStat').textContent=ST_L[e.status]||e.status; $('smStat').style.color=ST_C[e.status]||'var(--muted)';
+    $('smInfo').innerHTML=`🕒 <b>${esch(e.when||'')}</b> · @${esch(e.account||'')}`
+      +(e.by_name?` · 신청 ${esch(e.by_name)}`:'')
+      +(e.status==='await'?' · <span style="color:#f59e0b">승인 대기</span>':'')
+      +(e.error?`<div style="color:var(--danger);font-weight:600">${esch(e.error)}</div>`:'');
+    paintSPrev();
+    const canEdit=(e.status==='pending'||e.status==='await');
+    $('smEdit').style.display=canEdit?'':'none';
+    $('smCancel').style.display=canEdit?'':'none';
+    $('smEdit').onclick=()=>openReschedule(e.id);
+    $('smCancel').onclick=()=>{if(confirm('이 예약을 취소할까요? (되돌릴 수 없습니다)')){cancelSched(e.id);closeSModal();}};
+    $('sScrim').classList.add('open');
+  }
+  function paintSPrev(){
+    const box=$('smPrev'), e=SITEM; if(!box||!e)return;
+    if(e.video){box.innerHTML=`<video src="${esch(e.video)}" controls playsinline></video>`;return;}
+    const imgs=sImgs(e);
+    if(!imgs.length){box.innerHTML='<div style="color:var(--faint)">미리보기 없음</div>';return;}
+    SIDX=Math.max(0,Math.min(imgs.length-1,SIDX));
+    box.innerHTML=`<img src="${esch(imgs[SIDX])}?t=${TS}">`
+      +(imgs.length>1?`<button class="smnav l" onclick="sSlide(-1)">‹</button><button class="smnav r" onclick="sSlide(1)">›</button><span class="smcount">${SIDX+1}/${imgs.length}</span>`:'');
+  }
+  function sSlide(d){const imgs=sImgs(SITEM);if(!imgs.length)return;SIDX=(SIDX+d+imgs.length)%imgs.length;paintSPrev();}
+  function closeSModal(){$('sScrim').classList.remove('open');SITEM=null;}
   function calMonthHTML(items){
     const {y,m}=SVIEW.ym;
     const first=new Date(y,m,1), start=first.getDay(), days=new Date(y,m+1,0).getDate();
@@ -1493,12 +1559,19 @@
     return h+'</div>';
   }
   function calNav(d){let{y,m}=SVIEW.ym;m+=d;if(m<0){m=11;y--;}if(m>11){m=0;y++;}SVIEW.ym={y,m};paintSchedBody();}
-  function evDetail(id){
+  /* ---- 예약 변경(reschedule): 업로드 때와 같은 캘린더 팝오버 재사용 ---- */
+  let RESCHED=null;
+  function openReschedule(id){
     const e=SVIEW.items.find(x=>x.id===id); if(!e)return;
-    const can=(e.status==='pending'||e.status==='await');
-    const msg=`${ST_L[e.status]||e.status}\n${e.when||''} · @${e.account||''}\n${e.title||e.pack}`+(e.by_name?`\n신청: ${e.by_name}`:'')+(e.error?`\n오류: ${e.error}`:'');
-    if(can&&confirm(msg+'\n\n이 예약을 취소할까요?'))cancelSched(id);
-    else if(!can)flash(msg.split('\n')[0]);
+    closeSModal();
+    popCtx='reschedule'; RESCHED={id:e.id, account:e.account||'', title:e.title||e.pack};
+    $('pop').classList.add('open');
+    $('popMenu').style.display='none'; $('sched').classList.add('open');
+    initSched();
+    if(e.ts){const dt=new Date(e.ts*1000);SCHED={y:dt.getFullYear(),m:dt.getMonth(),d:dt.getDate(),hour:dt.getHours(),min:Math.floor(dt.getMinutes()/5)*5};
+      renderCal(); syncTimeUI(); showSeldt();}
+    if($('sacctShow'))$('sacctShow').textContent='@'+(e.account||'');
+    if($('scap'))$('scap').textContent='🕒 예약 시간만 변경합니다';
   }
   async function approveSched(id){const r=await apiJson('/api/schedule/approve',{code:code(),id});if(!r.ok){flash('❌ '+r.error);return;}flash('✅ 승인됨 — 예약 확정');loadSched();}
   async function rejectSched(id){if(!confirm('이 예약을 반려할까요?'))return;const r=await apiJson('/api/schedule/reject',{code:code(),id});if(!r.ok){flash('❌ '+r.error);return;}flash('🚫 반려됨');loadSched();}
@@ -1554,6 +1627,12 @@
     t.style.cssText='position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--raised);color:var(--ink);border:1px solid var(--line2);border-radius:12px;padding:13px 20px;font-size:13.5px;font-weight:700;box-shadow:var(--shadow);z-index:200';
     document.body.appendChild(t);setTimeout(()=>t.remove(),2400);}
   document.addEventListener('keydown',e=>{
+    if($('sScrim').classList.contains('open')){
+      if(e.key==='Escape')closeSModal();
+      else if(e.key==='ArrowRight')sSlide(1);
+      else if(e.key==='ArrowLeft')sSlide(-1);
+      return;
+    }
     if(!$('scrim').classList.contains('open'))return;
     if($('mosov').classList.contains('open')){if(e.key==='Escape')closeMosaic();return;}
     if(e.key==='Escape')closeModal();

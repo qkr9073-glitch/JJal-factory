@@ -3316,6 +3316,15 @@ def api_schedule_list():
     for e in items:
         pd = OUTPUT / e.get("pack", "")
         e["thumb"] = f"/packs/{e['pack']}/thumb.jpg" if (pd / "thumb.jpg").exists() else ""
+        # 미리보기용 이미지/영상 목록(예약 상세 팝업에서 캐러셀로 보여줌)
+        if pd.is_dir():
+            imgs = sorted(pd.glob("[0-9][0-9].jpg"))
+            e["images"] = [f"/packs/{e['pack']}/{p.name}" for p in imgs]
+            vids = sorted(pd.glob("*.mp4"))
+            e["video"] = f"/packs/{e['pack']}/{vids[0].name}" if vids else ""
+        else:
+            e["images"] = []
+            e["video"] = ""
     items.sort(key=lambda x: x.get("ts", 0))
     return jsonify(ok=True, items=items, admin=_is_admin(cfg, data.get("code")))
 
@@ -3355,6 +3364,36 @@ def api_schedule_reject():
             e["rejected_at"] = datetime.now().isoformat(timespec="seconds")
     _sched_save(items)
     return jsonify(ok=True)
+
+
+@app.post("/api/schedule/reschedule")
+def api_schedule_reschedule():
+    """예약 시간 변경. 본인 예약이거나 관리자만. 과거 시간 불가."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    sid = (data.get("id") or "").strip()
+    mycode = (data.get("code") or "").strip()
+    try:
+        ts = float(data.get("ts") or 0)
+    except (TypeError, ValueError):
+        ts = 0
+    if ts <= time.time() + 30:
+        return jsonify(ok=False, error="예약 시간은 현재보다 미래여야 합니다"), 400
+    items = _sched_load()
+    hit = False
+    for e in items:
+        if e.get("id") == sid:
+            if not _is_admin(cfg, mycode) and e.get("by_code") != mycode:
+                return jsonify(ok=False, error="본인 예약만 변경할 수 있습니다"), 403
+            if e.get("status") not in ("pending", "await"):
+                return jsonify(ok=False, error="이미 처리된 예약은 변경할 수 없습니다"), 400
+            e["ts"] = ts
+            e["when"] = (data.get("when") or "").strip()
+            hit = True
+    _sched_save(items)
+    return jsonify(ok=hit, error=None if hit else "예약을 찾을 수 없습니다")
 
 
 @app.post("/api/schedule/cancel")
