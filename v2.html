@@ -794,20 +794,40 @@
     if(STYLE_ID===id)STYLE_ID='';
     loadStyles();
   }
+  // 업로드 전 이미지 축소(전송량↓, 서버/프록시 크기제한·타임아웃 회피). PDF는 원본 그대로.
+  function refToDataURL(file, maxDim){
+    return new Promise((res,rej)=>{
+      const isPdf=file.type==='application/pdf'||/\.pdf$/i.test(file.name||'');
+      const rd=new FileReader();
+      rd.onerror=()=>rej(new Error('파일 읽기 실패'));
+      if(isPdf){rd.onload=()=>res(rd.result);rd.readAsDataURL(file);return;}
+      rd.onload=()=>{const img=new Image();
+        img.onload=()=>{try{
+          const s=Math.min(1,maxDim/Math.max(img.width,img.height)||1);
+          const w=Math.max(1,Math.round(img.width*s)),h=Math.max(1,Math.round(img.height*s));
+          const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+          cv.getContext('2d').drawImage(img,0,0,w,h);
+          res(cv.toDataURL('image/jpeg',0.82));
+        }catch(err){rej(err);}};
+        img.onerror=()=>rej(new Error('이미지 디코딩 실패'));
+        img.src=rd.result;};
+      rd.readAsDataURL(file);
+    });
+  }
   async function analyzeStyle(inp){
     if(!code()){flash('접속코드를 먼저 입력하세요');inp.value='';return;}
     const files=[...inp.files].slice(0,4); inp.value='';
     if(!files.length)return;
-    if($('styhint'))$('styhint').textContent='🧩 레퍼런스 분석 중… (10~20초)';
+    if($('styhint'))$('styhint').textContent='🧩 레퍼런스 준비 중…';
     try{
-      const imgs=await Promise.all(files.map(f=>new Promise((res,rej)=>{
-        const rd=new FileReader();rd.onload=()=>res(rd.result);rd.onerror=rej;rd.readAsDataURL(f);})));
+      const imgs=await Promise.all(files.map(f=>refToDataURL(f,1000)));
+      if($('styhint'))$('styhint').textContent='🧩 레퍼런스 분석 중… (10~20초)';
       const d=await apiJson('/api/style/analyze',{code:code(),images:imgs});
-      if(!d.ok){if($('styhint'))$('styhint').textContent='❌ '+d.error;return;}
+      if(!d.ok){if($('styhint'))$('styhint').textContent='❌ '+esch(d.error||'분석 실패');return;}
       STYLE_ID=d.style.id; await loadStyles();
       pickStyle(d.style.id);
-      if($('styhint'))$('styhint').textContent='✅ 학습 완료: '+d.style.name+' — 적용됨';
-    }catch(e){if($('styhint'))$('styhint').textContent='❌ 분석 오류';}
+      if($('styhint'))$('styhint').textContent='✅ 학습 완료: '+esch(d.style.name)+' — 적용됨';
+    }catch(e){if($('styhint'))$('styhint').textContent='❌ 분석 오류: '+esch((e&&e.message)||e);}
   }
   function makeCard(){
     const topic=($('ctopic')&&$('ctopic').value.trim())||'';
