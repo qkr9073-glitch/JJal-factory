@@ -43,6 +43,17 @@ def main():
                 pass
     cfg = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
 
+    if "--pack" in flags:            # 실제 완성팩 생성 (렌더+패킹)
+        t = time.time()
+        r = youtube.build_from_youtube(url, cfg, BASE, mock=mock)
+        pack = r["pack"]
+        print(f"\n✅ 완성팩 ({time.time() - t:.1f}s): {pack}")
+        print(f"   대표 썸네일 {r['num_thumbs']}종 + 뒷장 {r['num_images']}장")
+        if "--no-open" not in flags:
+            import os as _os
+            _os.startfile(str(Path(pack) / "review.html"))
+        return 0
+
     T0 = time.time()
     print(f"[1] 메타 조회...")
     meta = youtube.fetch_meta(url)

@@ -14,10 +14,15 @@ import os
 import statistics
 import subprocess
 import time
+from pathlib import Path
 
 import requests
 
-from . import brain  # GEMINI_URL, _parse_json 재사용
+from . import brain, packer, thumbnail  # GEMINI_URL/_parse_json + 렌더/패킹 재사용
+
+_ASSETS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+CARD_W, CARD_H = 1080, 1350
+CARD_MARGIN = 72
 
 try:
     import yt_dlp
@@ -363,3 +368,226 @@ def clean_card_frames(cfg, cards, out_dir, log=print):
         c["frame_clean"] = dest
         c.pop("_cap", None)
     return cards
+
+
+# ─────────────────────────── 6) 렌더 (대표 썸네일 + 장문 뒷장) ───────────────────────────
+def _body_font(size, bold=False):
+    from PIL import ImageFont
+    p = _ASSETS / ("Pretendard-ExtraBold.otf" if bold else "Pretendard-SemiBold.otf")
+    if p.exists():
+        return ImageFont.truetype(str(p), size)
+    fb = "C:/Windows/Fonts/malgunbd.ttf"
+    return ImageFont.truetype(fb, size) if os.path.exists(fb) else ImageFont.load_default(size)
+
+
+def _cover_fill(img, tw, th):
+    """이미지를 tw×th 를 꽉 채우도록 스케일 후 가운데 크롭."""
+    from PIL import Image
+    scale = max(tw / img.width, th / img.height)
+    nw, nh = max(1, int(img.width * scale)), max(1, int(img.height * scale))
+    img = img.resize((nw, nh), Image.LANCZOS)
+    x, y = (nw - tw) // 2, (nh - th) // 2
+    return img.crop((x, y, x + tw, y + th))
+
+
+def _wrap_text(draw, text, font, max_w):
+    """텍스트를 max_w 폭에 맞춰 줄바꿈(어절 우선, 긴 어절은 글자 단위). '\\n' 은 존중."""
+    out = []
+    for para in (text or "").split("\n"):
+        if not para.strip():
+            out.append("")
+            continue
+        line = ""
+        for word in para.split(" "):
+            chunk = (line + " " + word) if line else word
+            if draw.textlength(chunk, font=font) <= max_w:
+                line = chunk
+                continue
+            if line:
+                out.append(line)
+                line = ""
+            if draw.textlength(word, font=font) <= max_w:
+                line = word
+            else:                                    # 한 어절이 너무 길면 글자 단위로
+                cur = ""
+                for ch in word:
+                    if not cur or draw.textlength(cur + ch, font=font) <= max_w:
+                        cur += ch
+                    else:
+                        out.append(cur)
+                        cur = ch
+                line = cur
+        if line:
+            out.append(line)
+    return out
+
+
+def render_back_card(frame, text, watermark, out_path, cfg=None):
+    """뒷장 카드: 프레임(4:5 꽉채움) 위에 대본 장문을 작은 글씨로 얹는다.
+    frame 이 없으면 에메랄드 그라데이션 템플릿 배경(폴백)."""
+    from PIL import Image, ImageDraw
+    canvas = Image.new("RGB", (CARD_W, CARD_H), (12, 14, 22))
+    if frame and Path(frame).exists():
+        canvas.paste(_cover_fill(Image.open(frame).convert("RGB"), CARD_W, CARD_H), (0, 0))
+    else:
+        d0 = ImageDraw.Draw(canvas)
+        for y in range(CARD_H):                      # 폴백: 에메랄드 세로 그라데이션
+            t = y / CARD_H
+            d0.line([(0, y), (CARD_W, y)],
+                    fill=(int(14 + 12 * t), int(70 - 24 * t), int(56 - 8 * t)))
+    draw = ImageDraw.Draw(canvas)
+
+    # 폰트 자동 크기: 작게 시작(최대 44), 텍스트가 하단 45%(아래 절반)를 넘지 않게
+    max_h = int(CARD_H * 0.45)
+    size = 44
+    while size >= 26:
+        font = _body_font(size)
+        lines = _wrap_text(draw, text, font, CARD_W - CARD_MARGIN * 2)
+        lh = int(size * 1.4)
+        if lh * len(lines) <= max_h:
+            break
+        size -= 2
+    font = _body_font(size)
+    lh = int(size * 1.4)
+    lines = _wrap_text(draw, text, font, CARD_W - CARD_MARGIN * 2)
+    block_h = lh * len(lines)
+
+    # 하단 그라데이션(가독성)
+    grad_h = min(CARD_H, block_h + 200)
+    overlay = Image.new("L", (1, grad_h))
+    for y in range(grad_h):
+        overlay.putpixel((0, y), int(230 * (y / grad_h) ** 1.4))
+    overlay = overlay.resize((CARD_W, grad_h))
+    canvas.paste(Image.new("RGB", (CARD_W, grad_h), (0, 0, 0)), (0, CARD_H - grad_h), overlay)
+    draw = ImageDraw.Draw(canvas)
+
+    base_y = CARD_H - 130 - block_h
+    for i, ln in enumerate(lines):
+        y = base_y + i * lh
+        draw.text((CARD_MARGIN + 2, y + 2), ln, font=font, fill=(0, 0, 0))     # 그림자
+        draw.text((CARD_MARGIN, y), ln, font=font, fill=(255, 255, 255))
+    if watermark:
+        wf = _body_font(30)
+        ww = draw.textlength(watermark, font=wf)
+        draw.text(((CARD_W - ww) // 2, CARD_H - 74), watermark, font=wf, fill=(205, 205, 205))
+    canvas.save(out_path, "JPEG", quality=93)
+    return str(out_path)
+
+
+def render_youtube_thumb(bg_path, line1, line2, watermark, out_path):
+    """대표 썸네일: 유튜브 썸네일(또는 프레임)을 4:5 꽉채움 배경으로 후킹 2줄 렌더.
+    기존 thumbnail.render 재사용(가짜 커뮤 헤더 없이 자막형)."""
+    from PIL import Image
+    tmp = str(Path(out_path).with_suffix(".bg.jpg"))
+    if bg_path and Path(bg_path).exists():
+        _cover_fill(Image.open(bg_path).convert("RGB"), CARD_W, CARD_H).save(tmp, "JPEG", quality=92)
+    else:
+        Image.new("RGB", (CARD_W, CARD_H), (18, 44, 36)).save(tmp, "JPEG", quality=92)
+    thumbnail.render(tmp, line1, line2, watermark, out_path, header=None)
+    try:
+        Path(tmp).unlink()
+    except Exception:
+        pass
+    return out_path
+
+
+# ─────────────────────────── 7) 완성팩 생성 (CLI/서버 공용) ───────────────────────────
+def build_from_youtube(url, cfg, base_dir, mock=False, log=print):
+    """유튜브 URL → 짤 완성팩. 반환 형태는 pipeline.build_from_url 과 동일."""
+    import json as _json
+    import shutil
+    import tempfile
+    from datetime import datetime
+
+    root = Path(base_dir) / cfg.get("output_dir", "결과물")
+    root.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="yt_", dir=root))
+    try:
+        log(f"[1/5] 유튜브 메타 조회... {url}")
+        my = fetch_meta(url)
+        log(f"      제목: {my['title']} ({my['duration']}s · {my['uploader']})")
+        yt_thumb = work / "ytthumb.jpg"
+        try:
+            save_thumbnail(my["thumbnail"], str(yt_thumb))
+        except Exception:
+            yt_thumb = None
+
+        log("[2/5] 대본·뒷장 구성안 (Gemini)...")
+        outline = transcribe_and_outline(cfg, url, duration=my["duration"], mock=mock, log=log)
+        hooks = [h for h in (outline.get("hooks") or [])
+                 if h.get("line1") or h.get("line2")][:3] or [{"line1": my["title"][:13], "line2": ""}]
+        cards = outline.get("cards") or []
+        if outline.get("skip"):
+            log(f"[참고] AI 의견: 민감 소재일 수 있음 — {outline.get('skip_reason')} (판단은 직접)")
+
+        if not mock:
+            log("[3/5] 영상 다운로드 + 프레임 추출 + 자막 블러...")
+            vid = work / "video.mp4"
+            try:
+                download_video(url, str(vid), log=log)
+                pool = extract_frame_pool(str(vid), str(work / "pool"), log=log)
+                assign_frames(cards, pool)
+                clean_card_frames(cfg, cards, str(work / "clean"), log=log)
+            except Exception as e:
+                log(f"      다운로드/프레임 실패 → 템플릿 배경으로 폴백: {e}")
+            finally:
+                try:
+                    vid.unlink()                    # 원본 영상은 삭제(용량)
+                except Exception:
+                    pass
+
+        log("[4/5] 렌더링 (대표 썸네일 3종 + 뒷장 장문)...")
+        bg = None
+        if yt_thumb and Path(yt_thumb).exists():
+            bg = str(yt_thumb)
+        elif cards:
+            bg = cards[0].get("frame_clean") or cards[0].get("frame")
+        thumb_paths = []
+        for i, h in enumerate(hooks):
+            tp = work / ("thumb.jpg" if i == 0 else f"thumb{i + 1}.jpg")
+            render_youtube_thumb(bg, h.get("line1", ""), h.get("line2", ""),
+                                 cfg.get("watermark", ""), str(tp))
+            thumb_paths.append(tp)
+        card_paths = []
+        for i, c in enumerate(cards, 1):
+            cp = work / f"card{i:02d}.jpg"
+            render_back_card(c.get("frame_clean") or c.get("frame"),
+                             c.get("text", ""), cfg.get("watermark", ""), str(cp), cfg)
+            card_paths.append(str(cp))
+
+        log("[5/5] 완성팩 패키징...")
+        caption_full = (outline.get("caption") or "").strip()
+        if cfg.get("hashtags"):
+            caption_full += "\n\n" + cfg["hashtags"]
+        if cfg.get("signature"):
+            caption_full += "\n\n" + cfg["signature"]
+        meta = {
+            "title": my["title"] or hooks[0]["line1"],
+            "site": "유튜브", "url": my["webpage_url"],
+            "template": "youtube", "source": "youtube",
+            "hooks": hooks,
+            "skip": bool(outline.get("skip")), "skip_reason": outline.get("skip_reason", ""),
+            "created": datetime.now().isoformat(timespec="seconds"),
+        }
+        pack = packer.build_pack(root, meta, card_paths, thumb_paths, caption_full)
+
+        # 수입·수출 대비: 원천 데이터 + 깨끗한 프레임 보관 (frameNN.jpg, 업로드엔 안 나옴)
+        source = {
+            "source": "youtube", "url": my["webpage_url"], "video_id": my["id"],
+            "lang_src": outline.get("lang_src", ""), "transcript": outline.get("transcript", ""),
+            "hooks": hooks, "caption": outline.get("caption", ""),
+            "cards": [{"text": c.get("text", ""), "t": c.get("t", 0)} for c in cards],
+        }
+        (Path(pack) / "source.json").write_text(
+            _json.dumps(source, ensure_ascii=False, indent=2), encoding="utf-8")
+        for i, c in enumerate(cards, 1):
+            fr = c.get("frame_clean") or c.get("frame")
+            if fr and Path(fr).exists():
+                try:
+                    shutil.copy(str(fr), str(Path(pack) / f"frame{i:02d}.jpg"))
+                except Exception:
+                    pass
+        return {"pack": pack, "meta": meta, "caption": caption_full,
+                "num_images": len(card_paths), "num_thumbs": len(thumb_paths)}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
