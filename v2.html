@@ -630,7 +630,8 @@
           <label class="fld" style="margin-top:13px">🧹 짤에 박힌 글씨</label>
           <select class="in" id="jclean"><option value="none">그대로 두기 (0원)</option><option value="bar">하단/상단 바로 가리기</option><option value="ai">AI로 완전 제거 (장당 55원)</option></select>
           <label class="fld" style="margin-top:13px">🧭 방향 힌트 (선택)</label>
-          <input class="in" id="jguide" placeholder="예: 댓글 반응 위주로, 반전 강조"></div>
+          <input class="in" id="jguide" placeholder="예: 댓글 반응 위주로, 반전 강조">
+          <label class="ck" style="margin-top:11px"><input type="checkbox" id="jblur" checked> <span>🌫 <b>유튜브 자막 블러</b> <span style="color:var(--faint);font-weight:400">— 뒷장 자막 가리기. 자막 위치가 불규칙한 해외 쇼츠는 끄세요</span></span></label></div>
         <div class="step"><div class="sh"><span class="num">3</span><span class="st">만들기</span></div>
           <button class="go" onclick="makeJjal()">완성팩 만들기</button></div>
       </aside>
@@ -698,7 +699,7 @@
     box.innerHTML=`<div class="chips" style="margin-bottom:8px">${sc}</div><div class="chips" style="margin-bottom:14px">${oc}</div>
       <div class="hotgrid">${rows||'<div style="color:var(--faint)">불러온 인기글이 없어요</div>'}</div>`;
     box.querySelectorAll('button[data-mk]').forEach(b=>{
-      b.onclick=()=>{const it=list[+b.dataset.mk]; makeUrl(it.url,(it.title||'').slice(0,24));};
+      b.onclick=()=>{const it=list[+b.dataset.mk]; fillSource(it.url);};
     });
   }
   function jSite(s){jState.site=s;paintCand();}
@@ -706,11 +707,16 @@
   function makeUrl(url,label){
     if(!url){flash('링크를 입력하세요');return;}
     const yt=url.includes('youtube.com')||url.includes('youtu.be');
-    const body=yt?{code:code(),url}
+    const body=yt?{code:code(),url,blur:$('jblur')?$('jblur').checked:true}
       :{code:code(),url,template:TPLS[jState.tpl][2],clean:($('jclean')&&$('jclean').value)||'none',guide:(($('jguide')&&$('jguide').value)||'').trim()};
     startJob(yt?'/api/youtube/make':'/api/make',body,(yt?'🎬 ':'')+(label||url.slice(0,40)));
   }
   function makeJjal(){const u=($('jurl')&&$('jurl').value.trim())||'';makeUrl(u,u.replace(/^https?:\/\//,'').slice(0,40));if($('jurl'))$('jurl').value='';}
+  // 이슈 목록에서 고른 소재 URL을 '소재 넣기' 칸에 넣어줌(옵션 고르고 만들 수 있게)
+  function fillSource(url){
+    if($('jurl')){$('jurl').value=url; try{$('jurl').scrollIntoView({behavior:'smooth',block:'center'});}catch(_){}$('jurl').focus();}
+    flash('📎 소재에 넣었어요 — 템플릿·블러 옵션 고르고 [완성팩 만들기]');
+  }
 
   /* ---- 인기 쇼츠 브라우징 ---- */
   function ytErr(e){const isKey=/API 키/.test(e||'');
@@ -738,15 +744,15 @@
     const box=$('ytlist'); if(!box)return;
     if(!items||!items.length){box.innerHTML='<div style="color:var(--faint)">결과가 없어요</div>';return;}
     const flag=r=>({KR:'🇰🇷',US:'🇺🇸',JP:'🇯🇵'}[r]||'▶️');
-    box.innerHTML=`<div class="caphint" style="margin-bottom:8px">${esch(label)} · 만들기 누르면 유튜브 짤 생성</div>
+    box.innerHTML=`<div class="caphint" style="margin-bottom:8px">${esch(label)} · <b>＋소재</b> 누르면 왼쪽 소재칸에 입력 → 옵션 고르고 만들기</div>
       <div class="hotgrid">${items.map((v,i)=>`
         <div class="hot">
           <div class="th" style="width:74px;height:74px;flex:0 0 74px;border-radius:9px;overflow:hidden;padding:0;background:#000">${v.thumb?`<img src="${v.thumb}" style="width:100%;height:100%;object-fit:cover">`:'▶️'}</div>
           <div class="info"><div class="src">${flag(v.region)} ${esch(v.channel)}</div>
             <div class="tt"><a href="${v.url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esch(v.title)} <span style="color:var(--faint);font-weight:400">↗</span></a></div>
             <div class="mt">👀 ${(v.views||0).toLocaleString()}</div></div>
-          <button data-yt="${i}">만들기</button></div>`).join('')}</div>`;
-    box.querySelectorAll('button[data-yt]').forEach(b=>{b.onclick=()=>{const v=items[+b.dataset.yt];makeUrl(v.url,'🎬 '+(v.title||'').slice(0,20));};});
+          <button data-yt="${i}">＋소재</button></div>`).join('')}</div>`;
+    box.querySelectorAll('button[data-yt]').forEach(b=>{b.onclick=()=>{const v=items[+b.dataset.yt];fillSource(v.url);};});
   }
 
   /* ============ 카드뉴스 TAB ============ */
@@ -1425,11 +1431,21 @@
   }
   function setUp(f){rUp=f;paintRail();paintGrid();}
   function setKind(f){rKind=f;paintRail();paintGrid();}
+  // 결과물 분류: 일본어/영어 먼저(수출), 그다음 소재/종류로. 레거시(source 없음) 폴백 포함
+  function pkind(p){
+    if(p.lang==='ja'||p.story) return 'jp';
+    if(p.lang==='en') return 'en';
+    const s=p.source||'';
+    if(s==='youtube'||p.template==='youtube') return 'yt';
+    if(s==='foreign'||s==='insta_import') return 'import';
+    if(p.type==='cardnews'||s==='cardnews') return 'card';
+    return 'community';   // community + 레거시 짤
+  }
+  const KINDS=[['yt','▶️','유튜브 짤'],['community','🗨','커뮤니티 짤'],['jp','🇯🇵','일본 수출'],['en','🇺🇸','영어 수출'],['import','🇰🇷','한글 수입'],['card','🗂','카드뉴스']];
   function paintRail(){
     const nUp=PACKS.filter(p=>p.published).length, nNo=PACKS.length-nUp;
-    const nMe=PACKS.filter(p=>!isJp(p)&&p.type!=='cardnews').length;
-    const nCard=PACKS.filter(p=>p.type==='cardnews').length, nJp=PACKS.filter(isJp).length;
-    const L=(on,f,fn,ic,lab,c)=>`<div class="rlink ${on?'on':''}" onclick="${fn}('${f}')"><span class="ic">${ic}</span> ${lab} <span class="c">${c}</span></div>`;
+    const cnt={}; PACKS.forEach(p=>{const k=pkind(p);cnt[k]=(cnt[k]||0)+1;});
+    const L=(on,f,fn,ic,lab,c)=>`<div class="rlink ${on?'on':''}" onclick="${fn}('${f}')"><span class="ic">${ic}</span> ${lab} <span class="c">${c||0}</span></div>`;
     $('rrail').innerHTML=`
       <div><p class="rlabel">업로드 상태</p>
         ${L(rUp==='all','all','setUp','▦','전체',PACKS.length)}
@@ -1437,17 +1453,13 @@
         ${L(rUp==='up','up','setUp','<span style="color:var(--insta)">●</span>','업로드완료',nUp)}</div>
       <div><p class="rlabel">종류</p>
         ${L(rKind==='all','all','setKind','▦','전체',PACKS.length)}
-        ${L(rKind==='meme','meme','setKind','🏭','짤',nMe)}
-        ${L(rKind==='card','card','setKind','🗂','카드뉴스',nCard)}
-        ${L(rKind==='jp','jp','setKind','📖','일본 스토리',nJp)}</div>`;
+        ${KINDS.map(([k,ic,lab])=>L(rKind===k,k,'setKind',ic,lab,cnt[k])).join('')}</div>`;
   }
   function filtered(){
     return PACKS.filter(p=>{
       if(rUp==='up'&&!p.published)return false;
       if(rUp==='no'&&p.published)return false;
-      if(rKind==='meme'&&(isJp(p)||p.type==='cardnews'))return false;
-      if(rKind==='card'&&p.type!=='cardnews')return false;
-      if(rKind==='jp'&&!isJp(p))return false;
+      if(rKind!=='all'&&pkind(p)!==rKind)return false;
       return true;
     });
   }

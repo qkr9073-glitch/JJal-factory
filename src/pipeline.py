@@ -296,6 +296,8 @@ def _finish(cfg, base_dir, data, images, work, mock, log, stats=None, localize=F
         "title": data["title"] or hooks[0]["line1"],
         "site": data["site"], "url": data["url"],
         "template": template,
+        # 분류용: 해외캡처 현지화=foreign(수입), 링크=community(커뮤니티짤), 그 외 수동
+        "source": "foreign" if localize else ("community" if data.get("url") else "manual"),
         "hooks": hooks,
         "skip": bool(copy.get("skip")),
         "skip_reason": copy.get("skip_reason", ""),

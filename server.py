@@ -1765,7 +1765,7 @@ def _run_job(jid, url, cfg, stats, template=None, clean=None, guide=""):
         _pending_remove(jid)
 
 
-def _run_youtube_job(jid, url, cfg):
+def _run_youtube_job(jid, url, cfg, blur=True):
     """🎬 유튜브 쇼츠 → 짤 완성팩 잡 (대본 장문 + 프레임 + 자막 블러)."""
     job = JOBS[jid]
 
@@ -1778,7 +1778,7 @@ def _run_youtube_job(jid, url, cfg):
                 int(step.group(1)), job["pct"])
 
     try:
-        result = youtube.build_from_youtube(url, cfg, BASE, log=log)
+        result = youtube.build_from_youtube(url, cfg, BASE, log=log, blur=blur)
         job["result"] = _pack_payload(result)
         job["pct"] = 100
         job["status"] = "done"
@@ -2388,13 +2388,14 @@ def api_youtube_make():
     url = (data.get("url") or "").strip()
     if not re.search(r"(?:youtube\.com|youtu\.be)/", url):
         return jsonify(ok=False, error="유튜브 링크가 아니에요 (youtube.com / youtu.be)"), 400
+    blur = data.get("blur") is not False   # 기본 켬, 명시적 false면 자막 블러 끔
     now = time.time()
     for k in [k for k, v in JOBS.items() if now - v["ts"] > 3600]:
         JOBS.pop(k, None)
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
                  "result": None, "error": None, "ts": now}
-    JOBQ.put((jid, _run_youtube_job, (jid, url, cfg)))
+    JOBQ.put((jid, _run_youtube_job, (jid, url, cfg, blur)))
     return jsonify(ok=True, job=jid)
 
 
@@ -2740,6 +2741,8 @@ def api_packs():
                           "title": meta.get("title") or d.name,
                           "created": meta.get("created", ""),
                           "n": nimg, "exportable": exportable,
+                          "source": meta.get("source", ""),
+                          "template": meta.get("template", ""),
                           "type": "cardnews" if meta.get("type") == "cardnews" else "meme",
                           "site": meta.get("site", "") or
                                   ("카드뉴스" if meta.get("type") == "cardnews" else ""),

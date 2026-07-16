@@ -303,7 +303,7 @@ def detect_caption_box(cfg, image_path, log=print):
         return None
 
 
-def blur_region(src, box, dest=None, pad=0.012, blur_ratio=0.35, log=print):
+def blur_region(src, box, dest=None, pad=0.012, blur_ratio=0.20, log=print):
     """box(0~1000) 영역을 일반 가우시안 블러(사각형, 페더 없음)로 처리해 저장.
     blur_ratio 는 영역 높이 대비 블러 세기 비율(자막 높이에 따라 자동 스케일)."""
     from PIL import Image, ImageFilter
@@ -318,7 +318,7 @@ def blur_region(src, box, dest=None, pad=0.012, blur_ratio=0.35, log=print):
     if x1 - x0 < 3 or y1 - y0 < 3:
         im.save(dest, "JPEG", quality=90)
         return dest
-    blur_r = max(10, int((y1 - y0) * blur_ratio))       # 글자 안 보이게 충분히
+    blur_r = max(6, int((y1 - y0) * blur_ratio))        # 글자 뭉갤 만큼만(과하지 않게)
     region = im.crop((x0, y0, x1, y1)).filter(ImageFilter.GaussianBlur(blur_r))
     im.paste(region, (x0, y0))
     im.save(dest, "JPEG", quality=90)
@@ -513,8 +513,9 @@ def render_youtube_thumb(bg_path, line1, line2, watermark, out_path, lang="ko"):
 
 
 # ─────────────────────────── 7) 완성팩 생성 (CLI/서버 공용) ───────────────────────────
-def build_from_youtube(url, cfg, base_dir, mock=False, log=print):
-    """유튜브 URL → 짤 완성팩. 반환 형태는 pipeline.build_from_url 과 동일."""
+def build_from_youtube(url, cfg, base_dir, mock=False, log=print, blur=True):
+    """유튜브 URL → 짤 완성팩. 반환 형태는 pipeline.build_from_url 과 동일.
+    blur=False면 뒷장 자막 블러를 건너뜀(자막 위치 불규칙한 해외 쇼츠용)."""
     import json as _json
     import shutil
     import tempfile
@@ -548,7 +549,10 @@ def build_from_youtube(url, cfg, base_dir, mock=False, log=print):
                 download_video(url, str(vid), log=log)
                 pool = extract_frame_pool(str(vid), str(work / "pool"), log=log)
                 assign_frames(cards, pool)
-                clean_card_frames(cfg, cards, str(work / "clean"), log=log)
+                if blur:
+                    clean_card_frames(cfg, cards, str(work / "clean"), log=log)
+                else:
+                    log("      (자막 블러 끔 — 원본 프레임 사용)")
             except Exception as e:
                 log(f"      다운로드/프레임 실패 → 템플릿 배경으로 폴백: {e}")
             finally:

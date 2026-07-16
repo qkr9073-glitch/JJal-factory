@@ -187,6 +187,8 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
     (pack / "caption.txt").write_text(caption, encoding="utf-8")
     meta = {
         "type": "cardnews",
+        # 수입(해외 레퍼런스 현지화)=foreign, 일반 카드뉴스 탭=cardnews
+        "source": "foreign" if context_kind == "ref" else "cardnews",
         "mode": "proof" if proofs else "normal",
         "theme": cfg.get("card_theme", "hunter"),
         "topic": topic,
