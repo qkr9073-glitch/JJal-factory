@@ -1753,7 +1753,8 @@ def _run_images_job(jid, image_paths, caption, localize, cfg, template=None, cle
 
 
 def _run_card_job(jid, topic, n_items, keyword, cfg, mode="normal", context=None,
-                  ref_images=None, ref_caption="", auto_upload=False, make_ebook=True):
+                  ref_images=None, ref_caption="", auto_upload=False, make_ebook=True,
+                  account=None):
     job = JOBS[jid]
 
     def log(m):
@@ -1777,7 +1778,8 @@ def _run_card_job(jid, topic, n_items, keyword, cfg, mode="normal", context=None
         else:
             result = card_pipeline.build_cardnews(
                 topic, cfg, BASE, n_items=n_items, keyword=keyword or None,
-                proof=(mode == "proof"), context=context, make_ebook=make_ebook, log=log)
+                proof=(mode == "proof"), context=context, make_ebook=make_ebook,
+                account=account, log=log)
         rel = result["pack"].name
         job["result"] = {
             "pack": rel,
@@ -1923,7 +1925,8 @@ def api_card_make():
     JOBQ.put((jid, _run_card_job,
               (jid, topic, n_items, (data.get("keyword") or "").strip(),
                cfg, mode, context, None, "", auto_upload,
-               data.get("ebook") is not False)))
+               data.get("ebook") is not False,
+               (data.get("account") or "").strip() or None)))
     return jsonify(ok=True, job=jid)
 
 

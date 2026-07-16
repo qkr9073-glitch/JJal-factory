@@ -47,7 +47,8 @@ def _slug(title, limit=18):
 
 def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
                    teaser_count=None, mock=False, log=print,
-                   proof=False, context=None, context_kind="news", make_ebook=True):
+                   proof=False, context=None, context_kind="news", make_ebook=True,
+                   account=None):
     """주제 → 완성팩. 반환 dict: pack, meta, caption, cards, ebook_pages
     proof=True: 자료서랍에서 증빙 캡처를 골라 CTA 앞에 증빙 카드 삽입.
     context: 근거 텍스트 (기획 프롬프트에 삽입)
@@ -157,6 +158,22 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
     cards.append(p)
     log(f"      카드 {len(cards)}장 완성")
 
+    if make_ebook and account:      # 전자책 아웃트로 = 업로드 계정의 인스타 프로필(사진·소개)
+        try:
+            import insta
+            prof = insta.fetch_profile(cfg, account=account,
+                                       dest_photo=(pack / "_profile.jpg"), log=log)
+            if prof:
+                cfg = dict(cfg)
+                if prof.get("photo_path"):
+                    cfg["card_profile_photo"] = prof["photo_path"]
+                bio_lines = [ln for ln in (prof.get("biography") or "").splitlines()
+                             if ln.strip()][:3]
+                if bio_lines:
+                    cfg["card_profile_lines"] = bio_lines
+                log(f"      전자책 아웃트로: @{prof.get('username', '')} 프로필 반영")
+        except Exception as e:
+            log(f"      (프로필 반영 실패, config 값 사용: {str(e)[:60]})")
     if make_ebook:
         log("[4/4] 전자책 PDF + 패키징...")
         num_pages = ebook.build_ebook(plan, items, cfg, pack / "ebook.pdf", log=log)

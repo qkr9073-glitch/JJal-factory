@@ -251,6 +251,46 @@ def publish_reel(cfg, base_dir, video_url, caption, account=None,
     return {"media_id": media_id, "permalink": permalink, "account": key}
 
 
+def fetch_profile(cfg, account=None, dest_photo=None, log=print):
+    """선택 계정의 인스타 프로필(유저명·이름·소개·사진) 조회. dest_photo 경로 주면 사진 다운로드.
+    반환 {username, name, biography, photo_path} 또는 None(미연동/실패)."""
+    try:
+        key, acc = resolve_account(cfg, account=account)
+    except Exception as e:
+        log(f"      (프로필 조회 건너뜀: {e})")
+        return None
+    uid = str(acc.get("user_id", "")).strip()
+    token = str(acc.get("access_token", "")).strip()
+    if not uid or not token:
+        return None
+    try:
+        r = requests.get(f"{_base(cfg)}/{uid}",
+                         params={"fields": "username,name,profile_picture_url,biography",
+                                 "access_token": token}, timeout=30)
+        if r.status_code != 200:
+            log(f"      (프로필 조회 실패 {r.status_code})")
+            return None
+        j = r.json()
+        prof = {"username": j.get("username", ""), "name": j.get("name", ""),
+                "biography": j.get("biography", ""), "photo_path": None}
+        purl = j.get("profile_picture_url")
+        if purl and dest_photo:
+            try:
+                import io
+                from PIL import Image
+                pr = requests.get(purl, timeout=30)
+                if pr.status_code == 200:
+                    Image.open(io.BytesIO(pr.content)).convert("RGB").save(
+                        str(dest_photo), "JPEG", quality=90)
+                    prof["photo_path"] = str(dest_photo)
+            except Exception:
+                pass
+        return prof
+    except Exception as e:
+        log(f"      (프로필 조회 오류: {str(e)[:80]})")
+        return None
+
+
 # ---------------------------------------------------------------- 완성팩 → 발행
 
 def pack_image_urls(cfg, pack_dir, lead=None):

@@ -538,6 +538,9 @@
           <div class="caphint" style="margin-top:7px">${modes[cState.mode][0]} <b>${modes[cState.mode][1]}</b> — ${modes[cState.mode][2]}</div></div>
         <div class="step"><div class="sh"><span class="num">3</span><span class="st">옵션</span></div>
           <label class="ck" style="margin-bottom:9px"><input type="checkbox" id="cEbook" checked onchange="toggleEbook()"> <span>📕 <b>전자책 포함</b> (PDF 리드마그넷)</span></label>
+          <div id="cacctRow" style="margin-bottom:9px">
+            <label class="fld" style="margin-bottom:4px">전자책 프로필 계정 <span style="font-weight:400;color:var(--faint)">— 이 계정 인스타 프로필(사진·소개)이 마지막 장에</span></label>
+            <select class="in" id="cacct">${ACCTS.map(a=>`<option value="${a}">@${a}</option>`).join('')}</select></div>
           <label class="fld" id="citemsLbl">전자책 개수 · 댓글 키워드</label>
           <div style="display:flex;gap:8px"><select class="in" id="citems" style="flex:0 0 120px"><option value="30">30개</option><option value="40">40개</option><option value="60" selected>60개</option></select>
           <input class="in" id="ckeyword" placeholder="댓글 키워드 (비우면 AI)"></div>
@@ -574,11 +577,13 @@
       auto_cover:$('cAutocover')?$('cAutocover').checked:true,
       body_images:$('cBodyimg')?$('cBodyimg').checked:false,
       auto_upload:$('cAutoup')?$('cAutoup').checked:false,
-      ebook:$('cEbook')?$('cEbook').checked:true},'🗂 '+topic.slice(0,30));
+      ebook:$('cEbook')?$('cEbook').checked:true,
+      account:($('cacct')&&$('cacct').value)||''},'🗂 '+topic.slice(0,30));
   }
   function toggleEbook(){const on=!$('cEbook')||$('cEbook').checked;
     if($('citems')){$('citems').disabled=!on;$('citems').style.opacity=on?'1':'.4';}
-    if($('citemsLbl'))$('citemsLbl').style.opacity=on?'1':'.5';}
+    if($('citemsLbl'))$('citemsLbl').style.opacity=on?'1':'.5';
+    if($('cacctRow'))$('cacctRow').style.display=on?'':'none';}
   async function loadRecos(kind){
     const box=$('recolist'); if(!box)return;
     if(!code()){flash('접속코드를 입력하세요');return;}
