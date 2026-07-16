@@ -3081,11 +3081,44 @@ def api_pack_mosaic():
             applied += 1
         if not applied:
             return jsonify(ok=False, error="유효한 영역이 없어요 — 조금 더 크게 드래그해주세요"), 400
+        orig_dir = d / "_orig"          # 최초 상태 백업(첫 편집 때만) → 원본 복구용
+        orig_dir.mkdir(exist_ok=True)
+        if not (orig_dir / base).exists():
+            shutil.copy(str(d / base), str(orig_dir / base))
         img.save(d / base, "JPEG", quality=92)
         _rebuild_pack_zip(d)
         return jsonify(ok=True, image=base, applied=applied)
     except Exception as e:
         return jsonify(ok=False, error=f"블러 실패: {str(e)[:80]}"), 500
+
+
+@app.post("/api/pack/restore")
+def api_pack_restore():
+    """편집(블러) 전 최초 생성 상태로 복구. base 지정=그 이미지만, 없으면 전체."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    d = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not d.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    orig_dir = d / "_orig"
+    if not orig_dir.is_dir():
+        return jsonify(ok=False, error="복구할 원본이 없어요 (아직 편집 안 한 팩)"), 404
+    base = (data.get("base") or "").strip()
+    restored = 0
+    if base:
+        if not re.fullmatch(r"(?:\d{2}|thumb\d*)\.jpg", base) or not (orig_dir / base).exists():
+            return jsonify(ok=False, error="이 이미지의 원본이 없어요"), 404
+        shutil.copy(str(orig_dir / base), str(d / base))
+        restored = 1
+    else:
+        for p in orig_dir.glob("*.jpg"):
+            shutil.copy(str(p), str(d / p.name))
+            restored += 1
+    _rebuild_pack_zip(d)
+    return jsonify(ok=True, restored=restored)
 
 
 @app.post("/api/pack/rethumb")

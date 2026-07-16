@@ -487,8 +487,10 @@
   <div class="mostip">🟦 가릴 부분을 <b>드래그</b>하세요<br><small>욕설·개인정보 등 · 여러 개 가능</small></div>
   <div class="moswrap"><div class="mosbg" id="mosbg"><b id="mosLabel"></b></div><canvas class="moscv" id="moscv"></canvas></div>
   <div class="mosbar">
-    <button class="btn ghost" onclick="mosClear()">↩ 다 지우기</button>
-    <button class="btn" onclick="closeMosaic()">취소</button>
+    <button class="btn ghost" onclick="mosClear()">↩ 선택 취소</button>
+    <button class="btn" onclick="restoreImg()" style="color:var(--gold);border-color:var(--gold)">🔄 원본 복구</button>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="closeMosaic()">닫기</button>
     <button class="btn primary" onclick="applyMosaic()">✅ 블러 적용</button>
   </div>
 </div>
@@ -1673,6 +1675,13 @@
     closeMosaic();
     if(!d.ok){flash('❌ '+d.error);return;}
     flash('🟦 블러 적용 완료'); reloadModal();
+  }
+  async function restoreImg(){
+    if(!PK||!mosTarget)return;
+    if(!confirm('이 이미지를 최초 생성 상태로 되돌릴까요? (블러 전으로 복구)'))return;
+    let d; try{d=await apiJson('/api/pack/restore',{code:code(),pack:PK.name,base:mosTarget});}catch(e){flash('통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    closeMosaic(); flash('🔄 원본으로 복구됨'); reloadModal();
   }
 
   /* ---- upload popover (실제) ---- */
