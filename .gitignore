@@ -10,6 +10,7 @@ _사용완료/
 
 # ── 런타임 산출물 / 상태 파일 ──
 결과물/
+out/
 logs/
 seen.json
 published.json
