@@ -104,7 +104,7 @@ ITEMS_PROMPT = """너는 정보형 카드뉴스의 본문 작가다.
 
 ## 채널 정보
 {brand}
-
+{style_block}
 ## 작성할 아이템 (번호. 제목)
 {titles}
 
@@ -369,7 +369,15 @@ def plan(cfg, topic, n_items=60, teaser_count=9, keyword=None, mock=False,
         return _mock_plan(topic, n_items, teaser_count, keyword)
 
     context_block = ""
-    if context and context_kind == "ref":
+    # 스타일 프리셋 지침: '소재'가 아니라 '작성 톤·구성 지침'으로 주입해야 함
+    if context and (context_kind == "style"
+                    or context.lstrip().startswith("[참고 스타일]")):
+        context_block = (
+            "\n## 작성 스타일 지침 (아래 톤·구성을 반드시 그대로 따를 것)\n"
+            f"{context}\n"
+            "- 위 지침의 말투/후킹/전개/정보량/마무리 방식을 이 카드뉴스에 실제로 반영하라.\n"
+            "- 주제·내용은 위에서 지정한 것을 쓰되, 표현 스타일만 위 지침을 따른다.\n")
+    elif context and context_kind == "ref":
         context_block = (
             "\n## 해외 레퍼런스 소재 (한국 타깃으로 현지화할 것)\n"
             f"{context}\n"
@@ -438,10 +446,15 @@ def _spread_teaser(categories, count):
 
 # ---------------------------------------------------------------- 집필
 
-def write_items(cfg, plan_result, log=print, mock=False, batch_size=10):
+def write_items(cfg, plan_result, log=print, mock=False, batch_size=10, style_guide=None):
     """기획된 카테고리별 아이템 제목 → 상세 내용(태그 라인) 전체 집필.
+    style_guide: 스타일 프리셋 지침(있으면 본문 톤·표현에도 반영)
     반환: [{num, category, title, lines:[{tag,text}]}] (num 순서 정렬)"""
     pack_title = f"{plan_result['title_top']} {plan_result['title_main']}"
+    style_block = ""
+    if style_guide:
+        style_block = ("\n## 작성 스타일 지침 (본문 말투·표현을 이대로 맞출 것)\n"
+                       f"{style_guide}\n")
     all_items, num = [], 0
     total = sum(len(c["items"]) for c in plan_result["categories"])
     for cat in plan_result["categories"]:
@@ -456,7 +469,7 @@ def write_items(cfg, plan_result, log=print, mock=False, batch_size=10):
                 result = _call(cfg, ITEMS_PROMPT.format(
                     brand=cfg.get("card_brand_context", DEFAULT_BRAND),
                     pack_title=pack_title, category=cat["name"],
-                    titles=numbered, count=len(batch),
+                    titles=numbered, count=len(batch), style_block=style_block,
                 ), max_tokens=8192, temperature=0.7, thinking=0)
                 items = _validate_items(result.get("items", []), batch)
             for it in items:

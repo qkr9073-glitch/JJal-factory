@@ -91,7 +91,9 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
             log(f"      (표지 자동 사진 건너뜀: {str(e)[:60]})")
 
     log(f"[2/4] AI 집필 중 — 아이템 {plan['n_items']}개 (10개 단위 배치)")
-    items = brain.write_items(cfg, plan, log=log, mock=mock)
+    # 스타일 프리셋 지침이면 본문 집필 톤에도 반영
+    _sg = context if (context and str(context).lstrip().startswith("[참고 스타일]")) else None
+    items = brain.write_items(cfg, plan, log=log, mock=mock, style_guide=_sg)
     if not mock and cfg.get("card_polish", True):
         log("      🧐 깐깐한 편집장 2차 감수 — 밍밍한 아이템 골라 다시 쓰기")
         items = brain.polish_items(cfg, items, log=log)
