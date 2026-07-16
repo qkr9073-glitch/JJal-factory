@@ -1645,7 +1645,7 @@ $('code').addEventListener('keydown',e=>{if(e.key==='Enter')loadList();});
 
 IG_ACCOUNTS_FILE = BASE / "ig_accounts.json"     # UI로 추가한 업로드 계정 {name:{user_id,access_token}}
 YTKEYS_FILE = BASE / "youtube_keys.json"          # 회원별 유튜브 키 {code:[{key,label,units_today,units_total,day,last}]}
-_admin_lock = threading.Lock()
+_admin_lock = threading.RLock()   # 재진입 가능(사용량 집계가 락 안에서 save 호출 → 데드락 방지)
 
 
 def load_config():
