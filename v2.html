@@ -214,7 +214,7 @@
   .btn.ghost{background:transparent;color:var(--muted)}
   .btn.primary{background:var(--gold);color:var(--gold-ink);border-color:var(--gold);font-weight:800;padding:11px 22px;box-shadow:0 6px 18px -8px color-mix(in srgb,var(--gold) 70%,transparent)}
   .btn.primary:hover{filter:brightness(1.05)}
-  .pop{position:absolute;bottom:64px;right:18px;width:300px;max-height:74vh;overflow:auto;background:var(--raised);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:8px;display:none;z-index:10}
+  .pop{position:absolute;bottom:64px;right:18px;width:300px;max-height:74vh;overflow:hidden auto;background:var(--raised);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:8px;display:none;z-index:10}
   .cal{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px}
   .calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:13px;font-weight:800}
   .calhead button{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:7px;width:26px;height:26px;font-size:15px;line-height:1;padding:0}
@@ -224,8 +224,9 @@
   .cd:hover{background:var(--raised)}
   .cd.today{outline:1px solid var(--line2)}
   .cd.on{background:var(--gold);color:var(--gold-ink);font-weight:800}
-  .timerow{display:flex;align-items:center;gap:6px}
-  .tsel{width:auto;flex:0 0 auto;padding:8px 9px}
+  .timerow{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+  .timerow .ampm{flex:0 0 auto}
+  .timerow select.tsel{flex:1 1 0;min-width:0;width:auto;padding:8px 6px;text-align:center}
   .ampm{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
   .ampm button{background:var(--panel2);border:0;color:var(--muted);font-size:12px;font-weight:700;padding:8px 11px;cursor:pointer}
   .ampm button.on{background:var(--gold);color:var(--gold-ink)}
@@ -332,7 +333,8 @@
               </div>
               <div class="seldt" id="seldt"></div></div>
             <div class="schrow"><label>올릴 계정</label><select><option>@sowho77 (짤공장)</option><option>@kangarooshort (카드뉴스)</option><option>@kangaroostory.jp (일본)</option></select></div>
-            <div class="schrow"><label>캡션 (미리보기)</label><input value="오늘의 레전드 짤 모음 🔥 #유머 #짤"></div>
+            <div class="schrow"><label>올릴 캡션 <span style="font-weight:400;color:var(--faint)">— 위 ② 본문 캡션 그대로</span></label>
+              <div id="scap" style="font-size:12px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 10px;max-height:76px;overflow:auto;white-space:pre-wrap;line-height:1.5"></div></div>
             <button class="btn primary" style="width:100%" onclick="confirmSchedule()">🕒 이 시간에 예약</button>
           </div>
         </div>
@@ -857,6 +859,8 @@
     const t=new Date(); t.setDate(t.getDate()+1);
     SCHED={y:t.getFullYear(),m:t.getMonth(),d:t.getDate(),hour:9,min:0};
     buildTimeSelects(); renderCal(); syncTimeUI(); showSeldt();
+    const cap=($('capta')&&$('capta').value)||(PK&&PK.caption)||'';
+    if($('scap'))$('scap').textContent=cap.trim()||'(본문 캡션 없음 — ② 캡션을 채우세요)';
   }
   function buildTimeSelects(){
     const h=$('thour'), mi=$('tmin'); if(!h||!mi)return;
