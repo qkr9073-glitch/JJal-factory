@@ -2176,20 +2176,45 @@ def api_style_list():
     return jsonify(ok=True, styles=styles.load_styles(BASE))
 
 
+def _pdf_to_images(pdf_bytes, max_pages=4, dpi=130):
+    """PDF 바이트 → 앞쪽 페이지들을 JPEG 바이트 리스트로 래스터라이즈(PyMuPDF)."""
+    import fitz  # PyMuPDF
+    out = []
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        for i in range(min(max_pages, doc.page_count)):
+            pix = doc.load_page(i).get_pixmap(dpi=dpi)
+            out.append(pix.tobytes("jpeg"))
+    finally:
+        doc.close()
+    return out
+
+
 @app.post("/api/style/analyze")
 def api_style_analyze():
-    """참고 캐러셀 이미지(base64 여러 장) → Gemini 비전 분석 → 스타일 프리셋 저장."""
+    """참고 캐러셀 이미지/PDF(base64 여러 개) → Gemini 비전 분석 → 스타일 프리셋 저장."""
     data = request.get_json(silent=True) or {}
     cfg = load_config()
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     imgs = data.get("images") or ([data["image"]] if data.get("image") else [])
     if not imgs:
-        return jsonify(ok=False, error="이미지를 최소 1장 올려주세요"), 400
+        return jsonify(ok=False, error="참고 이미지나 PDF를 최소 1개 올려주세요"), 400
     try:
-        blobs = [_decode_data_url(x) for x in imgs[:4]]
+        blobs = []
+        for x in imgs:
+            raw = _decode_data_url(x)
+            if (isinstance(x, str) and "application/pdf" in x[:64]) or raw[:5] == b"%PDF-":
+                blobs.extend(_pdf_to_images(raw, max_pages=4))   # PDF → 페이지 이미지
+            else:
+                blobs.append(raw)
+            if len(blobs) >= 4:
+                break
+        blobs = blobs[:4]
+        if not blobs:
+            return jsonify(ok=False, error="파일에서 이미지를 읽지 못했어요"), 400
     except Exception:
-        return jsonify(ok=False, error="이미지 형식을 읽지 못했어요"), 400
+        return jsonify(ok=False, error="이미지/PDF 형식을 읽지 못했어요"), 400
     try:
         preset = styles.analyze_reference(blobs, cfg)
     except Exception as e:
@@ -3256,6 +3281,8 @@ def api_schedule_add():
         ts = 0
     if ts <= 0:
         return jsonify(ok=False, error="예약 시간이 올바르지 않습니다"), 400
+    if ts <= time.time() + 30:
+        return jsonify(ok=False, error="예약 시간은 현재보다 미래여야 합니다"), 400
     who = _member(cfg, data.get("code")) or {}
     admin = who.get("role") == "admin"
     entry = {"id": uuid.uuid4().hex[:10], "pack": pack,

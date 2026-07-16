@@ -648,30 +648,69 @@ def _yt_item(it, region=""):
             "views": int(st.get("viewCount", 0) or 0), "thumb": thumb, "region": region}
 
 
-def trending_shorts(cfg, regions=("KR", "US", "JP"), per=10, max_sec=90):
-    """지역별 트렌딩(mostPopular) 중 90초 미만 세로 쇼츠만 지역당 per개.
-    (유튜브 API는 화면비를 안 줘서 세로 여부는 직접 못 거르지만, 90초 미만은 사실상 세로 쇼츠)"""
+# 제외 카테고리: 1=영화·애니, 10=음악, 30=영화, 44=트레일러 (요청: 영화·드라마 트레일러·음악 제외)
+_BLOCK_CATS = {"1", "10", "30", "44"}
+# 제목에 이런 말이 들어가면 영화·드라마·음악 홍보물로 보고 제외
+# (유튜브 트렌딩엔 예고편/뮤비가 Entertainment로 분류돼 섞이므로 제목으로 한 번 더 거른다)
+_BLOCK_TITLE = [
+    "trailer", "teaser", "official video", "official audio", "lyric",
+    "music video", "m/v", " mv", "mv)", "concept film", "highlight film",
+    "예고편", "예고", "티저", "뮤직비디오", "뮤비", "공식 영상", "공식영상",
+    "official trailer", "ost", "라이브 클립", "live clip", "performance video",
+]
+
+
+def _is_short_clip(it, max_sec):
+    """쇼츠로 볼 만한지: 60초 미만 + 음악/영화/트레일러 카테고리·제목 아님."""
+    dur = _iso_seconds(it.get("contentDetails", {}).get("duration"))
+    if dur == 0 or dur > max_sec:
+        return False
+    sn = it.get("snippet", {}) or {}
+    if str(sn.get("categoryId", "")) in _BLOCK_CATS:
+        return False
+    title = (sn.get("title", "") or "").lower()
+    if any(w in title for w in _BLOCK_TITLE):
+        return False
+    return True
+
+
+_REGION_Q = {"KR": "쇼츠", "US": "shorts", "JP": "ショート"}
+_REGION_LANG = {"KR": "ko", "US": "en", "JP": "ja"}
+
+
+def trending_shorts(cfg, regions=("KR", "US", "JP"), per=10, max_sec=59):
+    """지역별 '최근 인기 쇼츠'. (유튜브 mostPopular 차트는 쇼츠 피드가 아니라 음악/예고편/롱폼
+    위주라, 검색 API의 videoDuration=short + 조회순 + 최근 14일로 실제 쇼츠를 모은다.)
+    → 60초 미만 + 음악/영화/트레일러 카테고리·제목 제외."""
+    import datetime as _dt
     key = _yt_key(cfg)
     if not key:
         raise RuntimeError("유튜브 API 키가 없습니다 (config youtube_api_key)")
+    after = (_dt.datetime.utcnow() - _dt.timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
     out = []
     for rg in regions:
         try:
-            r = requests.get(f"{_YT_DATA}/videos",
-                             params={"part": "snippet,contentDetails,statistics",
-                                     "chart": "mostPopular", "regionCode": rg,
-                                     "maxResults": 50, "key": key}, timeout=30)
-            if r.status_code != 200:
+            sr = requests.get(f"{_YT_DATA}/search",
+                              params={"part": "snippet", "type": "video",
+                                      "videoDuration": "short", "order": "viewCount",
+                                      "q": _REGION_Q.get(rg, "shorts"),
+                                      "regionCode": rg,
+                                      "relevanceLanguage": _REGION_LANG.get(rg, "en"),
+                                      "publishedAfter": after,
+                                      "maxResults": 40, "key": key}, timeout=30)
+            if sr.status_code != 200:
                 continue
-            cnt = 0
-            for it in r.json().get("items", []):
-                dur = _iso_seconds(it.get("contentDetails", {}).get("duration"))
-                if dur == 0 or dur > max_sec:
-                    continue
-                out.append(_yt_item(it, rg))
-                cnt += 1
-                if cnt >= per:
-                    break
+            ids = [it.get("id", {}).get("videoId") for it in sr.json().get("items", [])
+                   if it.get("id", {}).get("videoId")]
+            if not ids:
+                continue
+            vr = requests.get(f"{_YT_DATA}/videos",
+                              params={"part": "snippet,contentDetails,statistics",
+                                      "id": ",".join(ids[:50]), "key": key}, timeout=30)
+            cand = [it for it in vr.json().get("items", []) if _is_short_clip(it, max_sec)]
+            cand.sort(key=lambda it: int((it.get("statistics", {}) or {}).get("viewCount", 0) or 0),
+                      reverse=True)
+            out.extend(_yt_item(it, rg) for it in cand[:per])
         except Exception:
             continue
     return out
@@ -699,8 +738,8 @@ def _translate_query(cfg, query):
         return []
 
 
-def search_shorts(cfg, query, count=30, translate=True, max_sec=90):
-    """검색어로 인기 쇼츠 검색(조회순, 90초 미만 세로만). 한국어면 영/일로도 번역해 합침."""
+def search_shorts(cfg, query, count=30, translate=True, max_sec=59):
+    """검색어로 인기 쇼츠 검색(조회순, 60초 미만 · 음악/영화/트레일러 제외). 한국어면 영/일로도 번역해 합침."""
     key = _yt_key(cfg)
     if not key:
         raise RuntimeError("유튜브 API 키가 없습니다 (config youtube_api_key)")
@@ -733,7 +772,7 @@ def search_shorts(cfg, query, count=30, translate=True, max_sec=90):
                              params={"part": "snippet,contentDetails,statistics",
                                      "id": ",".join(chunk), "key": key}, timeout=30)
             for it in r.json().get("items", []):
-                if _iso_seconds(it.get("contentDetails", {}).get("duration")) <= max_sec:
+                if _is_short_clip(it, max_sec):
                     out.append(_yt_item(it))
         except Exception:
             continue

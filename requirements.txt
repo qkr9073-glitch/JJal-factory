@@ -13,3 +13,5 @@ google-auth
 google-auth-oauthlib
 # 인스타 수입(지정 계정 이미지 게시물 수집) — 반드시 버너(부계정) 로그인으로만 사용
 instaloader==4.15.2
+# 스타일 학습 시 참고 PDF → 페이지 이미지 래스터라이즈
+pymupdf==1.28.0
