@@ -19,7 +19,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import brain, hunter, insights, pipeline, stock, storycard, styles, thumbnail  # noqa: E402
+from src import brain, hunter, insights, pipeline, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 
 app = Flask(__name__)
 
@@ -174,7 +174,7 @@ body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 </div></div>
 <div class="nav"><a class="on" href="/">🏭 짤공장</a><a href="/card">🗂 카드뉴스</a><a href="/p">📦 결과물</a></div>
 <input id="code" placeholder="접속코드" type="password">
-<input id="url" placeholder="게시물 링크 붙여넣기 (디시/루리웹/에펨 등)">
+<input id="url" placeholder="링크 붙여넣기 — 커뮤니티(디시/루리웹/에펨) 또는 🎬 유튜브 쇼츠">
 <div style="font-size:14px;font-weight:700;margin:10px 0 2px;color:#f0ead8">🎨 템플릿 <span style="font-weight:400;font-size:12px;color:#9aa3c8">— 눌러서 미리보기로 고르세요</span></div>
 <div id="tpltiles" class="rthumbs"></div>
 <div style="font-size:14px;font-weight:700;margin:12px 0 2px;color:#f0ead8">🧹 짤에 박힌 글씨 <span style="font-weight:400;font-size:12px;color:#9aa3c8">— 자막·워터마크가 있으면</span></div>
@@ -424,13 +424,14 @@ async function make(btn){
   const code=$('code').value.trim(), url=$('url').value.trim();
   if(!code||!url){$('status').textContent='접속코드와 링크를 입력하세요';return;}
   localStorage.setItem('mfcode',code);
+  const yt=url.includes('youtube.com')||url.includes('youtu.be');
   const hit=HOT.find(i=>i.url===url);
-  const label=(hit&&hit.title)||url.split('//').pop().slice(0,34);
+  const label=(yt?'🎬 ':'')+((hit&&hit.title)||url.split('//').pop().slice(0,34));
   $('status').textContent='';
   if(btn){ btn.disabled=true; btn.dataset.orig=btn.textContent; btn.textContent='접수 중...'; btn.style.opacity='.8'; }
   try{
-    const r=await fetch('/api/make',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({code,url,template:TPL,clean:CLEAN(),guide:(($('guide')&&$('guide').value)||'').trim()})});
+    const r=await fetch(yt?'/api/youtube/make':'/api/make',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(yt?{code,url}:{code,url,template:TPL,clean:CLEAN(),guide:(($('guide')&&$('guide').value)||'').trim()})});
     const d=await r.json();
     if(!d.ok){$('status').textContent='❌ '+d.error;
       if(btn){ btn.disabled=false; btn.textContent=btn.dataset.orig||'만들기'; btn.style.opacity=''; } return;}
@@ -1696,6 +1697,30 @@ def _run_job(jid, url, cfg, stats, template=None, clean=None, guide=""):
         _pending_remove(jid)
 
 
+def _run_youtube_job(jid, url, cfg):
+    """🎬 유튜브 쇼츠 → 짤 완성팩 잡 (대본 장문 + 프레임 + 자막 블러)."""
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        step = re.match(r"\[(\d)/5\]", m)
+        if step:
+            job["pct"] = {1: 12, 2: 35, 3: 62, 4: 84, 5: 94}.get(
+                int(step.group(1)), job["pct"])
+
+    try:
+        result = youtube.build_from_youtube(url, cfg, BASE, log=log)
+        job["result"] = _pack_payload(result)
+        job["pct"] = 100
+        job["status"] = "done"
+    except Exception as e:
+        job["error"] = str(e)
+        job["status"] = "error"
+    finally:
+        _pending_remove(jid)
+
+
 def _run_images_job(jid, image_paths, caption, localize, cfg, template=None, clean=None,
                     guide=""):
     """🌏 업로드한 해외 게시물 캡처 → 짤공장 커뮤형 팩(현지화) 잡."""
@@ -2141,6 +2166,26 @@ def api_make():
                  "result": None, "error": None, "ts": now}
     _pending_add(jid, url)
     JOBQ.put((jid, _run_job, (jid, url, cfg, stats, template, _clean(data), guide)))
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/youtube/make")
+def api_youtube_make():
+    """🎬 유튜브 쇼츠 URL → 짤 완성팩 (대본 장문 + 프레임 + 자막 블러)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    url = (data.get("url") or "").strip()
+    if not re.search(r"(?:youtube\.com|youtu\.be)/", url):
+        return jsonify(ok=False, error="유튜브 링크가 아니에요 (youtube.com / youtu.be)"), 400
+    now = time.time()
+    for k in [k for k, v in JOBS.items() if now - v["ts"] > 3600]:
+        JOBS.pop(k, None)
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
+                 "result": None, "error": None, "ts": now}
+    JOBQ.put((jid, _run_youtube_job, (jid, url, cfg)))
     return jsonify(ok=True, job=jid)
 
 
