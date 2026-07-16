@@ -2958,7 +2958,7 @@ def api_card_edit():
     return jsonify(ok=True, job=jid)
 
 
-def _run_insta_job(jid, pack_dir, lead, force, cfg):
+def _run_insta_job(jid, pack_dir, lead, force, cfg, account=None):
     job = JOBS[jid]
 
     def log(m):
@@ -2969,7 +2969,8 @@ def _run_insta_job(jid, pack_dir, lead, force, cfg):
             job["pct"] = {1: 25, 2: 60, 3: 85}.get(int(step.group(1)), job["pct"])
 
     try:
-        result = insta.publish_pack(cfg, BASE, pack_dir, lead=lead, force=force, log=log)
+        result = insta.publish_pack(cfg, BASE, pack_dir, lead=lead, force=force,
+                                    account=account, log=log)
         job["result"] = {"insta": True, "permalink": result.get("permalink", "")}
         job["pct"] = 100
         job["status"] = "done"
@@ -2997,7 +2998,8 @@ def api_insta_publish():
                  "result": None, "error": None, "ts": now}
     threading.Thread(target=_run_insta_job,
                      args=(jid, pack_dir, lead,
-                           bool(data.get("force")), cfg), daemon=True).start()
+                           bool(data.get("force")), cfg,
+                           (data.get("account") or "").strip() or None), daemon=True).start()
     return jsonify(ok=True, job=jid)
 
 
