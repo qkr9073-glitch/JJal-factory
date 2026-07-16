@@ -481,7 +481,9 @@
   tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
     if(b.id==='studioBtn'){setActive(STUDIO_CUR);return;}
     if(b.dataset.t)setActive(b.dataset.t);});
+  let CURTAB='jjal';
   function setActive(t){
+    CURTAB=t;
     if(STUDIO.includes(t))STUDIO_CUR=t;
     $('studioBtn').classList.toggle('on',STUDIO.includes(t));
     const lab=$('studioBtn').querySelector('span');
@@ -525,8 +527,10 @@
     // 회원관리 탭: 관리자만 노출
     const mt=$('membersTab'); if(mt) mt.style.display=isAdmin()?'':'none';
   }
-  CODE.addEventListener('change',()=>{localStorage.setItem('mfcode',code());refreshMe();
-    if(typeof loadStyles==='function'){} });
+  CODE.addEventListener('change',()=>{localStorage.setItem('mfcode',code());
+    // 코드 바꾸면 권한 갱신 후 현재 탭을 그 사용자 기준으로 다시 렌더(계정 전환 테스트용)
+    refreshMe().then(()=>{ if(CURTAB) route(CURTAB); });
+    flash('🔑 접속코드 적용됨');});
   const esch=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   async function apiJson(path,body){
     const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
