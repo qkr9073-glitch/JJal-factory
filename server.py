@@ -2190,9 +2190,23 @@ def _pdf_to_images(pdf_bytes, max_pages=4, dpi=130):
     return out
 
 
+def _ref_blobs(imgs):
+    """이미지/PDF data URL 목록 → 이미지 바이트 리스트(PDF는 페이지 래스터, 최대 4개)."""
+    blobs = []
+    for x in imgs:
+        raw = _decode_data_url(x)
+        if (isinstance(x, str) and "application/pdf" in x[:64]) or raw[:5] == b"%PDF-":
+            blobs.extend(_pdf_to_images(raw, max_pages=4))
+        else:
+            blobs.append(raw)
+        if len(blobs) >= 4:
+            break
+    return blobs[:4]
+
+
 @app.post("/api/style/analyze")
 def api_style_analyze():
-    """참고 캐러셀 이미지/PDF(base64 여러 개) → Gemini 비전 분석 → 스타일 프리셋 저장."""
+    """참고 이미지/PDF → '스타일'(내용 구성) 프리셋 저장. Gemini로 톤·구조 분석."""
     data = request.get_json(silent=True) or {}
     cfg = load_config()
     if not _check_code(cfg, data.get("code")):
@@ -2201,20 +2215,11 @@ def api_style_analyze():
     if not imgs:
         return jsonify(ok=False, error="참고 이미지나 PDF를 최소 1개 올려주세요"), 400
     try:
-        blobs = []
-        for x in imgs:
-            raw = _decode_data_url(x)
-            if (isinstance(x, str) and "application/pdf" in x[:64]) or raw[:5] == b"%PDF-":
-                blobs.extend(_pdf_to_images(raw, max_pages=4))   # PDF → 페이지 이미지
-            else:
-                blobs.append(raw)
-            if len(blobs) >= 4:
-                break
-        blobs = blobs[:4]
-        if not blobs:
-            return jsonify(ok=False, error="파일에서 이미지를 읽지 못했어요"), 400
+        blobs = _ref_blobs(imgs)
     except Exception:
         return jsonify(ok=False, error="이미지/PDF 형식을 읽지 못했어요"), 400
+    if not blobs:
+        return jsonify(ok=False, error="파일에서 이미지를 읽지 못했어요"), 400
     try:
         preset = styles.analyze_reference(blobs, cfg)
     except Exception as e:
@@ -2222,6 +2227,53 @@ def api_style_analyze():
     thumb = styles.make_thumb(blobs[0])
     saved = styles.save_style(BASE, preset, thumb_b64=thumb)
     return jsonify(ok=True, style=saved)
+
+
+@app.post("/api/template/analyze")
+def api_template_analyze():
+    """참고 이미지/PDF → '템플릿'(이미지/비주얼: 테마·포인트색) 저장. 색만 뽑아 빠름."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    imgs = data.get("images") or ([data["image"]] if data.get("image") else [])
+    if not imgs:
+        return jsonify(ok=False, error="참고 이미지나 PDF를 최소 1개 올려주세요"), 400
+    try:
+        blobs = _ref_blobs(imgs)
+    except Exception:
+        return jsonify(ok=False, error="이미지/PDF 형식을 읽지 못했어요"), 400
+    if not blobs:
+        return jsonify(ok=False, error="파일에서 이미지를 읽지 못했어요"), 400
+    try:
+        tpl = styles.analyze_template(blobs)
+    except Exception as e:
+        return jsonify(ok=False, error=f"분석 실패: {e}"), 500
+    thumb = styles.make_thumb(blobs[0])
+    saved = styles.save_template(BASE, tpl, thumb_b64=thumb)
+    return jsonify(ok=True, template=saved)
+
+
+@app.post("/api/template/list")
+def api_template_list():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, templates=styles.load_templates(BASE))
+
+
+@app.post("/api/template/delete")
+def api_template_delete():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    tid = (data.get("id") or "").strip()
+    if not tid:
+        return jsonify(ok=False, error="삭제할 템플릿 id가 없어요"), 400
+    styles.delete_template(BASE, tid)
+    return jsonify(ok=True)
 
 
 @app.post("/api/style/delete")

@@ -17,6 +17,8 @@ out/
 logs/
 seen.json
 published.json
+styles.json
+templates.json
 usage.json
 jobs_pending.json
 schedule.json

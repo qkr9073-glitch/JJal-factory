@@ -124,7 +124,7 @@ def analyze_reference(image_bytes_list, cfg):
     guide = (d.get("guide") or "").strip()
     if not guide:
         raise RuntimeError("스타일 지침을 뽑지 못했어요 — 더 선명한 캡처로 다시 시도")
-    theme, accent = extract_visual(image_bytes_list[0])
+    # 스타일 = '내용 구성'만. 색/테마(비주얼)는 템플릿이 담당 → theme/accent 미포함.
     return {
         "name": name,
         "summary": (d.get("summary") or "").strip()[:60],
@@ -134,13 +134,58 @@ def analyze_reference(image_bytes_list, cfg):
         "density": (d.get("density") or "").strip()[:80],
         "cta": (d.get("cta") or "").strip()[:80],
         "guide": guide[:1500],
-        "theme": theme,
-        "accent": accent,
+        "kind": "style",
     }
+
+
+def analyze_template(image_bytes_list):
+    """참고 이미지 → '템플릿'(이미지/비주얼) 프리셋. 색·무드만 뽑는다(내용 X, Gemini 불필요).
+    렌더 테마(밝기)+포인트색을 추출해 커스텀 템플릿으로 저장."""
+    if not image_bytes_list:
+        raise RuntimeError("분석할 이미지가 없습니다")
+    theme, accent = extract_visual(image_bytes_list[0])
+    theme = theme or "hunter"
+    mood = "라이트" if theme == "cream" else "다크"
+    name = (mood + " 커스텀") if not accent else f"{mood}·{accent}"
+    return {"name": name[:20], "theme": theme, "accent": accent,
+            "summary": f"참고 이미지 기반 {mood} 템플릿" + (f" · 포인트 {accent}" if accent else "")}
 
 
 def _path(base):
     return Path(base) / "styles.json"
+
+
+def _tpath(base):
+    return Path(base) / "templates.json"
+
+
+def load_templates(base):
+    try:
+        return json.loads(_tpath(base).read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def save_template(base, tpl, thumb_b64=None):
+    with _LOCK:
+        items = load_templates(base)
+        tpl = dict(tpl)
+        tpl["id"] = uuid.uuid4().hex[:8]
+        if thumb_b64:
+            tpl["thumb"] = thumb_b64
+        items.insert(0, tpl)
+        items = items[:MAX_KEEP]
+        _tpath(base).write_text(json.dumps(items, ensure_ascii=False, indent=2),
+                                encoding="utf-8")
+    return tpl
+
+
+def delete_template(base, tid):
+    with _LOCK:
+        items = [t for t in load_templates(base) if t.get("id") != tid]
+        _tpath(base).write_text(json.dumps(items, ensure_ascii=False, indent=2),
+                                encoding="utf-8")
+    return True
 
 
 def load_styles(base):

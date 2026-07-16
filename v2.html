@@ -173,6 +173,8 @@
   .tg.add:hover{border-color:var(--gold)}
   .tg.add:hover .pv,.tg.add:hover .lb{color:var(--gold)}
   .tg.add .plus{font-size:34px;font-weight:300;line-height:1}
+  .tg .pv{position:relative}
+  .tgx{position:absolute;top:5px;right:5px;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;line-height:18px;text-align:center;cursor:pointer;z-index:2}
   /* 스타일 프리셋 (내용구성 학습) */
   .styrow{display:flex;gap:10px;flex-wrap:wrap}
   .styp{width:84px;border:2px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;position:relative;background:var(--panel)}
@@ -715,7 +717,46 @@
 
   /* ============ 카드뉴스 TAB ============ */
   const THEMES=[['hunter','🎮 유튜브 네온','다크',268],['cream','🧡 크림 클래식','라이트',28],['news','🗞 뉴스 에디토리얼','라이트',210],['punch','💥 다크 강펀치','골드',45],['info','📋 인포그래픽','체크리스트',150],['pastel','🧸 파스텔 소프트','부드럽게',340]];
-  let cState={mode:0,theme:0};
+  let cState={mode:0,tplKey:'b:hunter'};
+  /* ---- 템플릿(이미지 디자인): 내장 테마 + 학습한 커스텀 ---- */
+  let CUSTOM_TPLS=[];
+  function tplList(){
+    return THEMES.map(t=>({key:'b:'+t[0],name:t[1],sub:t[2],hue:t[3],theme:t[0],accent:'',prev:'/themeprev/'+t[0],builtin:true}))
+      .concat(CUSTOM_TPLS.map(t=>({key:'c:'+t.id,name:t.name||'커스텀',sub:'학습',theme:t.theme||'hunter',accent:t.accent||'',prev:t.thumb||'',builtin:false,id:t.id})));
+  }
+  function selectedTpl(){const l=tplList();return l.find(t=>t.key===cState.tplKey)||l[0];}
+  function renderTemplates(){
+    const box=$('tgal'); if(!box)return;
+    box.innerHTML=tplList().map(t=>`<div class="tg ${cState.tplKey===t.key?'on':''}" data-key="${esch(t.key)}">
+      <div class="pv" style="background:${grad(t.hue||200)}">${t.prev?`<img src="${esch(t.prev)}" alt="${esch(t.name)}" loading="lazy" onerror="this.remove()">`:''}${t.builtin?'':`<b class="tgx" onclick="event.stopPropagation();delTemplate('${t.id}')">✕</b>`}</div>
+      <div class="lb">${t.builtin?'':'🧩 '}${esch(t.name)} <span style="opacity:.6;font-weight:600">${esch(t.sub)}</span></div></div>`).join('')
+      +`<div class="tg add" onclick="document.getElementById('tplfile').click()" title="참고 이미지·PDF로 새 템플릿(색·무드) 학습"><div class="pv"><span class="plus">＋</span></div><div class="lb">새 템플릿 학습<br><span style="opacity:.6;font-weight:600">이미지 디자인</span></div></div>`;
+    box.querySelectorAll('.tg[data-key]').forEach(el=>el.onclick=(e)=>{if(e.target.closest('.tgx'))return;cState.tplKey=el.dataset.key;renderTemplates();});
+  }
+  async function loadTemplates(){
+    if(!code())return;
+    let d; try{d=await apiJson('/api/template/list',{code:code()});}catch(e){return;}
+    if(d.ok){CUSTOM_TPLS=d.templates||[];renderTemplates();}
+  }
+  async function analyzeTemplate(inp){
+    if(!code()){flash('접속코드를 먼저 입력하세요');inp.value='';return;}
+    const files=[...inp.files].slice(0,4); inp.value='';
+    if(!files.length)return;
+    if($('tplhint'))$('tplhint').textContent='🎨 템플릿(색·무드) 분석 중…';
+    try{
+      const imgs=await Promise.all(files.map(f=>refToDataURL(f,1000)));
+      const d=await apiJson('/api/template/analyze',{code:code(),images:imgs});
+      if(!d.ok){if($('tplhint'))$('tplhint').textContent='❌ '+esch(d.error||'실패');return;}
+      await loadTemplates(); cState.tplKey='c:'+d.template.id; renderTemplates();
+      if($('tplhint'))$('tplhint').textContent='✅ 템플릿 추가됨: '+esch(d.template.name)+' — 적용됨';
+    }catch(e){if($('tplhint'))$('tplhint').textContent='❌ 분석 오류: '+esch((e&&e.message)||e);}
+  }
+  async function delTemplate(id){
+    if(!confirm('이 커스텀 템플릿을 삭제할까요?'))return;
+    try{await apiJson('/api/template/delete',{code:code(),id});}catch(e){}
+    if(cState.tplKey==='c:'+id)cState.tplKey='b:hunter';
+    loadTemplates();
+  }
   function renderCard(){
     const modes=[['📚','일반','전자책 포함'],['🧾','증빙','후기·수익 캡처'],['📖','내 스토리','서사형']];
     $('view').innerHTML=`
@@ -744,9 +785,11 @@
       <main class="mainpane">
         <div id="jjobs"></div>
         <div id="jresult"></div>
-        <div class="panehead"><h2>🎨 템플릿</h2><span class="n">눌러서 미리보기로 고르세요</span></div>
-        <div class="tgal" id="tgal">${THEMES.map((t,i)=>`<div class="tg ${cState.theme===i?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(t[3])}"><img src="/themeprev/${t[0]}" alt="${esch(t[1])}" loading="lazy" onerror="this.remove()"></div><div class="lb">${esch(t[1])} <span style="opacity:.6;font-weight:600">${esch(t[2])}</span></div></div>`).join('')}<div class="tg add" onclick="document.getElementById('styfile').click()" title="참고 이미지·PDF로 새 템플릿(스타일) 학습"><div class="pv"><span class="plus">＋</span></div><div class="lb">새 템플릿 학습<br><span style="opacity:.6;font-weight:600">이미지·PDF</span></div></div></div>
-        <div class="panehead" style="margin-top:22px"><h2 style="font-size:15px">🧩 스타일 프리셋</h2><span class="n">내용 구성 스타일 — 참고 캐러셀로 학습</span></div>
+        <div class="panehead"><h2>🎨 템플릿 <span style="font-size:12px;font-weight:600;color:var(--faint)">이미지 디자인</span></h2><span class="n">색·폰트·무드 — 이미지로 학습</span></div>
+        <div class="tgal" id="tgal"><div style="color:var(--faint);font-size:13px">불러오는 중…</div></div>
+        <input id="tplfile" type="file" accept="image/*,application/pdf,.pdf" multiple style="display:none" onchange="analyzeTemplate(this)">
+        <div id="tplhint" class="caphint" style="margin-top:8px"></div>
+        <div class="panehead" style="margin-top:22px"><h2 style="font-size:15px">🧩 스타일 <span style="font-size:12px;font-weight:600;color:var(--faint)">내용 구성</span></h2><span class="n">톤·구조·흐름 — 내용으로 학습</span></div>
         <div class="styrow" id="stylerow"><div style="color:var(--faint);font-size:13px">불러오는 중…</div></div>
         <input id="styfile" type="file" accept="image/*,application/pdf,.pdf" multiple style="display:none" onchange="analyzeStyle(this)">
         <div id="styhint" class="caphint" style="margin-top:8px"></div>
@@ -755,12 +798,10 @@
           <div id="recolist"><div style="color:var(--faint);font-size:13px">버튼을 눌러 추천 주제를 불러오세요. 클릭하면 주제로 채워져요.</div></div></div>
       </main>
     </div>`;
-    $('tgal').addEventListener('click',e=>{const t=e.target.closest('.tg');if(!t||t.classList.contains('add'))return;cState.theme=+t.dataset.i;
-      [...$('tgal').querySelectorAll('.tg')].forEach(c=>c.classList.toggle('on',+c.dataset.i===cState.theme));});
-    loadStyles();
+    renderTemplates(); loadTemplates(); loadStyles();
   }
   /* ---- 스타일 프리셋 (내용 구성 학습) ---- */
-  let STYLES=[], STYLE_ID='', STYLE_ACCENT='';
+  let STYLES=[], STYLE_ID='';
   async function loadStyles(){
     if(!code())return;
     let d; try{d=await apiJson('/api/style/list',{code:code()});}catch(e){return;}
@@ -784,9 +825,7 @@
   function pickStyle(id){
     STYLE_ID=id; renderStyles();
     const s=STYLES.find(x=>x.id===id);
-    STYLE_ACCENT=(s&&s.accent)?s.accent:'';
-    if(s&&s.theme){const ti=THEMES.findIndex(t=>t[0]===s.theme);if(ti>=0){cState.theme=ti;[...$('tgal').children].forEach((c,i)=>c.classList.toggle('on',i===ti));}}
-    if($('styhint'))$('styhint').textContent=id?('🧩 적용: '+(s?s.name:'')+' — 톤·구성 반영'):'';
+    if($('styhint'))$('styhint').textContent=id?('🧩 스타일 적용: '+(s?esch(s.name):'')+' — 내용 구성 반영'):'';
   }
   async function delStyle(id){
     if(!confirm('이 스타일 프리셋을 삭제할까요?'))return;
@@ -833,9 +872,10 @@
     const topic=($('ctopic')&&$('ctopic').value.trim())||'';
     if(topic.length<4){flash('주제를 4자 이상 구체적으로 적어주세요');return;}
     const sty=STYLES.find(x=>x.id===STYLE_ID);
+    const tpl=selectedTpl();
     const body={code:code(),topic,
       mode:['normal','proof','story'][cState.mode],
-      theme:THEMES[cState.theme][0],
+      theme:tpl.theme,                       // 템플릿 = 이미지 디자인(테마)
       items:parseInt(($('citems')&&$('citems').value)||'60',10),
       keyword:($('ckeyword')&&$('ckeyword').value.trim())||'',
       auto_cover:$('cAutocover')?$('cAutocover').checked:true,
@@ -843,8 +883,8 @@
       auto_upload:$('cAutoup')?$('cAutoup').checked:false,
       ebook:$('cEbook')?$('cEbook').checked:true,
       account:($('cacct')&&$('cacct').value)||''};
-    if(sty&&sty.guide)body.context=sty.guide;
-    if(STYLE_ACCENT)body.accent=STYLE_ACCENT;
+    if(tpl.accent)body.accent=tpl.accent;    // 학습 템플릿의 포인트색
+    if(sty&&sty.guide)body.context=sty.guide;  // 스타일 = 내용 구성(지침)
     startJob('/api/card/make',body,'🗂 '+topic.slice(0,30));
   }
   function toggleEbook(){const on=!$('cEbook')||$('cEbook').checked;
