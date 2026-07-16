@@ -114,7 +114,7 @@
   .tpl{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
   .tpl .t{border:2px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;position:relative}
   .tpl .t.on{border-color:var(--gold)}
-  .tpl .t .pv{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:20px;overflow:hidden}
+  .tpl .t .pv{aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;font-size:20px;overflow:hidden}
   .tpl .t .pv img{width:100%;height:100%;object-fit:cover;display:block}
   .tpl .t .nm{font-size:10.5px;font-weight:700;text-align:center;padding:4px 2px;background:var(--panel2)}
   .tpl .t.on .nm{background:var(--gold);color:var(--gold-ink)}
@@ -163,8 +163,9 @@
   .styp .nm{font-size:11px;font-weight:700;padding:4px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .styp .x{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;cursor:pointer}
   .styp.base{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:92px;font-size:11px;font-weight:700;color:var(--muted);text-align:center;gap:3px}
-  .stylearn{display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:var(--panel2);border:1px dashed var(--line2);border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:700;color:var(--muted);margin-top:10px}
-  .stylearn:hover{color:var(--ink);border-color:var(--gold)}
+  .styp.add{border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:92px;color:var(--muted);gap:2px;text-align:center;line-height:1.3}
+  .styp.add:hover{border-color:var(--gold);color:var(--gold)}
+  .styp.add .plus{font-size:22px;font-weight:400;line-height:1}
   .recos{margin-top:22px}
   .reco{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
   .reco:hover{border-color:var(--line2)}
@@ -717,9 +718,8 @@
         <div class="tgal" id="tgal">${THEMES.map((t,i)=>`<div class="tg ${cState.theme===i?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(t[3])}"><img src="/themeprev/${t[0]}" alt="${esch(t[1])}" loading="lazy" onerror="this.remove()"></div><div class="lb">${esch(t[1])} <span style="opacity:.6;font-weight:600">${esch(t[2])}</span></div></div>`).join('')}</div>
         <div class="panehead" style="margin-top:22px"><h2 style="font-size:15px">🧩 스타일 프리셋</h2><span class="n">내용 구성 스타일 — 참고 캐러셀로 학습</span></div>
         <div class="styrow" id="stylerow"><div style="color:var(--faint);font-size:13px">불러오는 중…</div></div>
-        <label class="stylearn">📎 참고 이미지·PDF 올려서 새 스타일 학습
-          <input id="styfile" type="file" accept="image/*,application/pdf,.pdf" multiple style="display:none" onchange="analyzeStyle(this)"></label>
-        <span id="styhint" class="caphint" style="margin-left:10px"></span>
+        <input id="styfile" type="file" accept="image/*,application/pdf,.pdf" multiple style="display:none" onchange="analyzeStyle(this)">
+        <div id="styhint" class="caphint" style="margin-top:8px"></div>
         <div class="recos" style="margin-top:22px"><div class="panehead"><h2 style="font-size:15px">💡 추천 소재</h2></div>
           <div class="chips" style="margin-bottom:12px"><button class="btn" onclick="loadRecos('trend')">🔥 오늘의 주제</button><button class="btn" onclick="loadRecos('ins')">🤖 AI 인사이트</button></div>
           <div id="recolist"><div style="color:var(--faint);font-size:13px">버튼을 눌러 추천 주제를 불러오세요. 클릭하면 주제로 채워져요.</div></div></div>
@@ -746,6 +746,9 @@
         <b class="x" onclick="event.stopPropagation();delStyle('${s.id}')">✕</b>${th}
         <div class="nm">${dot}${esch(s.name||'')}</div></div>`;
     });
+    // 다른 미리보기와 같은 크기의 점선 '학습' 추가 타일 (이미지·PDF)
+    h+=`<div class="styp add" onclick="document.getElementById('styfile').click()" title="참고 이미지·PDF로 새 스타일 학습">
+      <span class="plus">＋</span><div class="nm" style="white-space:normal">새 스타일<br>학습</div></div>`;
     box.innerHTML=h;
   }
   function pickStyle(id){
@@ -1333,7 +1336,7 @@
     try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);const d=await r.json();
       if(!d.ok){flash('❌ '+d.error);return;}
       if(d.status==='error'){flash('❌ 업로드 실패: '+d.error);return;}
-      if(d.status==='done'){flash('✅ 업로드 완료');reloadModal();loadPacks();return;}
+      if(d.status==='done'){closeModal();loadPacks();flash('✅ 업로드 완료 — 목록으로 돌아왔어요');return;}
       flash('📤 '+(d.msg||'업로드 중…'));setTimeout(()=>pollUpload(jid),1500);
     }catch(e){setTimeout(()=>pollUpload(jid),2500);}
   }
@@ -1388,7 +1391,9 @@
     const acct=($('macct2')&&$('macct2').value)||acctOf(PK);
     let d; try{d=await apiJson('/api/schedule/add',{code:code(),pack:PK.name,account:acct,lead:LEAD||'',ts,when:schedStr(),title:PK.title});}catch(e){flash('통신 오류');return;}
     if(!d.ok){flash('❌ '+d.error);return;}
-    flash('🗓 예약 완료 — '+schedStr()+' @'+acct+' · 예약·승인 탭에서 확인');
+    const st=d.status==='await'?'승인 대기 등록됨 (관리자 승인 후 게시)':'예약 완료';
+    closeModal(); loadPacks();
+    flash('🗓 '+st+' — '+schedStr()+' @'+acct+' · 예약·승인 탭에서 확인');
   }
 
   /* ============ 예약·승인 TAB (계정 선택 → 월간 캘린더 + 승인) ============ */
@@ -1422,12 +1427,15 @@
   }
   function paintAcctPick(){
     const box=$('acctpick'); if(!box)return;
-    const cur=SVIEW.acct;
-    const mk=(a,label)=>{const on=(cur===a);const cnt=SVIEW.items.filter(e=>a==='__all__'||e.account===a).length;
-      return `<button class="achip${on?' on':''}" data-acct="${esch(a)}">${label} <b>${cnt}</b></button>`;};
-    box.innerHTML='<div class="acclabel">👇 인스타 계정을 선택하면 해당 계정의 업로드 캘린더가 열립니다</div><div class="acrow">'
-      +mk('__all__','📋 전체')+schedAccounts().map(a=>mk(a,'@'+esch(a))).join('')+'</div>';
-    box.querySelectorAll('button[data-acct]').forEach(b=>b.onclick=()=>{SVIEW.acct=b.dataset.acct;paintAcctPick();paintSchedBody();});
+    const opt=(a,label)=>{const cnt=SVIEW.items.filter(e=>a==='__all__'||e.account===a).length;
+      return `<option value="${esch(a)}"${SVIEW.acct===a?' selected':''}>${label} · ${cnt}건</option>`;};
+    box.innerHTML='<div class="acclabel">👇 인스타 계정 선택 — 계정별 업로드 일정을 봅니다</div>'
+      +'<select class="in acctsel" id="acctsel" style="max-width:340px;font-weight:800">'
+      +`<option value="" disabled${SVIEW.acct===undefined?' selected':''}>계정을 선택하세요…</option>`
+      +opt('__all__','📋 전체 계정')
+      +schedAccounts().map(a=>opt(a,'@'+esch(a))).join('')
+      +'</select>';
+    $('acctsel').onchange=e=>{SVIEW.acct=e.target.value;paintSchedBody();};
   }
   function schedFiltered(){
     const a=SVIEW.acct;
