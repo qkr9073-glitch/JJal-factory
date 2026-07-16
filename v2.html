@@ -192,8 +192,11 @@
   .strip{display:flex;flex-direction:column;gap:7px}
   .item{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:7px 9px;transition:box-shadow .12s}
   .item.ex{opacity:.42}
-  .item.drag{box-shadow:0 8px 20px -8px rgba(0,0,0,.6);border-color:var(--gold);opacity:.9}
+  .item.drag{box-shadow:0 8px 20px -8px rgba(0,0,0,.6);border-color:var(--gold);opacity:.45}
   .item.over{border-color:var(--gold)}
+  .item.ins-top{box-shadow:0 -3px 0 0 var(--gold)}
+  .item.ins-bot{box-shadow:0 3px 0 0 var(--gold)}
+  .strip{position:relative}
   .item .drag-h{color:var(--faint);font-size:15px;cursor:grab;touch-action:none}
   .item .drag-h:active{cursor:grabbing}
   .item .mini{width:38px;height:48px;border-radius:6px;flex:0 0 38px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;position:relative;overflow:hidden}
@@ -738,17 +741,33 @@
     closeModal(); loadPacks(); flash('🗑 휴지통으로 이동했어요');
   }
 
-  /* ---- drag reorder ---- */
+  /* ---- drag reorder (삽입 위치 라인 표시) ---- */
   let dragI=null;
+  function clearIns(){[...$('strip').children].forEach(c=>c.classList.remove('ins-top','ins-bot'));}
+  function gapIndex(strip,y){
+    const items=[...strip.children];
+    for(let i=0;i<items.length;i++){const r=items[i].getBoundingClientRect();if(y<r.top+r.height/2)return i;}
+    return items.length;
+  }
+  function showIns(strip,gap){
+    const items=[...strip.children]; clearIns();
+    if(gap>=items.length){ if(items.length) items[items.length-1].classList.add('ins-bot'); }
+    else items[gap].classList.add('ins-top');
+  }
   function bindDrag(){
-    [...$('strip').children].forEach(el=>{
-      el.addEventListener('dragstart',e=>{dragI=+el.dataset.i;el.classList.add('drag');e.dataTransfer.effectAllowed='move';});
-      el.addEventListener('dragend',()=>{el.classList.remove('drag');[...$('strip').children].forEach(c=>c.classList.remove('over'));});
-      el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over');});
-      el.addEventListener('dragleave',()=>el.classList.remove('over'));
-      el.addEventListener('drop',e=>{e.preventDefault();const to=+el.dataset.i;if(dragI===null||dragI===to)return;
-        const moved=ORDER.splice(dragI,1)[0];ORDER.splice(to,0,moved);dragI=null;ORDERDIRTY=true;renderStrip();renderTrack();});
+    const strip=$('strip');
+    [...strip.children].forEach(el=>{
+      el.addEventListener('dragstart',e=>{dragI=+el.dataset.i;el.classList.add('drag');
+        e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain','');}catch(_){}});
+      el.addEventListener('dragend',()=>{el.classList.remove('drag');clearIns();});
     });
+    strip.ondragover=e=>{e.preventDefault();e.dataTransfer.dropEffect='move';showIns(strip,gapIndex(strip,e.clientY));};
+    strip.ondragleave=e=>{ if(!strip.contains(e.relatedTarget)) clearIns(); };
+    strip.ondrop=e=>{e.preventDefault();const gap=gapIndex(strip,e.clientY);clearIns();
+      if(dragI===null)return;
+      const moved=ORDER.splice(dragI,1)[0];
+      let to=gap; if(dragI<gap)to=gap-1;
+      ORDER.splice(to,0,moved); dragI=null; ORDERDIRTY=true; renderStrip(); renderTrack();};
   }
 
   /* ---- mosaic editor (실제 반영) ---- */
