@@ -302,8 +302,11 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     log(f"[3/4] {lang_label} 카드 렌더링 — 표지 + 아이템 + CTA")
     root = base_dir / cfg.get("output_dir", "결과물")
     root.mkdir(parents=True, exist_ok=True)
-    name, pack, n = f"{src.name}_{LANG_TAG.get(target, 'JP')}", None, 1
-    pack = root / name
+    # 수출 팩은 '지금' 만든 것 → 새 타임스탬프로 이름 지어 최신순 맨 위에 오게 한다
+    _m = re.match(r"^\d{8}_\d{4}_(.*)$", src.name)
+    _rest = _m.group(1) if _m else src.name
+    name = f"{datetime.now():%Y%m%d_%H%M}_{_rest}_{LANG_TAG.get(target, 'JP')}"
+    pack, n = root / name, 1
     while pack.exists():
         n += 1
         pack = root / f"{name}_{n}"
