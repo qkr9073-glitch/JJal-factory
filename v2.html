@@ -1,0 +1,648 @@
+<title>짤공장 — PC 전체 UI 프로토타입</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0b1310; --panel:#12201a; --panel2:#0f1a15; --raised:#182a22;
+    --line:#22362d; --line2:#2d4738;
+    --ink:#e9f1ec; --muted:#93a89c; --faint:#66786e;
+    --gold:#34d399; --gold-ink:#04120c;
+    --good:#4bd39a; --pend:#e0a94a; --insta:#5b9be8; --jp:#c07ae0; --danger:#e07070;
+    --teal:#3fae86; --terra:#e0805a;
+    --shadow:0 24px 60px -24px rgba(0,0,0,.7);
+    --font:'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Segoe UI',sans-serif;
+  }
+  :root[data-theme="light"]{
+    color-scheme:light;
+    --bg:#eef3f0; --panel:#fff; --panel2:#f4f8f5; --raised:#fff;
+    --line:#e0e7e2; --line2:#d2ddd6;
+    --ink:#15201b; --muted:#566b60; --faint:#87968e;
+    --gold:#0f9d6b; --gold-ink:#fff; --good:#2f9160; --pend:#c07a1e; --insta:#2f6fc2; --jp:#8a3cc0; --danger:#c94a4a;
+    --teal:#1f8a68; --terra:#c85e37;
+    --shadow:0 20px 50px -22px rgba(30,40,70,.28);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg); color:var(--ink); font-family:var(--font); -webkit-font-smoothing:antialiased}
+  button,input,select,textarea{font-family:inherit}
+  button{cursor:pointer}
+  ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px}
+
+  .app{max-width:1400px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column}
+  /* ===== top nav ===== */
+  .topbar{display:flex; align-items:center; gap:16px; padding:13px 22px; border-bottom:1px solid var(--line); position:sticky; top:0; background:color-mix(in srgb,var(--bg) 90%, transparent); backdrop-filter:blur(8px); z-index:20}
+  .brand{font-weight:800; font-size:15.5px; display:flex; align-items:center; gap:9px; white-space:nowrap}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 4px color-mix(in srgb,var(--gold) 22%,transparent)}
+  .tabs{display:flex; gap:3px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:4px}
+  .tabs button{border:0;background:transparent;color:var(--muted);font-size:13.5px;font-weight:700;padding:9px 16px;border-radius:9px;display:flex;align-items:center;gap:7px;transition:.15s}
+  .tabs button:hover{color:var(--ink)}
+  .tabs button.on{background:var(--raised);color:var(--ink);box-shadow:0 1px 0 rgba(0,0,0,.25)}
+  .tabs button .sub{font-size:11px;font-weight:600;color:var(--faint)}
+  .tabs button.on .sub{color:var(--muted)}
+  .topbar .sp{flex:1}
+  .codepill{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:7px 11px}
+  .codepill input{border:0;background:transparent;color:var(--ink);font-size:12.5px;width:82px;outline:none}
+  .iconbtn{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:15px}
+  .iconbtn:hover{color:var(--ink);border-color:var(--line2)}
+
+  /* ===== generic two-pane maker ===== */
+  .view{flex:1;min-height:0;display:flex}
+  .side{width:360px;flex:0 0 360px;border-right:1px solid var(--line);padding:20px 18px;overflow:auto}
+  .mainpane{flex:1;min-width:0;padding:20px 22px 44px;overflow:auto}
+  .step{margin-bottom:20px}
+  .step .sh{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+  .step .num{width:22px;height:22px;border-radius:50%;background:var(--gold);color:var(--gold-ink);font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center}
+  .step .st{font-size:13.5px;font-weight:800}
+  .step .sd{font-size:11.5px;color:var(--faint);margin-left:auto}
+  label.fld{display:block;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:0 2px 6px}
+  input.in,select.in,textarea.in{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:13px;padding:11px 12px;outline:none}
+  input.in:focus,select.in:focus,textarea.in:focus{border-color:var(--gold)}
+  textarea.in{resize:vertical;line-height:1.55}
+  .chips{display:flex;gap:7px;flex-wrap:wrap}
+  .chip{font-size:12.5px;font-weight:700;padding:8px 12px;border-radius:9px;background:var(--panel2);color:var(--muted);border:1px solid var(--line)}
+  .chip.on{background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--gold);border-color:color-mix(in srgb,var(--gold) 42%,transparent)}
+  .tpl{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .tpl .t{border:2px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;position:relative}
+  .tpl .t.on{border-color:var(--gold)}
+  .tpl .t .pv{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:20px}
+  .tpl .t .nm{font-size:10.5px;font-weight:700;text-align:center;padding:4px 2px;background:var(--panel2)}
+  .tpl .t.on .nm{background:var(--gold);color:var(--gold-ink)}
+  .checks{display:flex;flex-direction:column;gap:8px}
+  .ck{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 11px;cursor:pointer}
+  .ck input{margin-top:2px}
+  .ck.warn{border-color:color-mix(in srgb,var(--terra) 40%,transparent);background:color-mix(in srgb,var(--terra) 10%,transparent);color:var(--terra)}
+  .ck b{color:var(--ink)}
+  .go{width:100%;background:var(--gold);color:var(--gold-ink);border:1px solid var(--gold);font-size:14.5px;font-weight:800;padding:13px;border-radius:11px;box-shadow:0 8px 22px -10px color-mix(in srgb,var(--gold) 70%,transparent)}
+  .go:hover{filter:brightness(1.05)}
+  .collapse{margin-top:12px;border:1px dashed var(--line2);border-radius:10px;overflow:hidden}
+  .collapse>summary{list-style:none;padding:11px 13px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px}
+  .collapse>summary::-webkit-details-marker{display:none}
+  .collapse[open]>summary{color:var(--ink);border-bottom:1px solid var(--line)}
+  .collapse .cbody{padding:12px 13px;font-size:12px;color:var(--muted);line-height:1.55}
+  .panehead{display:flex;align-items:baseline;gap:10px;margin:0 2px 15px}
+  .panehead h2{font-size:17px;margin:0}
+  .panehead .n{font-size:12.5px;color:var(--faint)}
+  .panehead .r{margin-left:auto;display:flex;gap:6px}
+
+  /* hot posts list (짤) */
+  .hotgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .hot{display:flex;gap:11px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px;align-items:center}
+  .hot .th{width:58px;height:58px;border-radius:9px;flex:0 0 58px;display:flex;align-items:center;justify-content:center;font-size:17px}
+  .hot .info{flex:1;min-width:0}
+  .hot .tt{font-size:13px;font-weight:700;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .hot .mt{font-size:11px;color:var(--faint);margin-top:3px;font-variant-numeric:tabular-nums}
+  .hot .src{font-size:10.5px;font-weight:800;color:var(--teal)}
+  .hot button{flex:0 0 auto;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font-size:12.5px;font-weight:800;padding:9px 13px;border-radius:9px}
+  .hot button:hover{border-color:var(--gold);color:var(--gold)}
+  .hot.used{opacity:.5}
+
+  /* template gallery (card) */
+  .tgal{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:14px}
+  .tg{border:2px solid var(--line);border-radius:13px;overflow:hidden;cursor:pointer}
+  .tg.on{border-color:var(--gold)}
+  .tg .pv{aspect-ratio:4/5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-weight:800;color:#fff;font-size:13px;text-align:center;padding:12px}
+  .tg .lb{padding:9px 11px;background:var(--panel);font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:6px}
+  .tg.on .lb{color:var(--gold)}
+  .recos{margin-top:22px}
+  .reco{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
+  .reco:hover{border-color:var(--line2)}
+  .reco .hz{font-size:16px}.reco .tt{font-size:13px;font-weight:600;flex:1}.reco .tag{font-size:10.5px;font-weight:800;color:var(--terra)}
+
+  /* reels dropzone */
+  .drop{border:2px dashed var(--line2);border-radius:16px;padding:44px 20px;text-align:center;background:var(--panel);cursor:pointer;transition:.15s}
+  .drop:hover{border-color:var(--gold);background:color-mix(in srgb,var(--gold) 6%,transparent)}
+  .drop .big{font-size:40px}
+  .drop .t1{font-size:15px;font-weight:800;margin-top:10px}
+  .drop .t2{font-size:12px;color:var(--faint);margin-top:5px}
+  .drop.has{border-style:solid;border-color:var(--good)}
+  .vidmeta{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:12px;font-size:12.5px}
+  .vidmeta .ic{font-size:20px}
+
+  /* ===== results grid + modal (fully interactive) ===== */
+  .rail{width:190px;flex:0 0 190px;border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;gap:20px}
+  .rlabel{font-size:11px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);margin:0 4px 8px}
+  .rlink{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;font-size:13px;color:var(--muted);font-weight:600;cursor:pointer}
+  .rlink .c{margin-left:auto;font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .rlink.on{background:var(--panel2);color:var(--ink)}
+  .rlink .ic{width:16px;text-align:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:transform .18s,box-shadow .18s,border-color .18s;position:relative;cursor:pointer}
+  .card:hover{transform:translateY(-4px);box-shadow:var(--shadow);border-color:var(--line2);z-index:2}
+  .card:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  .thumb{position:relative;aspect-ratio:4/5;overflow:hidden;background:#000}
+  .thumb .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;color:rgba(255,255,255,.92);font-size:15px;opacity:0;transition:opacity .28s}
+  .thumb .ph.show{opacity:1}
+  .thumb .ph b{background:rgba(0,0,0,.34);padding:3px 10px;border-radius:20px}
+  .cchips{position:absolute;top:8px;left:8px;right:8px;display:flex;gap:5px;pointer-events:none}
+  .mchip{font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:20px;backdrop-filter:blur(3px)}
+  .mchip.count{background:rgba(10,12,18,.62);color:#fff;border:1px solid rgba(255,255,255,.14)}
+  .mchip.jp{background:color-mix(in srgb,var(--jp) 82%,#000);color:#fff;margin-left:auto}
+  .mchip.up{background:color-mix(in srgb,var(--insta) 82%,#000);color:#fff;margin-left:auto}
+  .mchip.no{background:color-mix(in srgb,var(--pend) 80%,#000);color:#1a1400;margin-left:auto}
+  .dots{position:absolute;bottom:8px;left:0;right:0;display:flex;gap:5px;justify-content:center;opacity:0;transition:.2s}
+  .card:hover .dots{opacity:1}
+  .dots i{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.42)}
+  .dots i.on{background:#fff;width:16px;border-radius:3px}
+  .meta{padding:10px 12px 12px}
+  .meta .t{font-size:13px;font-weight:700;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:34px}
+  .meta .d{font-size:11px;color:var(--faint);margin-top:5px;font-variant-numeric:tabular-nums}
+  .hovercta{position:absolute;inset:auto 0 0 0;padding:9px;text-align:center;background:linear-gradient(0deg,var(--panel),transparent);opacity:0;transform:translateY(6px);transition:.18s}
+  .card:hover .hovercta{opacity:1;transform:none}
+  .hovercta span{font-size:11.5px;font-weight:800;color:var(--gold)}
+
+  .scrim{position:fixed;inset:0;background:rgba(6,8,12,.72);backdrop-filter:blur(4px);z-index:40;display:none;align-items:center;justify-content:center;padding:26px}
+  .scrim.open{display:flex}
+  .modal{width:min(1180px,96vw);height:min(760px,92vh);background:var(--panel);border:1px solid var(--line2);border-radius:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+  .mhead{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .mhead .mt{font-size:15px;font-weight:800}
+  .mstat{font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .mstat.no{background:color-mix(in srgb,var(--pend) 20%,transparent);color:var(--pend)}
+  .mstat.up{background:color-mix(in srgb,var(--insta) 20%,transparent);color:var(--insta)}
+  .mhead .sp{flex:1}
+  .mbody{flex:1;display:flex;min-height:0}
+  .preview{flex:0 0 46%;background:var(--bg);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;position:relative}
+  .igframe{width:min(340px,100%)}
+  .ighead{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:0 2px 8px}
+  .ighead .av{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--gold),#b98)}
+  .igview{position:relative;aspect-ratio:4/5;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#000}
+  .igtrack{display:flex;height:100%;transition:transform .26s cubic-bezier(.4,0,.2,1)}
+  .igslide{flex:0 0 100%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:800;color:rgba(255,255,255,.92)}
+  .igslide b{background:rgba(0,0,0,.3);padding:6px 16px;border-radius:30px}
+  .igslide .mos{position:absolute;background:repeating-conic-gradient(#3a3a3a 0% 25%,#555 0% 50%) 0/10px 10px;border-radius:2px}
+  .igarrow{position:absolute;top:50%;transform:translateY(-50%);width:36px;height:36px;border-radius:50%;background:rgba(12,14,20,.66);border:1px solid rgba(255,255,255,.16);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:2}
+  .igarrow.l{left:8px}.igarrow.r{right:8px}
+  .igcount{position:absolute;top:10px;right:12px;background:rgba(12,14,20,.7);color:#fff;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;z-index:2}
+  .pvdots{display:flex;gap:5px;justify-content:center;padding-top:11px}
+  .pvdots i{width:6px;height:6px;border-radius:50%;background:var(--line2)}
+  .pvdots i.on{background:var(--gold);width:18px;border-radius:3px}
+  .pvnote{position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:11px;color:var(--faint)}
+  .edit{flex:1;min-width:0;display:flex;flex-direction:column}
+  .escroll{flex:1;overflow:auto;padding:16px 18px}
+  .grp{margin-bottom:18px}
+  .grp>h4{font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);margin:0 0 9px;display:flex;align-items:center;gap:7px}
+  .grp>h4 .kbd{font-size:10px;font-weight:700;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;margin-left:auto;text-transform:none;letter-spacing:0}
+  .thumbrow{display:flex;gap:9px}
+  .tpick{flex:1;border-radius:10px;overflow:hidden;border:2px solid var(--line);cursor:pointer;position:relative}
+  .tpick.sel{border-color:var(--gold)}
+  .tpick .tp{aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;text-align:center;padding:6px;line-height:1.3}
+  .tpick .tag{position:absolute;bottom:0;left:0;right:0;font-size:10px;font-weight:700;text-align:center;padding:3px;background:rgba(0,0,0,.5);color:#fff}
+  .tpick.sel .tag{background:var(--gold);color:var(--gold-ink)}
+  .capta{width:100%;min-height:88px;resize:vertical;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:13px;line-height:1.6;padding:11px;outline:none}
+  .capta:focus{border-color:var(--gold)}
+  .caphint{font-size:11px;color:var(--faint);margin-top:6px}
+  .strip{display:flex;flex-direction:column;gap:7px}
+  .item{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:7px 9px;transition:box-shadow .12s}
+  .item.ex{opacity:.42}
+  .item.drag{box-shadow:0 8px 20px -8px rgba(0,0,0,.6);border-color:var(--gold);opacity:.9}
+  .item.over{border-color:var(--gold)}
+  .item .drag-h{color:var(--faint);font-size:15px;cursor:grab;touch-action:none}
+  .item .drag-h:active{cursor:grabbing}
+  .item .mini{width:38px;height:48px;border-radius:6px;flex:0 0 38px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;position:relative;overflow:hidden}
+  .item .mini .mos{position:absolute;inset:auto;background:repeating-conic-gradient(#3a3a3a 0% 25%,#555 0% 50%) 0/6px 6px}
+  .item .no{font-size:12.5px;font-weight:700;flex:1}
+  .item .no small{color:var(--faint);font-weight:600}
+  .itbtn{border:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:11.5px;font-weight:700;padding:5px 9px;border-radius:7px}
+  .itbtn:hover{color:var(--ink);border-color:var(--line2)}
+  .itbtn.on{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 50%,transparent)}
+  .itbtn.exon{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 50%,transparent)}
+  .mfoot{border-top:1px solid var(--line);padding:12px 18px;display:flex;align-items:center;gap:10px;background:var(--panel)}
+  .mfoot .left{display:flex;gap:8px;align-items:center;color:var(--faint);font-size:12px}
+  .mfoot .sp{flex:1}
+  .btn{border:1px solid var(--line);background:var(--panel2);color:var(--ink);font-size:13px;font-weight:700;padding:10px 15px;border-radius:10px}
+  .btn.ghost{background:transparent;color:var(--muted)}
+  .btn.primary{background:var(--gold);color:var(--gold-ink);border-color:var(--gold);font-weight:800;padding:11px 22px;box-shadow:0 6px 18px -8px color-mix(in srgb,var(--gold) 70%,transparent)}
+  .btn.primary:hover{filter:brightness(1.05)}
+  .pop{position:absolute;bottom:64px;right:18px;width:280px;background:var(--raised);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:8px;display:none;z-index:10}
+  .pop.open{display:block;animation:pop .16s ease}
+  @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .popopt{display:flex;align-items:center;gap:11px;padding:12px;border-radius:10px}
+  .popopt:hover{background:var(--panel2)}
+  .popopt .e{font-size:20px}.popopt .tt{font-size:13.5px;font-weight:800}.popopt .ds{font-size:11.5px;color:var(--faint);margin-top:1px}
+  .popsep{height:1px;background:var(--line);margin:4px 8px}
+  .sched{display:none;padding:6px 6px 8px}
+  .sched.open{display:block}
+  .schrow{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+  .schrow label{font-size:11px;font-weight:800;letter-spacing:.04em;color:var(--faint);text-transform:uppercase}
+  .schrow input,.schrow select{background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--ink);font-size:13px;padding:9px 10px;outline:none}
+  .back{font-size:11.5px;color:var(--muted);font-weight:700;background:none;border:0;padding:4px 2px;margin-bottom:4px}
+
+  /* mosaic editor overlay */
+  .mosov{position:fixed;inset:0;background:rgba(4,6,10,.9);z-index:60;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+  .mosov.open{display:flex}
+  .moswrap{position:relative;line-height:0;border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+  .mosbg{width:min(360px,80vw);aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:800;color:rgba(255,255,255,.9)}
+  .moscv{position:absolute;inset:0;cursor:crosshair}
+  .mostip{color:var(--ink);font-size:13.5px;margin-bottom:10px;text-align:center;line-height:1.5}
+  .mostip small{color:var(--faint);font-size:11.5px}
+  .mosbar{display:flex;gap:8px;margin-top:14px}
+
+  @media(max-width:900px){
+    .side,.rail{width:100%;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--line)}
+    .view{flex-direction:column}
+    .mbody{flex-direction:column}.preview{flex:0 0 auto;border-right:0;border-bottom:1px solid var(--line)}
+  }
+</style>
+
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>짤공장</div>
+    <div class="tabs" id="tabs">
+      <button data-t="jjal" class="on">🖼 <span>짤</span></button>
+      <button data-t="card">🗂 <span>카드뉴스</span></button>
+      <button data-t="reel">🎬 <span>릴스</span></button>
+      <button data-t="result">📦 <span>결과물</span></button>
+    </div>
+    <div class="sp"></div>
+    <div class="codepill">🔑 <input placeholder="접속코드" type="password" value="0000"></div>
+    <button class="iconbtn" onclick="toggleTheme()" title="테마 전환">◐</button>
+  </div>
+  <div id="view"></div>
+</div>
+
+<!-- results modal -->
+<div class="scrim" id="scrim" onclick="if(event.target===this)closeModal()">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="mhead">
+      <span class="mt" id="mTitle"></span>
+      <span class="mstat" id="mStat"></span>
+      <div class="sp"></div>
+      <button class="iconbtn" title="zip 받기">⬇</button>
+      <button class="iconbtn" title="삭제" style="color:var(--danger)">🗑</button>
+      <button class="iconbtn" onclick="closeModal()" title="닫기 (Esc)">✕</button>
+    </div>
+    <div class="mbody">
+      <div class="preview">
+        <div class="igframe">
+          <div class="ighead"><span class="av"></span><span id="mAcct"></span></div>
+          <div class="igview">
+            <span class="igcount" id="mCount"></span>
+            <button class="igarrow l" onclick="slide(-1)">‹</button>
+            <button class="igarrow r" onclick="slide(1)">›</button>
+            <div class="igtrack" id="igtrack"></div>
+          </div>
+          <div class="pvdots" id="pvdots"></div>
+        </div>
+        <div class="pvnote">← → 키로 넘기기 · 모든 장 미리 로드 → 즉시 전환</div>
+      </div>
+      <div class="edit">
+        <div class="escroll">
+          <div class="grp"><h4>① 대표 썸네일 <span class="kbd">숫자키 1·2·3</span></h4><div class="thumbrow" id="thumbrow"></div></div>
+          <div class="grp"><h4>② 본문 캡션 <span class="kbd">바로 편집</span></h4>
+            <textarea class="capta" id="capta"></textarea><div class="caphint">📋 저장 없이 바로 반영 · 댓글 키워드 CTA 자동 확인</div></div>
+          <div class="grp"><h4>③ 짤 순서·제외·모자이크 <span class="kbd">⠿ 드래그로 이동</span></h4><div class="strip" id="strip"></div></div>
+        </div>
+        <div class="mfoot">
+          <div class="left">🖼 <span id="mFootCount"></span> · 대표 <span id="mFootLead"></span></div>
+          <div class="sp"></div>
+          <button class="btn ghost">미리보기 새로고침</button>
+          <button class="btn primary" id="upBtn" onclick="togglePop(event)">📤 업로드</button>
+        </div>
+        <div class="pop" id="pop">
+          <div id="popMenu">
+            <div class="popopt" onclick="uploadNow()"><span class="e">⚡</span><div><div class="tt">지금 업로드</div><div class="ds">바로 인스타에 게시</div></div></div>
+            <div class="popsep"></div>
+            <div class="popopt" onclick="openSchedule()"><span class="e">🕒</span><div><div class="tt">예약</div><div class="ds">날짜·시간 지정해서 자동 게시</div></div></div>
+          </div>
+          <div class="sched" id="sched">
+            <button class="back" onclick="backToMenu()">‹ 뒤로</button>
+            <div class="schrow"><label>예약 날짜 · 시간</label><input type="datetime-local" value="2026-07-17T09:00"></div>
+            <div class="schrow"><label>올릴 계정</label><select><option>@sowho77 (짤공장)</option><option>@kangarooshort (카드뉴스)</option><option>@kangaroostory.jp (일본)</option></select></div>
+            <div class="schrow"><label>캡션 (미리보기)</label><input value="오늘의 레전드 짤 모음 🔥 #유머 #짤"></div>
+            <button class="btn primary" style="width:100%" onclick="confirmSchedule()">🕒 이 시간에 예약</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- mosaic editor -->
+<div class="mosov" id="mosov">
+  <div class="mostip">🟦 가릴 부분을 <b>드래그</b>하세요<br><small>욕설·개인정보 등 · 여러 개 가능</small></div>
+  <div class="moswrap"><div class="mosbg" id="mosbg"><b id="mosLabel"></b></div><canvas class="moscv" id="moscv"></canvas></div>
+  <div class="mosbar">
+    <button class="btn ghost" onclick="mosClear()">↩ 다 지우기</button>
+    <button class="btn" onclick="closeMosaic()">취소</button>
+    <button class="btn primary" onclick="applyMosaic()">✅ 모자이크 적용</button>
+  </div>
+</div>
+
+<script>
+  const HUES=[210,28,150,340,52,268,190,8,120,300,175,45];
+  const grad=s=>{const h=HUES[((s%HUES.length)+HUES.length)%HUES.length];return `linear-gradient(150deg,hsl(${h} 60% 32%),hsl(${(h+40)%360} 55% 20%))`;};
+  const $=id=>document.getElementById(id);
+
+  /* ============ TAB ROUTER ============ */
+  const tabsEl=$('tabs');
+  tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+    [...tabsEl.children].forEach(x=>x.classList.toggle('on',x===b));route(b.dataset.t);});
+  function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,result:renderResults}[t])();}
+
+  /* ============ 짤 TAB ============ */
+  const HOT=[
+    {s:'디시',c:'실베',t:'회사 그만두고 싶을 때 보는 짤.jpg',recs:842,views:52100,rep:210,age:'12분전',u:false},
+    {s:'루리웹',c:'유머',t:'고양이가 집사 길들이는 3단계',recs:521,views:31000,rep:88,age:'34분전',u:true},
+    {s:'에펨',c:'포텐',t:'알바하다 겪은 손님 레전드.txt',recs:410,views:22400,rep:150,age:'1시간전',u:false},
+    {s:'디시',c:'실베',t:'자취생 냉장고 클라스 甲',recs:388,views:19800,rep:64,age:'2시간전',u:false},
+    {s:'루리웹',c:'유머',t:'강아지 산책 거부 3종 세트',recs:302,views:15600,rep:47,age:'2시간전',u:false},
+    {s:'에펨',c:'축구',t:'경기 보다 빡친 사람들 모음',recs:266,views:12000,rep:120,age:'3시간전',u:true},
+  ];
+  const SITES=['전체','디시','루리웹','에펨'], SORTS=['👍 추천순','👀 조회순','💬 댓글순','🕐 최신순'];
+  let jState={tpl:0,clean:'none',site:'전체',sort:0};
+  function renderJjal(){
+    const tiles=[['🏭','클래식'],['🖼','자막형'],['📖','스토리']];
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">소재 넣기</span><span class="sd">링크 또는 →인기글</span></div>
+          <input class="in" placeholder="게시물 링크 붙여넣기 (디시·루리웹·에펨)"></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">옵션</span><span class="sd">비워도 됨</span></div>
+          <label class="fld">🎨 템플릿</label>
+          <div class="tpl" id="jtpl">${tiles.map((t,i)=>`<div class="t ${i===jState.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}">${t[0]}</div><div class="nm">${t[1]}</div></div>`).join('')}</div>
+          <label class="fld" style="margin-top:13px">🧹 짤에 박힌 글씨</label>
+          <select class="in" id="jclean"><option value="none">그대로 두기 (0원)</option><option value="bar">하단/상단 바로 가리기</option><option value="ai">AI로 완전 제거 (장당 55원)</option></select>
+          <label class="fld" style="margin-top:13px">🧭 방향 힌트 (선택)</label>
+          <input class="in" placeholder="예: 댓글 반응 위주로, 반전 강조"></div>
+        <div class="step"><div class="sh"><span class="num">3</span><span class="st">만들기</span></div>
+          <button class="go" onclick="flash('🏭 완성팩 만드는 중… (데모)')">완성팩 만들기</button></div>
+        <details class="collapse"><summary>↔ 해외글 가져와서 변환 · 🇯🇵 일본 이관</summary>
+          <div class="cbody">해외 커뮤 캡처를 올리면 한국 짤로, 옛 스토리는 일본판(kangaroostory.jp)으로 변환합니다. 자주 안 쓰는 도구라 여기 접어뒀어요.</div></details>
+      </aside>
+      <main class="mainpane">
+        <div class="panehead"><h2>🔥 지금 인기글</h2><span class="n">커뮤니티 3곳 · 선택하면 바로 제작</span></div>
+        <div class="chips" style="margin-bottom:10px">${SITES.map((s,i)=>`<span class="chip ${jState.site===s?'on':''}" onclick="jSite('${s}')">${s}</span>`).join('')}</div>
+        <div class="chips" style="margin-bottom:16px">${SORTS.map((s,i)=>`<span class="chip ${jState.sort===i?'on':''}" onclick="jSort(${i})">${s}</span>`).join('')}</div>
+        <div class="hotgrid" id="hotgrid"></div>
+      </main>
+    </div>`;
+    $('jtpl').addEventListener('click',e=>{const t=e.target.closest('.t');if(!t)return;jState.tpl=+t.dataset.i;
+      [...$('jtpl').children].forEach((c,i)=>c.classList.toggle('on',i===jState.tpl));});
+    paintHot();
+  }
+  function jSite(s){jState.site=s;renderJjal();}
+  function jSort(i){jState.sort=i;renderJjal();}
+  function paintHot(){
+    let list=HOT.filter(h=>jState.site==='전체'||h.s===jState.site);
+    $('hotgrid').innerHTML=list.map((h,i)=>`
+      <div class="hot ${h.u?'used':''}">
+        <div class="th" style="background:${grad(i+4)}">${h.s==='디시'?'🎮':h.s==='루리웹'?'🐰':'⚽'}</div>
+        <div class="info"><div class="src">[${h.s}·${h.c}]</div><div class="tt">${h.t}</div>
+          <div class="mt">👍 ${h.recs} · 👀 ${h.views.toLocaleString()} · 💬 ${h.rep} · ${h.age}${h.u?' · ✅제작됨':''}</div></div>
+        <button onclick="flash('🏭 &quot;${h.t.slice(0,14)}…&quot; 제작 시작 (데모)')">${h.u?'다시':'만들기'}</button>
+      </div>`).join('');
+  }
+
+  /* ============ 카드뉴스 TAB ============ */
+  const THEMES=[['hunter','🎮 유튜브 네온','다크',268],['cream','🧡 크림 클래식','라이트',28],['news','🗞 뉴스 에디토리얼','라이트',210],['punch','💥 다크 강펀치','골드',45],['info','📋 인포그래픽','체크리스트',150],['pastel','🧸 파스텔 소프트','부드럽게',340]];
+  const RECOS=[['🔥','쇼츠 알고리즘 2026년 변화 총정리','오늘의 주제'],['🔥','인스타 릴스 vs 유튜브 쇼츠 수익 비교','오늘의 주제'],['🤖','ChatGPT로 대본 10배 빨리 쓰는 법','AI 인사이트'],['🤖','자동화 툴 5개로 채널 운영','AI 인사이트']];
+  let cState={mode:0,theme:0};
+  function renderCard(){
+    const modes=[['📚','일반','전자책 포함'],['🧾','증빙','후기·수익 캡처'],['📖','내 스토리','서사형']];
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">주제</span></div>
+          <input class="in" placeholder="예: 쇼츠 조회수 터지는 후킹 문장"></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">모드</span></div>
+          <div class="chips">${modes.map((m,i)=>`<span class="chip ${cState.mode===i?'on':''}" onclick="cMode(${i})">${m[0]} ${m[1]}</span>`).join('')}</div>
+          <div class="caphint" style="margin-top:7px">${modes[cState.mode][0]} <b>${modes[cState.mode][1]}</b> — ${modes[cState.mode][2]}</div></div>
+        <div class="step"><div class="sh"><span class="num">3</span><span class="st">옵션</span></div>
+          <label class="fld">전자책 개수 · 댓글 키워드</label>
+          <div style="display:flex;gap:8px"><select class="in" style="flex:0 0 120px"><option>30개</option><option>40개</option><option selected>60개</option></select>
+          <input class="in" placeholder="댓글 키워드 (비우면 AI)"></div>
+          <div class="checks" style="margin-top:11px">
+            <label class="ck"><input type="checkbox" checked> <span>🖼 표지 사진 자동 <b>(Pexels)</b></span></label>
+            <label class="ck"><input type="checkbox"> <span>🏞 본문 사이에도 사진</span></label>
+            <label class="ck warn"><input type="checkbox"> <span>📤 <b>생성되면 인스타 자동 게시</b> — 검수 없이 바로 공개!</span></label>
+          </div></div>
+        <button class="go" onclick="flash('🗂 카드뉴스+전자책 만드는 중… (데모)')">카드뉴스 + 전자책 만들기</button>
+        <details class="collapse"><summary>🌏 해외 인기글 → 한국판으로 변환</summary>
+          <div class="cbody">해외 캐러셀 스샷을 올리면 소재만 뽑아 한국 타깃 새 카드로. 인스타 크롤 안 함 — 계정 안전.</div></details>
+      </aside>
+      <main class="mainpane">
+        <div class="panehead"><h2>🎨 템플릿</h2><span class="n">눌러서 고르세요</span></div>
+        <div class="tgal" id="tgal">${THEMES.map((t,i)=>`<div class="tg ${cState.theme===i?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(t[3])}">${t[0].split(' ')[0]}<span style="font-size:11px;opacity:.85">${t[2]}</span></div><div class="lb">${t[0]}</div></div>`).join('')}</div>
+        <div class="recos"><div class="panehead"><h2 style="font-size:15px">💡 추천 소재</h2><span class="n">🔥 오늘의 주제 · 🤖 AI 인사이트</span></div>
+          ${RECOS.map(r=>`<div class="reco" onclick="flash('주제로 채웠어요: ${r[1]}')"><span class="hz">${r[0]}</span><span class="tt">${r[1]}</span><span class="tag">${r[2]}</span></div>`).join('')}</div>
+      </main>
+    </div>`;
+    $('tgal').addEventListener('click',e=>{const t=e.target.closest('.tg');if(!t)return;cState.theme=+t.dataset.i;
+      [...$('tgal').children].forEach((c,i)=>c.classList.toggle('on',i===cState.theme));});
+  }
+  function cMode(i){cState.mode=i;renderCard();}
+
+  /* ============ 릴스 TAB ============ */
+  let reelPicked=false;
+  function renderReel(){
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">영상 올리기</span><span class="sd">MP4</span></div>
+          <div class="drop ${reelPicked?'has':''}" id="drop" onclick="pickReel()">
+            <div class="big">${reelPicked?'✅':'🎬'}</div>
+            <div class="t1">${reelPicked?'영상 선택됨':'영상 파일 고르기'}</div>
+            <div class="t2">${reelPicked?'legend_shorts_0716.mp4 · 00:16 · 12MB':'클릭하거나 MP4를 여기로 드래그'}</div>
+          </div>
+          ${reelPicked?'<div class="vidmeta"><span class="ic">🎞</span><div><b>legend_shorts_0716.mp4</b><div class="caphint">세로 9:16 · 1080×1920 · 16초</div></div></div>':''}
+        </div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">올릴 계정</span></div>
+          <select class="in"><option>@sowho77 (짤공장)</option><option>@kangarooshort (카드뉴스)</option><option>@kangaroostory.jp (일본 · 일본어 캡션)</option></select></div>
+      </aside>
+      <main class="mainpane">
+        <div class="panehead"><h2>✍️ 릴스 캡션</h2><span class="n">직접 쓰거나 AI가 영상 보고 작성</span></div>
+        <textarea class="in" style="min-height:150px" placeholder="릴스 캡션을 쓰거나, 아래 ✨ 버튼으로 AI가 영상을 보고 계정 톤에 맞춰 써줘요 (일본 계정이면 일본어)"></textarea>
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <button class="btn" onclick="flash('✨ 영상 분석 후 캡션 작성 중… (데모)')">✨ 영상 보고 AI가 캡션 써주기</button>
+        </div>
+        <div style="display:flex;margin-top:26px"><div class="sp" style="flex:1"></div>
+          <button class="btn primary" onclick="${reelPicked?"flash('🎬 릴스 게시 요청됨 (데모)')":"flash('먼저 영상을 선택하세요')"}" style="font-size:14.5px">🎬 릴스로 게시</button></div>
+        <div class="caphint" style="margin-top:16px">⚠️ 게시하면 선택한 실계정에 실제로 올라갑니다. 확실할 때만.</div>
+      </main>
+    </div>`;
+  }
+  function pickReel(){reelPicked=true;renderReel();}
+
+  /* ============ 결과물 TAB ============ */
+  const KIND={kr:{ic:'🏭',acct:'sowho77'},card:{ic:'🗂',acct:'kangarooshort'},jp:{ic:'📖',acct:'kangaroostory.jp'}};
+  const PACKS=[
+    {t:'디시 실베 — 회사 그만두고 싶을 때 보는 짤',kind:'kr',n:6,st:'no',date:'07-16 14:20',hooks:['퇴사각 재는 중','월요일의 나','상사 몰래']},
+    {t:'루리웹 유머 — 고양이가 집사 길들이는 법',kind:'kr',n:8,st:'up',date:'07-16 11:02',hooks:['냥이의 계략','3단계 훈련','최종 보스']},
+    {t:'쇼츠 조회수 터지는 후킹 문장 30선',kind:'card',n:10,st:'no',date:'07-15 19:40',hooks:['첫 3초','스크롤 멈춤','저장각']},
+    {t:'스토리래빗 — 길냥이 보은 이야기 (일본판)',kind:'jp',n:5,st:'no',date:'07-15 16:12',hooks:['恩返し','再会','約束']},
+    {t:'에펨 포텐 — 알바하다 겪은 레전드',kind:'kr',n:7,st:'up',date:'07-15 10:33',hooks:['손님 甲','사장 등장','반전']},
+    {t:'디시 — 자취생 냉장고 클라스',kind:'kr',n:4,st:'no',date:'07-14 22:18',hooks:['텅장 냉장고','비상식량','최후의 만찬']},
+    {t:'AI 자동화 프롬프트 꿀팁 모음',kind:'card',n:12,st:'no',date:'07-14 15:55',hooks:['복붙각','업무 반토막','저장 필수']},
+    {t:'루리웹 — 강아지 산책 거부 3종 세트',kind:'kr',n:6,st:'no',date:'07-14 09:07',hooks:['드러눕기','철벽 방어','귀가 거부']},
+    {t:'스토리래빗 — 첫 제자 어머니 이야기 (일본판)',kind:'jp',n:6,st:'up',date:'07-13 20:44',hooks:['母の挑戦','初通帳','涙']},
+    {t:'디시 실베 — 편의점 진상 모음.txt',kind:'kr',n:9,st:'no',date:'07-13 13:29',hooks:['진상 甲','알바 인내','사이다']},
+  ];
+  const hoverTimers=new WeakMap();
+  function renderResults(){
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="rail">
+        <div><p class="rlabel">업로드 상태</p>
+          <div class="rlink on"><span class="ic">▦</span> 전체 <span class="c">${PACKS.length}</span></div>
+          <div class="rlink"><span class="ic" style="color:var(--pend)">●</span> 미업로드 <span class="c">${PACKS.filter(p=>p.st==='no').length}</span></div>
+          <div class="rlink"><span class="ic" style="color:var(--insta)">●</span> 업로드완료 <span class="c">${PACKS.filter(p=>p.st==='up').length}</span></div></div>
+        <div><p class="rlabel">종류</p>
+          <div class="rlink on"><span class="ic">▦</span> 전체 <span class="c">${PACKS.length}</span></div>
+          <div class="rlink"><span class="ic">🏭</span> 짤 <span class="c">${PACKS.filter(p=>p.kind==='kr').length}</span></div>
+          <div class="rlink"><span class="ic">🗂</span> 카드뉴스 <span class="c">${PACKS.filter(p=>p.kind==='card').length}</span></div>
+          <div class="rlink"><span class="ic">📖</span> 일본 스토리 <span class="c">${PACKS.filter(p=>p.kind==='jp').length}</span></div></div>
+        <div><p class="rlabel">예약</p><div class="rlink"><span class="ic">🕒</span> 예약 대기 <span class="c">2</span></div></div>
+      </aside>
+      <main class="mainpane">
+        <div class="panehead"><h2>사용 가능</h2><span class="n">${PACKS.length}개</span>
+          <span class="n" style="margin-left:auto">카드에 마우스 올리면 짤 미리보기 · 클릭하면 편집·업로드</span></div>
+        <div class="grid" id="grid"></div>
+      </main>
+    </div>`;
+    const g=$('grid');
+    PACKS.forEach((p,idx)=>{
+      const k=KIND[p.kind];
+      const statChip=p.st==='up'?'<span class="mchip up">📤 업로드완료</span>':'<span class="mchip no">🆕 미업로드</span>';
+      const jpChip=p.kind==='jp'?'<span class="mchip jp">🇯🇵</span>':'';
+      const card=document.createElement('div');card.className='card';card.tabIndex=0;
+      card.innerHTML=`<div class="thumb" style="background:${grad(idx)}">
+        <div class="cchips"><span class="mchip count">🖼 ${p.n}장</span>${jpChip}${statChip}</div>
+        <div class="ph"><b>짤 1</b></div>
+        <div class="dots">${Array.from({length:p.n},(_,i)=>`<i class="${i===0?'on':''}"></i>`).join('')}</div>
+        <div class="hovercta"><span>클릭해서 편집·업로드 →</span></div></div>
+        <div class="meta"><div class="t">${k.ic} ${p.t}</div><div class="d">${p.date}</div></div>`;
+      const ph=card.querySelector('.ph'),dots=[...card.querySelectorAll('.dots i')];
+      card.addEventListener('mouseenter',()=>{ph.classList.add('show');let i=0;
+        const tm=setInterval(()=>{i=(i+1)%p.n;ph.querySelector('b').textContent='짤 '+(i+1);
+          dots.forEach((d,di)=>d.classList.toggle('on',di===i));},620);hoverTimers.set(card,tm);});
+      card.addEventListener('mouseleave',()=>{clearInterval(hoverTimers.get(card));ph.classList.remove('show');
+        dots.forEach((d,di)=>d.classList.toggle('on',di===0));});
+      card.addEventListener('click',()=>openModal(idx));
+      card.addEventListener('keydown',e=>{if(e.key==='Enter')openModal(idx);});
+      g.appendChild(card);
+    });
+  }
+
+  /* ---- modal state ---- */
+  let CUR=0,IDX=0,LEAD=0,ORDER=[];
+  function openModal(i){
+    CUR=i;IDX=0;LEAD=0;
+    const p=PACKS[i],k=KIND[p.kind];
+    ORDER=Array.from({length:p.n},(_,s)=>({id:s,ex:false,mos:false}));
+    $('mTitle').textContent=k.ic+' '+p.t;
+    const st=$('mStat');st.textContent=p.st==='up'?'📤 업로드완료':'🆕 미업로드';st.className='mstat '+(p.st==='up'?'up':'no');
+    $('mAcct').textContent=k.acct;$('mFootCount').textContent='짤 '+p.n+'장';
+    $('thumbrow').innerHTML=p.hooks.map((h,hi)=>`<div class="tpick ${hi===0?'sel':''}" onclick="pickLead(${hi})"><div class="tp" style="background:${grad(i+hi*3)}">${h}</div><div class="tag">${hi===0?'✅ 첫 장':'후보 '+(hi+1)}</div></div>`).join('');
+    $('capta').value=`${p.t}\n\n오늘도 레전드 한 편 🔥\n저장하고 두고두고 보기 👉\n#유머 #짤 #${k.acct}`;
+    updateLead();renderStrip();renderTrack();
+    $('scrim').classList.add('open');closePop();
+  }
+  function closeModal(){$('scrim').classList.remove('open');closePop();}
+
+  function renderTrack(){
+    const p=PACKS[CUR];
+    const vis=ORDER.filter(o=>!o.ex);
+    IDX=Math.max(0,Math.min(vis.length-1,IDX));
+    $('igtrack').innerHTML=vis.map(o=>{
+      const mos=o.mos?`<span class="mos" style="left:22%;top:38%;width:56%;height:16%"></span>`:'';
+      return `<div class="igslide" style="background:${grad(CUR+o.id)}"><b>짤 ${o.id+1}</b>${mos}</div>`;
+    }).join('');
+    $('igtrack').style.transform=`translateX(${-IDX*100}%)`;
+    $('mCount').textContent=(IDX+1)+'/'+vis.length;
+    $('pvdots').innerHTML=vis.map((_,i)=>`<i class="${i===IDX?'on':''}"></i>`).join('');
+  }
+  function slide(d){const vis=ORDER.filter(o=>!o.ex);IDX=Math.max(0,Math.min(vis.length-1,IDX+d));renderTrack();}
+
+  function renderStrip(){
+    let pos=0;
+    $('strip').innerHTML=ORDER.map((o,i)=>{
+      const num=o.ex?'—':(++pos)+'번';
+      const mos=o.mos?'<span class="mos" style="left:2px;right:2px;top:60%;bottom:12%"></span>':'';
+      return `<div class="item ${o.ex?'ex':''}" draggable="true" data-i="${i}">
+        <span class="drag-h">⠿</span>
+        <span class="mini" style="background:${grad(CUR+o.id)}">${o.id+1}${mos}</span>
+        <span class="no"><b>${num}</b> <small>짤${o.id+1}.jpg</small>${o.ex?' <span style="color:var(--danger)">제외됨</span>':''}</span>
+        ${o.ex?'':`<button class="itbtn" onclick="mkThumb(${i})" title="이 짤을 대표 썸네일로">🖼</button>`}
+        ${o.ex?'':`<button class="itbtn ${o.mos?'on':''}" onclick="openMosaic(${i})" title="모자이크">🟦</button>`}
+        <button class="itbtn ${o.ex?'exon':''}" onclick="toggleEx(${i})">${o.ex?'↩ 복구':'✕'}</button>
+      </div>`;
+    }).join('');
+    bindDrag();
+  }
+  function toggleEx(i){ORDER[i].ex=!ORDER[i].ex;renderStrip();renderTrack();}
+  function mkThumb(i){flash('🖼 '+(ORDER[i].id+1)+'번 짤을 대표 썸네일 배경으로 (데모)');}
+  function updateLead(){$('mFootLead').textContent='후보'+(LEAD+1);}
+  function pickLead(hi){LEAD=hi;[...document.querySelectorAll('.tpick')].forEach((el,i)=>{el.classList.toggle('sel',i===hi);el.querySelector('.tag').textContent=i===hi?'✅ 첫 장':'후보 '+(i+1);});updateLead();}
+
+  /* ---- drag reorder ---- */
+  let dragI=null;
+  function bindDrag(){
+    [...$('strip').children].forEach(el=>{
+      el.addEventListener('dragstart',e=>{dragI=+el.dataset.i;el.classList.add('drag');e.dataTransfer.effectAllowed='move';});
+      el.addEventListener('dragend',()=>{el.classList.remove('drag');[...$('strip').children].forEach(c=>c.classList.remove('over'));});
+      el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over');});
+      el.addEventListener('dragleave',()=>el.classList.remove('over'));
+      el.addEventListener('drop',e=>{e.preventDefault();const to=+el.dataset.i;if(dragI===null||dragI===to)return;
+        const moved=ORDER.splice(dragI,1)[0];ORDER.splice(to,0,moved);dragI=null;renderStrip();renderTrack();});
+    });
+  }
+
+  /* ---- mosaic editor (functional) ---- */
+  let mosTarget=null,mosBoxes=[],mosDraw=null;
+  function openMosaic(i){
+    mosTarget=i;mosBoxes=[];mosDraw=null;
+    $('mosbg').style.background=grad(CUR+ORDER[i].id);
+    $('mosLabel').textContent='짤 '+(ORDER[i].id+1);
+    $('mosov').classList.add('open');
+    setTimeout(mosSetup,30);
+  }
+  function mosSetup(){
+    const bg=$('mosbg'),cv=$('moscv');
+    cv.width=bg.clientWidth;cv.height=bg.clientHeight;
+    mosRedraw();
+    const pos=e=>{const r=cv.getBoundingClientRect();const t=(e.touches&&e.touches[0])||e;return{x:t.clientX-r.left,y:t.clientY-r.top};};
+    cv.onpointerdown=e=>{const p=pos(e);mosDraw={x0:p.x,y0:p.y,x1:p.x,y1:p.y};cv.setPointerCapture(e.pointerId);};
+    cv.onpointermove=e=>{if(!mosDraw)return;const p=pos(e);mosDraw.x1=p.x;mosDraw.y1=p.y;mosRedraw();};
+    cv.onpointerup=()=>{if(!mosDraw)return;const b=mosDraw;mosDraw=null;
+      const w=Math.abs(b.x1-b.x0),h=Math.abs(b.y1-b.y0);
+      if(w>8&&h>8)mosBoxes.push({x:Math.min(b.x0,b.x1),y:Math.min(b.y0,b.y1),w,h});mosRedraw();};
+  }
+  function mosRedraw(){
+    const cv=$('moscv'),ctx=cv.getContext('2d');ctx.clearRect(0,0,cv.width,cv.height);
+    const draw=(x,y,w,h)=>{ctx.fillStyle='rgba(40,90,220,.42)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#6ea0ff';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);};
+    mosBoxes.forEach(b=>draw(b.x,b.y,b.w,b.h));
+    if(mosDraw){const b=mosDraw;draw(Math.min(b.x0,b.x1),Math.min(b.y0,b.y1),Math.abs(b.x1-b.x0),Math.abs(b.y1-b.y0));}
+  }
+  function mosClear(){mosBoxes=[];mosDraw=null;mosRedraw();}
+  function closeMosaic(){$('mosov').classList.remove('open');}
+  function applyMosaic(){
+    if(!mosBoxes.length){flash('가릴 부분을 드래그로 표시하세요');return;}
+    ORDER[mosTarget].mos=true;closeMosaic();renderStrip();renderTrack();
+    flash('🟦 모자이크 '+mosBoxes.length+'곳 적용 (데모)');
+  }
+
+  /* ---- upload popover ---- */
+  function togglePop(e){e.stopPropagation();$('pop').classList.toggle('open');backToMenu();}
+  function closePop(){$('pop').classList.remove('open');}
+  function openSchedule(){$('popMenu').style.display='none';$('sched').classList.add('open');}
+  function backToMenu(){$('popMenu').style.display='';$('sched').classList.remove('open');}
+  function uploadNow(){closePop();flash('⚡ 지금 업로드 — @'+KIND[PACKS[CUR].kind].acct+'에 게시 요청 (데모)');}
+  function confirmSchedule(){closePop();flash('🕒 예약 완료 — 지정 시간 자동 게시 예정 (데모 · 실제는 스케줄러 필요)');}
+  document.addEventListener('click',e=>{const pop=$('pop');if(pop.classList.contains('open')&&!pop.contains(e.target)&&e.target.id!=='upBtn')closePop();});
+
+  /* ---- misc ---- */
+  function flash(msg){const t=document.createElement('div');t.textContent=msg;
+    t.style.cssText='position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--raised);color:var(--ink);border:1px solid var(--line2);border-radius:12px;padding:13px 20px;font-size:13.5px;font-weight:700;box-shadow:var(--shadow);z-index:200';
+    document.body.appendChild(t);setTimeout(()=>t.remove(),2400);}
+  document.addEventListener('keydown',e=>{
+    if(!$('scrim').classList.contains('open'))return;
+    if($('mosov').classList.contains('open')){if(e.key==='Escape')closeMosaic();return;}
+    if(e.key==='Escape')closeModal();
+    else if(e.key==='ArrowRight')slide(1);
+    else if(e.key==='ArrowLeft')slide(-1);
+    else if(['1','2','3'].includes(e.key)){const hi=+e.key-1;if(hi<PACKS[CUR].hooks.length)pickLead(hi);}
+  });
+  function toggleTheme(){const r=document.documentElement;
+    const cur=r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+    r.setAttribute('data-theme',cur==='dark'?'light':'dark');}
+
+  renderJjal();
+</script>

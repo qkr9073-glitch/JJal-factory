@@ -110,17 +110,17 @@ INDEX_HTML = """<!doctype html>
 <title>짤공장</title>
 <link rel="icon" type="image/png" href="/logo-origami.png">
 <link rel="apple-touch-icon" href="/logo-origami.png">
-<meta name="theme-color" content="#0c1024">
+<meta name="theme-color" content="#0a1310">
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 button,select,.chip,.nav a{touch-action:manipulation}
 @font-face{font-family:'Pretendard';font-weight:400;font-display:swap;src:url('/fonts/Pretendard-Regular.otf') format('opentype')}
 @font-face{font-family:'Pretendard';font-weight:600;font-display:swap;src:url('/fonts/Pretendard-SemiBold.otf') format('opentype')}
 @font-face{font-family:'Pretendard';font-weight:800;font-display:swap;src:url('/fonts/Pretendard-ExtraBold.otf') format('opentype')}
-:root{--gold:#e8b640;--gold2:#f2cf6b;--ink:#f0ead8;--line:#2c3559;--panel:#1c2340;--panel2:#171e38}
+:root{--gold:#2fd39a;--gold2:#6ee7b7;--ink:#e9f1ec;--line:#25392f;--panel:#14211b;--panel2:#0f1a15}
 html{-webkit-text-size-adjust:100%}
-body{background:radial-gradient(1100px 480px at 50% -10%,#1c2554 0%,rgba(28,37,84,0) 62%),
-linear-gradient(180deg,#0c1024 0%,#141b36 40%,#171f3d 100%);min-height:100vh;
+body{background:radial-gradient(1100px 480px at 50% -10%,#16463a 0%,rgba(22,70,58,0) 62%),
+linear-gradient(180deg,#0a1310 0%,#0f1c17 40%,#12211b 100%);min-height:100vh;
 color:var(--ink);font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:560px;margin:0 auto;padding:20px;
 -webkit-font-smoothing:antialiased}
 .brand{display:flex;align-items:center;gap:18px;margin:6px 0 10px}
@@ -128,15 +128,15 @@ color:var(--ink);font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:5
 h1{font-size:27px;margin:0;color:var(--gold2);letter-spacing:2px;font-weight:800}
 .sub{color:#8b93b8;font-size:13px;margin:6px 0 0;line-height:1.5}
 input{width:100%;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font-size:16px;margin:6px 0;outline:none;transition:border-color .2s,box-shadow .2s;font-family:inherit}
-input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(232,182,64,.18)}
-input::placeholder{color:#5d6690}
-button{width:100%;background:linear-gradient(180deg,#f0c14f,#e2a92f);color:#1a1a2e;border:0;padding:16px;border-radius:12px;font-size:17px;font-weight:800;cursor:pointer;margin-top:8px;font-family:inherit;transition:transform .12s,filter .2s;box-shadow:0 6px 16px rgba(0,0,0,.35)}
+input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(47,211,154,.18)}
+input::placeholder{color:#5d7268}
+button{width:100%;background:linear-gradient(180deg,#3ee0a6,#16b083);color:#08231a;border:0;padding:16px;border-radius:12px;font-size:17px;font-weight:800;cursor:pointer;margin-top:8px;font-family:inherit;transition:transform .12s,filter .2s;box-shadow:0 6px 16px rgba(0,0,0,.35)}
 button:hover{filter:brightness(1.06)} button:active{transform:translateY(1px)}
 button:disabled{background:#3a4166;color:#777f9f;box-shadow:none}
 #hot{background:#222b4f;color:var(--ink)}
 #status{margin:14px 0;color:var(--gold2);font-size:15px;white-space:pre-wrap}
 .bar{background:#222a4a;border-radius:10px;height:16px;margin:10px 0;overflow:hidden;display:none;border:1px solid var(--line)}
-.bar>div{background:linear-gradient(90deg,#c99b2f,#f2cf6b);height:100%;width:0%;transition:width .7s;border-radius:10px}
+.bar>div{background:linear-gradient(90deg,#16b083,#6ee7b7);height:100%;width:0%;transition:width .7s;border-radius:10px}
 img{max-width:100%;border-radius:14px;margin:8px 0;display:block;box-shadow:0 8px 22px rgba(0,0,0,.35)}
 pre{white-space:pre-wrap;background:var(--panel);padding:16px;border-radius:14px;font-family:inherit;font-size:15px;line-height:1.65;color:#e9e4d2;border:1px solid #262f55}
 .small{background:var(--panel);padding:12px;font-size:14px;border-radius:12px;border:1px solid #262f55}
@@ -146,8 +146,8 @@ a{color:#8fb6ff} h2{font-size:17px;margin-top:26px;color:var(--gold2)}
 .warn{background:#5c2b2b;padding:12px;border-radius:12px}
 .rthumbs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0}
 .rth{border:3px solid #3a4166;border-radius:14px;cursor:pointer;padding:3px;position:relative;background:#171e38;transition:border-color .12s,transform .1s}
-.rth:hover{border-color:#e8b640;transform:translateY(-2px)}
-.rth.sel{border-color:#e8b640;box-shadow:0 0 0 3px rgba(232,182,64,.3)}
+.rth:hover{border-color:#2fd39a;transform:translateY(-2px)}
+.rth.sel{border-color:#2fd39a;box-shadow:0 0 0 3px rgba(47,211,154,.3)}
 .rth img{width:100%;border-radius:9px;margin:0;display:block}
 .rthc{text-align:center;font-size:12px;font-weight:700;padding:6px 2px 2px;color:#9aa3c8;line-height:1.3}
 .rth.sel .rthc{color:#f2cf6b}
@@ -1855,6 +1855,15 @@ def card_page():
 @app.get("/p")
 def packs_page():
     return PACKS_HTML
+
+
+@app.get("/v2")
+def v2_page():
+    """새 PC 가로형 UI (개발 중) — 기존 /, /card, /p 는 그대로 유지."""
+    try:
+        return (BASE / "v2.html").read_text(encoding="utf-8")
+    except Exception as e:
+        return f"v2.html 로드 실패: {e}", 500
 
 
 @app.post("/api/card/make")
