@@ -1643,8 +1643,32 @@ $('code').addEventListener('keydown',e=>{if(e.key==='Enter')loadList();});
 </script></body></html>"""
 
 
+IG_ACCOUNTS_FILE = BASE / "ig_accounts.json"     # UI로 추가한 업로드 계정 {name:{user_id,access_token}}
+YTKEYS_FILE = BASE / "youtube_keys.json"          # 회원별 유튜브 키 {code:[{key,label,units_today,units_total,day,last}]}
+_admin_lock = threading.Lock()
+
+
 def load_config():
-    return json.loads((BASE / "config.json").read_text(encoding="utf-8"))
+    cfg = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
+    try:  # UI로 추가한 업로드 인스타 계정 병합
+        extra = json.loads(IG_ACCOUNTS_FILE.read_text(encoding="utf-8"))
+        if isinstance(extra, dict) and extra:
+            merged = dict(cfg.get("ig_accounts") or {})
+            merged.update(extra)
+            cfg["ig_accounts"] = merged
+    except Exception:
+        pass
+    return cfg
+
+
+def _ig_accounts_list(cfg):
+    """설정에 실제로 연동된(빈 값 아닌) 업로드 계정 이름 목록."""
+    out = []
+    for name, v in (cfg.get("ig_accounts") or {}).items():
+        if isinstance(v, dict) and (str(v.get("user_id", "")).strip()
+                                    or str(v.get("access_token", "")).strip()):
+            out.append(name)
+    return out
 
 
 MEMBERS_FILE = BASE / "members.json"
@@ -2411,9 +2435,12 @@ def api_youtube_trending():
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     now = time.time()
     if data.get("refresh") or not YT_TREND_CACHE["data"] or now - YT_TREND_CACHE["time"] > 21600:
+        key = _resolve_yt_key(cfg, data.get("code"))
+        cfg2 = dict(cfg); cfg2["youtube_api_key"] = key
         try:
-            YT_TREND_CACHE["data"] = youtube.trending_shorts(cfg)
+            YT_TREND_CACHE["data"] = youtube.trending_shorts(cfg2)
             YT_TREND_CACHE["time"] = now
+            _yt_usage_add(data.get("code"), key, 303)   # 3지역 × (검색100+videos1) 추정
         except Exception as e:
             return jsonify(ok=False, error=str(e)), 500
     return jsonify(ok=True, items=YT_TREND_CACHE["data"] or [])
@@ -2433,8 +2460,11 @@ def api_youtube_search():
         count = max(10, min(100, int(data.get("count") or 30)))
     except (TypeError, ValueError):
         count = 30
+    key = _resolve_yt_key(cfg, data.get("code"))
+    cfg2 = dict(cfg); cfg2["youtube_api_key"] = key
     try:
-        items = youtube.search_shorts(cfg, q, count=count)
+        items = youtube.search_shorts(cfg2, q, count=count)
+        _yt_usage_add(data.get("code"), key, 300)   # 검색어 1~3개 × 100 + videos 추정
     except Exception as e:
         return jsonify(ok=False, error=str(e)), 500
     return jsonify(ok=True, items=items)
@@ -3646,6 +3676,195 @@ def api_members_remove():
     if ncode in m:
         m.pop(ncode)
         _members_save(m)
+    return jsonify(ok=True)
+
+
+# ── 업로드 인스타 계정 목록(드롭다운용) + 관리(관리자) ─────────────
+@app.post("/api/accounts")
+def api_accounts():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, accounts=_ig_accounts_list(cfg))
+
+
+def _ig_extra_load():
+    try:
+        d = json.loads(IG_ACCOUNTS_FILE.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ig_extra_save(d):
+    with _admin_lock:
+        IG_ACCOUNTS_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2),
+                                    encoding="utf-8")
+
+
+@app.post("/api/admin/ig/list")
+def api_admin_ig_list():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    extra = _ig_extra_load()
+    base = {k for k, v in (json.loads((BASE / "config.json").read_text(encoding="utf-8"))
+            .get("ig_accounts") or {}).items()
+            if isinstance(v, dict) and (str(v.get("user_id", "")).strip()
+                                        or str(v.get("access_token", "")).strip())}
+    items = []
+    for name, v in extra.items():
+        items.append({"name": name, "user_id": str(v.get("user_id", "")),
+                      "has_token": bool(str(v.get("access_token", "")).strip()),
+                      "removable": True})
+    for name in sorted(base):
+        if name not in extra:
+            items.append({"name": name, "user_id": "", "has_token": True,
+                          "removable": False})   # config.json 직접 설정분
+    return jsonify(ok=True, items=items)
+
+
+@app.post("/api/admin/ig/add")
+def api_admin_ig_add():
+    """업로드용 인스타 계정 추가/수정 (관리자). ig_accounts.json 에 저장."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    name = (data.get("name") or "").strip().lstrip("@")
+    if not name:
+        return jsonify(ok=False, error="계정 이름(핸들)을 입력하세요"), 400
+    extra = _ig_extra_load()
+    extra[name] = {"user_id": (data.get("user_id") or "").strip(),
+                   "access_token": (data.get("access_token") or "").strip()}
+    _ig_extra_save(extra)
+    return jsonify(ok=True)
+
+
+@app.post("/api/admin/ig/remove")
+def api_admin_ig_remove():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    name = (data.get("name") or "").strip().lstrip("@")
+    extra = _ig_extra_load()
+    if name in extra:
+        extra.pop(name)
+        _ig_extra_save(extra)
+    return jsonify(ok=True)
+
+
+# ── 회원별 유튜브 API 키 (여러 개 등록 + 사용량 집계) ──────────────
+def _ytkeys_load():
+    try:
+        d = json.loads(YTKEYS_FILE.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ytkeys_save(d):
+    with _admin_lock:
+        YTKEYS_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2),
+                               encoding="utf-8")
+
+
+def _today_str():
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _resolve_yt_key(cfg, code):
+    """이 회원의 유튜브 키 중 오늘 할당량(1만) 남은 것 하나. 없으면 config 전역 키."""
+    day = _today_str()
+    keys = _ytkeys_load().get((code or "").strip(), [])
+    for rec in keys:
+        if rec.get("day") != day:
+            rec["units_today"] = 0
+            rec["day"] = day
+        if rec.get("units_today", 0) < 10000 and rec.get("key"):
+            return rec["key"]
+    return youtube._yt_key(cfg)   # 전역 폴백
+
+
+def _yt_usage_add(code, key, units):
+    """추정 사용량 누적(우리 앱이 호출한 유닛). 구글 공식 집계 아님."""
+    code = (code or "").strip()
+    if not code or not key:
+        return
+    day = _today_str()
+    with _admin_lock:
+        d = _ytkeys_load()
+        for rec in d.get(code, []):
+            if rec.get("key") == key:
+                if rec.get("day") != day:
+                    rec["units_today"] = 0
+                    rec["day"] = day
+                rec["units_today"] = rec.get("units_today", 0) + units
+                rec["units_total"] = rec.get("units_total", 0) + units
+                rec["last"] = datetime.now().isoformat(timespec="seconds")
+                _ytkeys_save(d)
+                return
+
+
+@app.post("/api/admin/ytkeys/list")
+def api_admin_ytkeys_list():
+    """회원별 유튜브 키 + 사용량. 관리자 전용."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    day = _today_str()
+    d = _ytkeys_load()
+    members = _members_load(cfg)
+    out = []
+    for mcode, minfo in sorted(members.items()):
+        recs = []
+        for rec in d.get(mcode, []):
+            ut = rec.get("units_today", 0) if rec.get("day") == day else 0
+            recs.append({"label": rec.get("label", ""),
+                         "key_tail": (rec.get("key", "")[-6:] if rec.get("key") else ""),
+                         "units_today": ut, "units_total": rec.get("units_total", 0),
+                         "last": rec.get("last", "")})
+        out.append({"code": mcode, "name": minfo.get("name", ""),
+                    "role": minfo.get("role", "user"), "keys": recs})
+    return jsonify(ok=True, members=out, daily_quota=10000)
+
+
+@app.post("/api/admin/ytkeys/add")
+def api_admin_ytkeys_add():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    mcode = (data.get("member") or "").strip()
+    key = (data.get("key") or "").strip()
+    if not mcode or not key:
+        return jsonify(ok=False, error="회원과 API 키를 입력하세요"), 400
+    d = _ytkeys_load()
+    lst = d.setdefault(mcode, [])
+    if any(r.get("key") == key for r in lst):
+        return jsonify(ok=False, error="이미 등록된 키예요"), 400
+    lst.append({"key": key, "label": (data.get("label") or "").strip() or "키",
+                "units_today": 0, "units_total": 0, "day": _today_str(), "last": ""})
+    _ytkeys_save(d)
+    return jsonify(ok=True)
+
+
+@app.post("/api/admin/ytkeys/remove")
+def api_admin_ytkeys_remove():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 접근할 수 있습니다"), 403
+    mcode = (data.get("member") or "").strip()
+    tail = (data.get("key_tail") or "").strip()
+    d = _ytkeys_load()
+    if mcode in d:
+        d[mcode] = [r for r in d[mcode] if (r.get("key", "")[-6:] != tail)]
+        _ytkeys_save(d)
     return jsonify(ok=True)
 
 

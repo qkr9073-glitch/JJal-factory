@@ -384,7 +384,7 @@
       <button type="button" data-t="ie">🔄 <span>수입·수출</span></button>
       <button type="button" data-t="sched">🗓 <span>예약·승인</span></button>
       <button type="button" data-t="result">📦 <span>결과물</span></button>
-      <button type="button" data-t="members" id="membersTab" style="display:none">👥 <span>회원관리</span></button>
+      <button type="button" data-t="members" id="membersTab" style="display:none">🛠 <span>관리자</span></button>
     </div>
     <div class="sp"></div>
     <div class="codepill">🔑 <input id="code" placeholder="접속코드" type="password" value="0000"></div>
@@ -946,7 +946,7 @@
 
   /* ============ 릴스 TAB ============ */
   let reelPicked=false, RVIDEO=null, RSTAGED=null, reelMode='single';
-  const REEL_ACCTS=`<option value="sowho77">@sowho77 (짤공장)</option><option value="kangarooshort">@kangarooshort (카드뉴스)</option><option value="kangaroostory.jp">@kangaroostory.jp (일본 · 일본어 캡션)</option>`;
+  const REEL_ACCTS=()=>acctOptsHTML();
   const reelToggle=()=>`<div class="chips" style="margin-bottom:16px">
     <span class="chip ${reelMode==='single'?'on':''}" onclick="reelTab('single')">🎬 단일 업로드</span>
     <span class="chip ${reelMode==='bulk'?'on':''}" onclick="reelTab('bulk')">📚 대량 예약</span></div>`;
@@ -965,7 +965,7 @@
           </div>
           <input id="rfile" type="file" accept="video/mp4,video/quicktime,video/*" style="display:none" onchange="rPick(this)"></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">올릴 계정</span></div>
-          <select class="in" id="racctSel" onchange="onReelAcct()">${REEL_ACCTS}</select></div>
+          <select class="in" id="racctSel" onchange="onReelAcct()">${REEL_ACCTS()}</select></div>
       </aside>
       <main class="mainpane">
         <div class="panehead"><h2>✍️ 릴스 캡션</h2><span class="n">직접 쓰거나 AI가 영상 보고 작성</span></div>
@@ -1004,7 +1004,7 @@
             <select class="in" id="btm" style="width:auto">${Array.from({length:12},(_,i)=>`<option value="${i*5}">${String(i*5).padStart(2,'0')}</option>`).join('')}</select>
             <button class="btn" onclick="bulkAddTime()">＋추가</button></div>
           <label class="fld" style="margin-top:10px">올릴 계정</label>
-          <select class="in" id="bulkacct" onchange="BULK.account=this.value;bulkPreview()">${REEL_ACCTS}</select>
+          <select class="in" id="bulkacct" onchange="BULK.account=this.value;bulkPreview()">${REEL_ACCTS()}</select>
           <div class="caphint" style="margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 11px">✨ 캡션은 <b>영상마다 AI가 자동 생성</b>됩니다 (계정 톤 반영 · 확인 없이 바로 예약). 예약·승인에서 확인·수정 가능.</div></div>
       </aside>
       <main class="mainpane">
@@ -1400,7 +1400,13 @@
   const isJp=p=>p.story||p.lang==='ja';
   const acctOf=p=>isJp(p)?'kangaroostory.jp':(p.type==='cardnews'?'kangarooshort':'sowho77');
   const iconOf=p=>isJp(p)?'📖':(p.type==='cardnews'?'🗂':'🏭');
-  const ACCTS=['sowho77','kangarooshort','kangaroostory.jp'];
+  let ACCTS=['sowho77','kangarooshort','kangaroostory.jp'];   // 서버에서 갱신(관리자가 추가한 계정 포함)
+  async function loadAccounts(){
+    if(!code())return;
+    try{const d=await apiJson('/api/accounts',{code:code()});
+      if(d.ok&&Array.isArray(d.accounts)&&d.accounts.length)ACCTS=d.accounts;}catch(e){}
+  }
+  const acctOptsHTML=()=>ACCTS.map(a=>`<option value="${esch(a)}">@${esch(a)}</option>`).join('');
   const swapHandle=(cap,handle)=>String(cap||'').replace(/@[A-Za-z0-9_.]+(?![\s\S]*@[A-Za-z0-9_.]+)/, handle);
   function onAcct(){ const a=$('macct2')&&$('macct2').value; if(!a)return;
     if($('mAcct'))$('mAcct').textContent=a;
@@ -1928,12 +1934,88 @@
   async function cancelSched(id){const r=await apiJson('/api/schedule/cancel',{code:code(),id});if(!r.ok){flash('❌ '+(r.error||'실패'));return;}flash('🗑 예약 취소됨');loadSched();}
 
   /* ============ 회원 관리 TAB (관리자 전용) ============ */
+  let adminSec='members';
+  function adminTab(s){adminSec=s;renderMembers();}
   function renderMembers(){
     if(!isAdmin()){$('view').innerHTML='<div class="view"><main class="mainpane"><div style="color:var(--danger);padding:24px">관리자 전용 화면입니다.</div></main></div>';return;}
     $('view').innerHTML=`<div class="view"><main class="mainpane">
-      <div class="panehead"><h2>👥 회원 관리</h2><span class="n">4자리 코드 · 권한</span></div>
-      <div id="memberpanel"></div></main></div>`;
-    loadMembers();
+      <div class="panehead"><h2>🛠 관리자</h2><span class="n">회원 · 업로드 계정 · 유튜브 API 키</span></div>
+      <div class="chips" style="margin-bottom:18px">
+        <span class="chip ${adminSec==='members'?'on':''}" onclick="adminTab('members')">👥 회원</span>
+        <span class="chip ${adminSec==='ig'?'on':''}" onclick="adminTab('ig')">📸 업로드 계정</span>
+        <span class="chip ${adminSec==='yt'?'on':''}" onclick="adminTab('yt')">🔑 유튜브 키</span></div>
+      <div id="adminbody"></div></main></div>`;
+    if(adminSec==='members'){$('adminbody').innerHTML='<div id="memberpanel"></div>';loadMembers();}
+    else if(adminSec==='ig')loadIgAccounts();
+    else loadYtKeys();
+  }
+  /* ---- 업로드 인스타 계정 관리 ---- */
+  async function loadIgAccounts(){
+    const box=$('adminbody'); if(!box)return;
+    box.innerHTML='<div class="caphint" style="margin-bottom:12px">업로드(게시)용 인스타 계정입니다. <b>수집용 부계정과는 별개</b>예요. (이 PC엔 실제로 안 넣어도 기능만 확인 가능)</div>'
+      +'<div id="iglist" style="color:var(--faint)">불러오는 중…</div>'
+      +'<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:14px;display:flex;flex-direction:column;gap:8px">'
+      +'<b style="font-size:13px">＋ 계정 추가</b>'
+      +'<input id="ig_name" class="in" placeholder="계정 핸들 (예: sowho77)">'
+      +'<input id="ig_uid" class="in" placeholder="IG user_id (비즈니스 계정 ID)">'
+      +'<input id="ig_tok" class="in" placeholder="access_token">'
+      +'<button class="btn primary" onclick="addIgAccount()">저장</button></div>';
+    let d; try{d=await apiJson('/api/admin/ig/list',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
+    const lb=$('iglist'); if(!lb)return;
+    if(!d.ok){lb.innerHTML='<span style="color:var(--danger)">❌ '+esch(d.error)+'</span>';return;}
+    lb.innerHTML=(d.items||[]).map(a=>`<div class="hot" style="align-items:center">
+      <div class="info"><div class="tt">📸 @${esch(a.name)}</div>
+        <div class="mt" style="color:var(--muted)">${a.user_id?('ID '+esch(a.user_id)+' · '):''}${a.has_token?'토큰 있음':'<span style="color:var(--danger)">토큰 없음</span>'}${a.removable?'':' · config 직접설정'}</div></div>
+      ${a.removable?`<button data-rmig="${esch(a.name)}">삭제</button>`:''}</div>`).join('')
+      ||'<div style="color:var(--faint)">등록된 업로드 계정이 없어요.</div>';
+    lb.querySelectorAll('[data-rmig]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('@'+b.dataset.rmig+' 계정을 삭제할까요?'))return;
+      await apiJson('/api/admin/ig/remove',{code:code(),name:b.dataset.rmig});loadIgAccounts();loadAccounts();});
+  }
+  async function addIgAccount(){
+    const name=($('ig_name')&&$('ig_name').value.trim())||'';
+    if(!name){flash('계정 핸들을 입력하세요');return;}
+    const r=await apiJson('/api/admin/ig/add',{code:code(),name,user_id:($('ig_uid')&&$('ig_uid').value.trim())||'',access_token:($('ig_tok')&&$('ig_tok').value.trim())||''});
+    if(!r.ok){flash('❌ '+r.error);return;}
+    flash('✅ 계정 저장됨'); loadIgAccounts(); loadAccounts();
+  }
+  /* ---- 회원별 유튜브 API 키 ---- */
+  async function loadYtKeys(){
+    const box=$('adminbody'); if(!box)return;
+    box.innerHTML='<div class="caphint" style="margin-bottom:12px">회원마다 유튜브 API 키를 등록합니다(여러 개 가능 = 구글계정 여러개). 인기 쇼츠 조회 시 그 회원 키를 사용하고 <b>사용량(추정)</b>을 집계해요. <span style="color:var(--faint)">※ 구글 공식 할당량이 아니라 우리 앱이 호출한 추정 유닛 · 일 1만 기준</span></div>'
+      +'<div id="ytklist" style="color:var(--faint)">불러오는 중…</div>';
+    let d; try{d=await apiJson('/api/admin/ytkeys/list',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
+    const lb=$('ytklist'); if(!lb)return;
+    if(!d.ok){lb.innerHTML='<span style="color:var(--danger)">❌ '+esch(d.error)+'</span>';return;}
+    const q=d.daily_quota||10000;
+    lb.innerHTML=(d.members||[]).map(m=>{
+      const keys=(m.keys||[]).map(k=>{
+        const pct=Math.min(100,Math.round((k.units_today||0)/q*100));
+        return `<div class="hot" style="align-items:center;margin:4px 0">
+          <div class="info"><div class="tt">🔑 ${esch(k.label)} <span style="color:var(--faint);font-weight:400">…${esch(k.key_tail)}</span></div>
+            <div class="mt" style="color:var(--muted)">오늘 ${(k.units_today||0).toLocaleString()} / ${q.toLocaleString()} (${pct}%) · 누적 ${(k.units_total||0).toLocaleString()}</div>
+            <div style="height:6px;background:var(--panel2);border-radius:5px;margin-top:5px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${pct>85?'var(--danger)':'var(--gold)'}"></div></div></div>
+          <button data-rmk="${esch(k.key_tail)}" data-mc="${esch(m.code)}">삭제</button></div>`;
+      }).join('')||'<div style="color:var(--faint);font-size:12px;padding:4px 0">등록된 키 없음</div>';
+      return `<div style="border:1px solid var(--line);border-radius:11px;padding:12px;margin-bottom:12px;background:var(--panel)">
+        <div style="font-weight:800;margin-bottom:6px">${m.role==='admin'?'👑':'🙂'} ${esch(m.name)} <code style="font-size:12px;color:var(--faint)">${esch(m.code)}</code></div>
+        ${keys}
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <input class="in" id="ytk_label_${esch(m.code)}" placeholder="라벨(구글계정명)" style="width:130px">
+          <input class="in" id="ytk_key_${esch(m.code)}" placeholder="AIza... API 키" style="flex:1;min-width:160px">
+          <button class="btn" onclick="addYtKey('${esch(m.code)}')">＋키 추가</button></div></div>`;
+    }).join('')||'<div style="color:var(--faint)">회원이 없어요.</div>';
+    lb.querySelectorAll('[data-rmk]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('이 키를 삭제할까요?'))return;
+      await apiJson('/api/admin/ytkeys/remove',{code:code(),member:b.dataset.mc,key_tail:b.dataset.rmk});loadYtKeys();});
+  }
+  async function addYtKey(mc){
+    const key=($('ytk_key_'+mc)&&$('ytk_key_'+mc).value.trim())||'';
+    const label=($('ytk_label_'+mc)&&$('ytk_label_'+mc).value.trim())||'';
+    if(!key){flash('API 키를 입력하세요');return;}
+    const r=await apiJson('/api/admin/ytkeys/add',{code:code(),member:mc,key,label});
+    if(!r.ok){flash('❌ '+r.error);return;}
+    flash('✅ 키 추가됨'); loadYtKeys();
   }
   async function loadMembers(){
     const box=$('memberpanel'); if(!box)return;
@@ -1996,4 +2078,5 @@
 
   renderJjal();
   refreshMe();
+  loadAccounts();
 </script>

@@ -26,6 +26,8 @@ members.json
 pack_owners.json
 ig_targets.json
 ig_session/
+ig_accounts.json
+youtube_keys.json
 
 # ── 임시 폴더 ──
 _covertmp/
