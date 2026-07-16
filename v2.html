@@ -585,19 +585,18 @@
   function cMode(i){cState.mode=i;renderCard();}
 
   /* ============ 릴스 TAB ============ */
-  let reelPicked=false;
+  let reelPicked=false, RVIDEO=null, RSTAGED=null;
   function renderReel(){
     $('view').innerHTML=`
     <div class="view">
       <aside class="side">
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">영상 올리기</span><span class="sd">MP4</span></div>
-          <div class="drop ${reelPicked?'has':''}" id="drop" onclick="pickReel()">
+          <div class="drop ${reelPicked?'has':''}" onclick="document.getElementById('rfile').click()">
             <div class="big">${reelPicked?'✅':'🎬'}</div>
             <div class="t1">${reelPicked?'영상 선택됨':'영상 파일 고르기'}</div>
-            <div class="t2">${reelPicked?'legend_shorts_0716.mp4 · 00:16 · 12MB':'클릭하거나 MP4를 여기로 드래그'}</div>
+            <div class="t2" id="rname">클릭해서 MP4 선택</div>
           </div>
-          ${reelPicked?'<div class="vidmeta"><span class="ic">🎞</span><div><b>legend_shorts_0716.mp4</b><div class="caphint">세로 9:16 · 1080×1920 · 16초</div></div></div>':''}
-        </div>
+          <input id="rfile" type="file" accept="video/mp4,video/quicktime,video/*" style="display:none" onchange="rPick(this)"></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">올릴 계정</span></div>
           <select class="in" id="racctSel" onchange="onReelAcct()"><option value="sowho77">@sowho77 (짤공장)</option><option value="kangarooshort">@kangarooshort (카드뉴스)</option><option value="kangaroostory.jp">@kangaroostory.jp (일본 · 일본어 캡션)</option></select></div>
       </aside>
@@ -605,15 +604,57 @@
         <div class="panehead"><h2>✍️ 릴스 캡션</h2><span class="n">직접 쓰거나 AI가 영상 보고 작성</span></div>
         <textarea class="in" id="rcap" style="min-height:150px" placeholder="릴스 캡션을 쓰거나, 아래 ✨ 버튼으로 AI가 영상을 보고 계정 톤에 맞춰 써줘요 (일본 계정이면 일본어)"></textarea>
         <div style="display:flex;gap:10px;margin-top:12px">
-          <button class="btn" onclick="flash('✨ 영상 분석 후 캡션 작성 중… (데모)')">✨ 영상 보고 AI가 캡션 써주기</button>
+          <button class="btn" onclick="capReel()">✨ 영상 보고 AI가 캡션 써주기</button>
         </div>
-        <div style="display:flex;margin-top:26px;justify-content:flex-end">
+        <div id="rstatus" class="caphint" style="margin-top:12px;color:var(--gold)"></div>
+        <div style="display:flex;margin-top:18px;justify-content:flex-end">
           <button class="btn primary" onclick="togglePop(event,'reel')" style="font-size:14.5px">📤 업로드</button></div>
-        <div class="caphint" style="margin-top:16px">⚠️ '지금 업로드'는 선택한 실계정에 바로 올라갑니다. (릴스 실연결은 다음 단계)</div>
+        <div class="caphint" style="margin-top:14px">⚠️ '지금 업로드'는 선택한 실계정 릴스로 바로 올라갑니다.</div>
       </main>
     </div>`;
+    if($('rname')&&RVIDEO)$('rname').textContent='🎬 '+RVIDEO.name;
   }
-  function pickReel(){reelPicked=true;renderReel();}
+  function rPick(inp){ const f=inp.files&&inp.files[0]; RVIDEO=f||null; RSTAGED=null; reelPicked=!!f;
+    if($('rname'))$('rname').textContent=f?('🎬 '+f.name+' ('+(f.size/1048576).toFixed(1)+'MB)'):'클릭해서 MP4 선택';
+    const drop=document.querySelector('#view .drop');
+    if(drop){drop.classList.toggle('has',!!f);drop.querySelector('.big').textContent=f?'✅':'🎬';drop.querySelector('.t1').textContent=f?'영상 선택됨':'영상 파일 고르기';}
+  }
+  function setRstatus(m){if($('rstatus'))$('rstatus').textContent=m;}
+  async function capReel(){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    if(!RVIDEO&&!RSTAGED){flash('먼저 영상을 선택하세요');return;}
+    const fd=new FormData(); fd.append('code',code()); fd.append('account',$('racctSel').value);
+    fd.append('hint',($('rcap')&&$('rcap').value.trim())||'');
+    if(RSTAGED)fd.append('video_name',RSTAGED); else fd.append('video',RVIDEO);
+    setRstatus('✨ AI가 영상 보는 중… (업로드+분석 20~40초)');
+    let d; try{const r=await fetch('/api/reel/caption',{method:'POST',body:fd});d=await r.json();}catch(e){setRstatus('❌ 통신 오류');return;}
+    if(!d.ok){setRstatus('❌ '+d.error);return;}
+    reelPoll(d.job,'cap');
+  }
+  async function reelUploadNow(){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    if(!RVIDEO&&!RSTAGED){flash('먼저 영상을 선택하세요');return;}
+    const acct=$('racctSel')?$('racctSel').value:'';
+    if(!confirm('이 영상을 @'+acct+' 릴스로 지금 게시할까요?'))return;
+    const fd=new FormData(); fd.append('code',code()); fd.append('account',acct);
+    fd.append('caption',($('rcap')&&$('rcap').value.trim())||'');
+    if(RSTAGED)fd.append('video_name',RSTAGED); else fd.append('video',RVIDEO);
+    setRstatus('⬆ 영상 업로드 중… (용량 크면 좀 걸려요)');
+    let d; try{const r=await fetch('/api/reel/upload',{method:'POST',body:fd});d=await r.json();}catch(e){setRstatus('❌ 통신 오류');return;}
+    if(!d.ok){setRstatus('❌ '+d.error);return;}
+    reelPoll(d.job,'up');
+  }
+  async function reelPoll(jid,kind){
+    try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);const d=await r.json();
+      if(!d.ok){setRstatus('❌ '+d.error);return;}
+      if(d.status==='error'){setRstatus('❌ '+d.error);return;}
+      if(d.status==='done'){const res=d.result||{};
+        if(kind==='cap'){ if(res.caption&&$('rcap'))$('rcap').value=res.caption; if(res.video)RSTAGED=res.video; setRstatus('✅ AI 캡션 완성 — 확인·수정 후 업로드'); }
+        else { setRstatus('✅ 릴스 업로드 완료'); if(res.permalink)window.open(res.permalink,'_blank'); }
+        return; }
+      setRstatus((kind==='cap'?'✨ ':'📤 ')+(d.msg||'처리 중…')); setTimeout(()=>reelPoll(jid,kind),1500);
+    }catch(e){setTimeout(()=>reelPoll(jid,kind),2500);}
+  }
   function onReelAcct(){ const s=$('racctSel'), cap=$('rcap'); if(!s||!cap)return; cap.value=swapHandle(cap.value,'@'+s.value); syncSchedAcct(); }
 
   /* ============ 결과물 TAB (실데이터) ============ */
@@ -882,7 +923,7 @@
   function backToMenu(){$('popMenu').style.display='';$('sched').classList.remove('open');}
   async function uploadNow(){
     closePop();
-    if(popCtx==='reel'){ if(!reelPicked){flash('먼저 영상을 선택하세요');return;} flash('⚡ 릴스 지금 업로드 요청 — 릴스 실연결은 다음 단계'); return; }
+    if(popCtx==='reel'){ reelUploadNow(); return; }
     if(!PK)return;
     const acct=activeAccount();
     if(!confirm('지금 @'+acct+' 에 게시할까요?'))return;
