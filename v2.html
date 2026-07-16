@@ -41,7 +41,8 @@
   .tabdrop{position:relative}
   .tabdrop .caret{font-size:10px;opacity:.6;margin-left:-2px}
   .dropmenu{position:absolute;top:calc(100% + 6px);left:0;min-width:172px;background:var(--raised);border:1px solid var(--line2);border-radius:12px;padding:5px;box-shadow:var(--shadow);display:none;flex-direction:column;gap:2px;z-index:40}
-  .tabdrop:hover .dropmenu{display:flex}
+  .dropmenu::before{content:"";position:absolute;top:-8px;left:0;right:0;height:8px}  /* hover 브릿지(갭 메움) */
+  .tabdrop:hover .dropmenu,.tabdrop.open .dropmenu{display:flex}
   .dropmenu button{width:100%;justify-content:flex-start;color:var(--muted)}
   .dropmenu button:hover{background:var(--panel2);color:var(--ink)}
   .dropmenu button.on{background:color-mix(in srgb,var(--gold) 18%,transparent);color:var(--gold)}
@@ -503,6 +504,13 @@
   tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
     if(b.id==='studioBtn'){setActive(STUDIO_CUR);return;}
     if(b.dataset.t)setActive(b.dataset.t);});
+  // 제작소 드롭다운: 마우스가 탭/메뉴 위에 있으면 항상 열림(닫힘은 살짝 지연 → 갭에서 안 꺼짐)
+  (function(){const drop=$('studioDrop'); if(!drop)return; let dt;
+    const open=()=>{clearTimeout(dt);drop.classList.add('open');};
+    const close=()=>{clearTimeout(dt);dt=setTimeout(()=>drop.classList.remove('open'),280);};
+    drop.addEventListener('mouseenter',open);
+    drop.addEventListener('mouseleave',close);
+    drop.addEventListener('click',()=>{clearTimeout(dt);drop.classList.remove('open');});})();
   let CURTAB='jjal';
   function setActive(t){
     CURTAB=t;
