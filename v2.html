@@ -1214,7 +1214,7 @@
   function onReelAcct(){ const s=$('racctSel'), cap=$('rcap'); if(!s||!cap)return; cap.value=swapHandle(cap.value,'@'+s.value); syncSchedAcct(); }
 
   /* ============ 수입·수출 TAB ============ */
-  let ieMode='export', ieLangSel='ja', ieKindSel='meme', ieImgs=[], iePackSel='', ieImpMethod='capture';
+  let ieMode=localStorage.getItem('ie_mode')||'export', ieLangSel='ja', ieKindSel='meme', ieImgs=[], iePackSel='', ieImpMethod=localStorage.getItem('ie_method')||'capture';
   function renderIE(){
     $('view').innerHTML=`
     <div class="view">
@@ -1232,7 +1232,7 @@
     </div>`;
     renderIEBody();
   }
-  function ieTab(m){ieMode=m;renderIE();}
+  function ieTab(m){ieMode=m;try{localStorage.setItem('ie_mode',m);}catch(_){}renderIE();}
   function ieLang(el){ieLangSel=el.dataset.t;[...el.parentNode.children].forEach(c=>c.classList.toggle('on',c===el));}
   function ieKind(el){ieKindSel=el.dataset.k;[...el.parentNode.children].forEach(c=>c.classList.toggle('on',c===el));}
   function renderIEBody(){
@@ -1257,7 +1257,7 @@
       renderIEImport();
     }
   }
-  function ieMethod(m){ieImpMethod=m;renderIEBody();}
+  function ieMethod(m){ieImpMethod=m;try{localStorage.setItem('ie_method',m);}catch(_){}renderIEBody();}
   /* ---- 브라우저 수집(확장) → 소재 → 템플릿 → 만들기 ---- */
   let IEB={tpl:0, kind:'all', sc:null, item:null};
   function ieCollKind(k){IEB.kind=k;renderIEImport();}
@@ -1276,13 +1276,20 @@
         <div class="ib"><div style="font-size:10.5px;color:var(--faint);margin-bottom:2px">${p.kind==='reel'?'🎬':'🖼'+(p.n_img>1?p.n_img:'')} · ${cnt}</div>
           <div style="font-size:11px;line-height:1.4;height:31px;overflow:hidden;color:var(--muted)">${esch((p.caption||'').slice(0,44))}</div>
           <div class="collbtns">
-            <button class="btn primary collmk" data-src="${esch(p.shortcode)}">${p.kind==='reel'?'🎬 짤 만들기':'＋ 소재로'}</button>
+            ${p.kind==='reel'
+              ? `<button class="btn primary collmk" data-mkreel="${esch(p.shortcode)}">🎬 바로 짤 만들기</button>`
+              : `<button class="btn primary collmk" data-src="${esch(p.shortcode)}">＋ 소재로</button>`}
             <div class="collrow">
               ${p.kind==='reel'?`<a class="btn collmini" href="${esch(p.url)}" target="_blank" title="릴스 보기" style="text-decoration:none">↗</a>`:''}
               <button class="btn collmini" data-del="${esch(p.shortcode)}" title="목록에서 제거" style="flex:1">✕</button></div></div></div></div>`;
     }).join('')+'</div>';
     box.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>iePickSrc(b.dataset.src,list.find(x=>x.shortcode===b.dataset.src)));
+    box.querySelectorAll('[data-mkreel]').forEach(b=>b.onclick=()=>ieMakeReel(b.dataset.mkreel));
     box.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{await apiJson('/api/ie/insta/collected_clear',{code:code(),shortcode:b.dataset.del});ieLoadCollected();});
+  }
+  function ieMakeReel(sc){
+    if(!confirm('이 릴스로 짤을 만들까요?\n영상 다운로드 + Gemini 영상대본 분석 (1~3분)'))return;
+    startJob('/api/ie/insta/collect_make',{code:code(),shortcode:sc},'🎬 릴스 → 짤');
   }
   function iePickSrc(sc,item){
     IEB.sc=sc; IEB.item=item||null;
