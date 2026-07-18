@@ -251,6 +251,40 @@ def transcribe_video_and_outline(cfg, video_path, duration=0, hint="", log=print
     raise RuntimeError(f"릴스 대본 파싱 실패: {last_err}")
 
 
+_TRANSCRIPT_PROMPT = """이 영상의 말하는 내용(내레이션/대사)을 한국어 대본으로 받아써라.
+- 말이 없고 화면 자막만 있으면 그 자막 내용을 대본으로.
+- 타임스탬프·화자표시 없이 문단으로 자연스럽게. 군더더기(음/어/그)는 정리.
+- 원문이 외국어면 한국어로 자연스럽게 옮기되 뉘앙스·어투를 살린다.
+- 말/자막이 전혀 없으면 transcript는 빈 문자열.
+JSON만: {"transcript": "대본 전문", "lang": "ko|ja|en|zh|...", "summary": "한 줄 요지"}"""
+
+
+def transcribe_reel_text(cfg, video_path, log=print):
+    """릴스/쇼츠 영상 → 순수 대본 텍스트만. 후킹/카드 구성 없음(경량·저렴).
+    반환: {'transcript': str, 'lang': str, 'summary': str}"""
+    key = _key(cfg)
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    uri = _gemini_upload_video(key, video_path, log=log)
+    body = {"contents": [{"parts": [
+                {"file_data": {"mime_type": "video/mp4", "file_uri": uri}},
+                {"text": _TRANSCRIPT_PROMPT}]}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.3, "maxOutputTokens": 4096,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    resp = requests.post(brain.GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=180)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Gemini 오류 {resp.status_code}: {resp.text[:200]}")
+    cand = resp.json()["candidates"][0]
+    raw = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []))
+    r = brain._parse_json(raw)
+    return {"transcript": str(r.get("transcript", "")).strip(),
+            "lang": str(r.get("lang", "")).strip(),
+            "summary": str(r.get("summary", "")).strip()}
+
+
 def build_from_reel(reel_url, cfg, base_dir, caption_hint="", log=print, blur=True, clean="none"):
     """인스타 릴스 URL → 짤 완성팩. 영상 다운로드 → Gemini 영상대본 → 후킹/뒷장 렌더(유튜브 짤과 동일 품질).
     clean: 프레임에 박힌 글씨 처리 — none(블러설정 따름)/bar(상하단 바)/ai(Gemini로 완전 제거)."""

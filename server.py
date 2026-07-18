@@ -4002,6 +4002,131 @@ def _collected_load():
         return []
 
 
+def _collected_save(items):
+    try:
+        IG_COLLECTED_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _tr_safe(s):
+    s = re.sub(r"[^\w.\-가-힣]+", "_", str(s or ""), flags=re.UNICODE).strip("._-")
+    return s[:60] or "reel"
+
+
+def _tr_views(n):
+    n = int(n or 0)
+    if n >= 10000:
+        return f"{round(n / 10000)}만뷰"
+    if n >= 1000:
+        return f"{round(n / 1000)}천뷰"
+    return f"{n}뷰" if n else "조회수미상"
+
+
+def _run_transcripts_job(jid, cfg, sel):
+    """고른 릴스 여러 개 → 각 대본 추출 → 개별 TXT + 합본 TXT + ZIP. 대본은 수집항목에도 저장(학습용)."""
+    import shutil
+    import tempfile
+    from datetime import datetime
+    job = JOBS[jid]
+    outroot = BASE / "_transcripts"
+    outroot.mkdir(exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="tr_", dir=outroot))
+    try:
+        total = len(sel)
+        job.update(status="running", pct=3, msg=f"대본 {total}개 추출 준비…")
+        collected = _collected_load()
+        by_sc = {x.get("shortcode"): x for x in collected}
+        txts, ok = [], 0
+        for i, it in enumerate(sel, 1):
+            sc = (it.get("shortcode") or f"reel{i}")
+            url = it.get("url", "")
+            job["msg"] = f"{i}/{total} 대본 추출 중… {sc}"
+            job["pct"] = int(3 + (i - 1) / max(1, total) * 92)
+            text, lang, summary, err = "", "", "", ""
+            vid = work / f"{_tr_safe(sc)}.mp4"
+            try:
+                youtube.download_video(url, str(vid), cookies=youtube._reel_cookies(cfg))
+                res = youtube.transcribe_reel_text(cfg, str(vid))
+                text, lang, summary = res.get("transcript", ""), res.get("lang", ""), res.get("summary", "")
+                if text:
+                    ok += 1
+            except Exception as e:
+                err = str(e)[:120]
+            finally:
+                try:
+                    vid.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            tgt = by_sc.get(it.get("shortcode"))
+            if tgt is not None and text:
+                tgt["transcript"] = text
+                tgt["transcript_lang"] = lang
+            views = it.get("viewCount") or 0
+            head = (f"# 릴스 대본  {sc}\nURL: {url}\n조회수: {views}\n언어: {lang or '미상'}"
+                    f"\n요지: {summary or '-'}\n\n" + ("=" * 30) + "\n\n")
+            fn = f"{i:02d}_{_tr_views(views)}_{_tr_safe(sc)}.txt"
+            (work / fn).write_text(head + (text or f"(대본 없음/추출 실패: {err})") + "\n", encoding="utf-8")
+            txts.append(work / fn)
+        if any(by_sc.values()):
+            _collected_save(collected)
+        combined = work / "_합본_대본.txt"
+        combined.write_text(
+            f"# 릴스 대본 합본 · {total}개 · {datetime.now():%Y-%m-%d %H:%M}\n"
+            "# (구조·어투 학습용 참고자료. 그대로 복붙 금지)\n\n"
+            + "\n\n".join(f"----- {p.name} -----\n" + p.read_text(encoding="utf-8") for p in txts),
+            encoding="utf-8")
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+        zp = outroot / f"릴스대본_{total}개_{stamp}.zip"
+        with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(combined, combined.name)
+            for p in txts:
+                zf.write(p, f"개별대본/{p.name}")
+        job["result"] = {"zip": f"/api/ie/insta/transcripts/download/{zp.name}",
+                         "count": total, "ok": ok, "name": zp.name}
+        job.update(status="done", pct=100, msg=f"완료 — {ok}/{total}개 대본 추출")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:200])
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+@app.post("/api/ie/insta/transcripts")
+def api_ie_insta_transcripts():
+    """수집한 릴스 여러 개(shortcodes) → 대본만 추출해 ZIP. 대본은 수집항목에도 저장(재사용·학습용)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    want = [str(s).strip() for s in (data.get("shortcodes") or []) if str(s).strip()]
+    if not want:
+        return jsonify(ok=False, error="대본 뽑을 릴스를 선택하세요"), 400
+    coll = _collected_load()
+    by_sc = {x.get("shortcode"): x for x in coll}
+    sel = []
+    for sc in want[:30]:
+        it = by_sc.get(sc)
+        if it and it.get("url"):
+            sel.append(it)
+    if not sel:
+        return jsonify(ok=False, error="선택한 릴스의 URL을 찾을 수 없어요"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
+                 "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_transcripts_job, args=(jid, cfg, sel), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.get("/api/ie/insta/transcripts/download/<path:name>")
+def api_ie_insta_transcripts_download(name):
+    """추출한 대본 ZIP 다운로드."""
+    safe = Path(name).name
+    fp = (BASE / "_transcripts" / safe)
+    if not fp.exists() or fp.suffix.lower() != ".zip":
+        return jsonify(ok=False, error="파일 없음"), 404
+    return send_from_directory(str(BASE / "_transcripts"), safe, as_attachment=True)
+
+
 @app.post("/api/ie/insta/collect")
 def api_ie_insta_collect():
     """확장 → 수집 항목 수신(인증 없음, 로컬 전용). shortcode 기준 dedup·조회수 최댓값 병합."""
