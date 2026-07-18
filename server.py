@@ -4018,6 +4018,29 @@ def api_ie_insta_collect_import():
     return jsonify(ok=True, job=jid)
 
 
+def _run_reel_make_job(jid, url, cfg, hint=""):
+    """인스타 릴스 URL → 영상 대본 짤 완성팩."""
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        step = re.match(r"\[(\d)/5\]", m)
+        if step:
+            job["pct"] = {1: 10, 2: 35, 3: 60, 4: 82, 5: 92}.get(int(step.group(1)), job["pct"])
+
+    try:
+        job.update(status="running", pct=6)
+        result = youtube.build_from_reel(url, cfg, BASE, caption_hint=hint, log=log, blur=True)
+        job["result"] = _pack_payload(result)
+        job["pct"] = 100
+        job["status"] = "done"
+        job["msg"] = "완료"
+    except Exception as e:
+        job["status"] = "error"
+        job["error"] = str(e)[:220]
+
+
 @app.post("/api/ie/insta/collect_make")
 def api_ie_insta_collect_make():
     """수집한 이미지 게시물 → 이미지 내려받아 '해외→한국 현지화' 완성팩(템플릿 적용) 생성."""
@@ -4031,7 +4054,18 @@ def api_ie_insta_collect_make():
         return jsonify(ok=False, error="수집 항목을 찾을 수 없어요"), 404
     imgs = item.get("imageUrls") or []
     if not imgs:
-        return jsonify(ok=False, error="릴스(영상)는 아직 짤 자동생성 미지원 — 이미지 게시물만 가능"), 400
+        # 릴스(영상) → 영상 다운로드 + Gemini 영상대본으로 짤 (유튜브 짤 품질)
+        url = item.get("url", "")
+        if not url:
+            return jsonify(ok=False, error="릴스 URL이 없어요"), 400
+        now = time.time()
+        jid = uuid.uuid4().hex[:10]
+        JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
+                     "result": None, "error": None, "ts": now}
+        threading.Thread(target=_run_reel_make_job,
+                         args=(jid, url, cfg, (data.get("guide") or "").strip()),
+                         daemon=True).start()
+        return jsonify(ok=True, job=jid)
     import requests as _rq
     tmpdir = BASE / "_covertmp"
     tmpdir.mkdir(exist_ok=True)

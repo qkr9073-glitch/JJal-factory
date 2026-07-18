@@ -172,9 +172,190 @@ def transcribe_and_outline(cfg, url, duration=0, mock=False, log=print):
     raise RuntimeError(f"Gemini 유튜브 응답 파싱 실패: {last_err}")
 
 
+def _gemini_upload_video(key, video_path, log=print):
+    """로컬 영상 → Gemini Files API 업로드 → ACTIVE 된 file_uri 반환."""
+    with open(video_path, "rb") as f:
+        data = f.read()
+    log("      영상 Gemini 업로드 중...")
+    r = requests.post(brain._FILES_UPLOAD, params={"key": key},
+                      headers={"X-Goog-Upload-Protocol": "resumable",
+                               "X-Goog-Upload-Command": "start",
+                               "X-Goog-Upload-Header-Content-Length": str(len(data)),
+                               "X-Goog-Upload-Header-Content-Type": "video/mp4",
+                               "Content-Type": "application/json"},
+                      json={"file": {"display_name": "reel"}}, timeout=60)
+    up = r.headers.get("X-Goog-Upload-URL")
+    if not up:
+        raise RuntimeError(f"영상 업로드 시작 실패 ({r.status_code})")
+    r2 = requests.post(up, headers={"X-Goog-Upload-Offset": "0",
+                                    "X-Goog-Upload-Command": "upload, finalize"},
+                       data=data, timeout=300)
+    fobj = r2.json().get("file", {}) if r2.headers.get("content-type", "").startswith("application/json") else {}
+    name, uri, state = fobj.get("name"), fobj.get("uri"), fobj.get("state")
+    if not name:
+        raise RuntimeError(f"영상 업로드 실패: {r2.text[:150]}")
+    t0 = time.time()
+    while state != "ACTIVE" and time.time() - t0 < 120:
+        time.sleep(2)
+        j = requests.get(f"{brain._FILES_BASE}/{name}", params={"key": key}, timeout=30).json()
+        state = j.get("state")
+        uri = j.get("uri", uri)
+        if state == "FAILED":
+            raise RuntimeError("영상 처리 실패(FAILED)")
+    if state != "ACTIVE":
+        raise RuntimeError("영상 처리 시간 초과")
+    return uri
+
+
+def transcribe_video_and_outline(cfg, video_path, duration=0, hint="", log=print):
+    """로컬 릴스 영상 → Gemini(File API)로 대본+뒷장 구성안 (youtube와 동일 JSON 구조)."""
+    key = _key(cfg)
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    uri = _gemini_upload_video(key, video_path, log=log)
+    prompt = _YT_PROMPT.format(dur=duration or "끝")
+    if str(hint).strip():
+        prompt = f"[운영자 방향 — 최우선 반영]: {str(hint).strip()}\n\n" + prompt
+    body = {"contents": [{"parts": [
+                {"file_data": {"mime_type": "video/mp4", "file_uri": uri}},
+                {"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.9, "maxOutputTokens": 8192,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    last_err = None
+    for _ in range(2):
+        resp = requests.post(brain.GEMINI_URL.format(model=model), params={"key": key},
+                             json=body, timeout=180)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Gemini 오류 {resp.status_code}: {resp.text[:200]}")
+        try:
+            cand = resp.json()["candidates"][0]
+            raw = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []))
+            r = brain._parse_json(raw)
+            r.setdefault("skip", False)
+            r.setdefault("hooks", [])
+            r.setdefault("cards", [])
+            r.setdefault("caption", "")
+            cards = []
+            for c in r.get("cards") or []:
+                try:
+                    t = float(c.get("t", 0))
+                except Exception:
+                    t = 0.0
+                cards.append({"text": str(c.get("text", "")).strip(), "t": t})
+            r["cards"] = [c for c in cards if c["text"]] or cards
+            return r
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"릴스 대본 파싱 실패: {last_err}")
+
+
+def build_from_reel(reel_url, cfg, base_dir, caption_hint="", log=print, blur=True):
+    """인스타 릴스 URL → 짤 완성팩. 영상 다운로드 → Gemini 영상대본 → 후킹/뒷장 렌더(유튜브 짤과 동일 품질)."""
+    import json as _json
+    import shutil
+    import tempfile
+    from datetime import datetime
+    root = Path(base_dir) / cfg.get("output_dir", "결과물")
+    root.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="reel_", dir=root))
+    try:
+        log(f"[1/5] 릴스 메타 조회... {reel_url}")
+        try:
+            my = fetch_meta(reel_url)
+        except Exception:
+            my = {"title": "", "duration": 0, "uploader": "", "thumbnail": "",
+                  "webpage_url": reel_url, "id": ""}
+
+        log("[2/5] 릴스 영상 다운로드...")
+        vid = work / "reel.mp4"
+        download_video(reel_url, str(vid), log=log, cookies=_reel_cookies(cfg))
+
+        log("[3/5] Gemini 영상 대본·뒷장 구성안...")
+        outline = transcribe_video_and_outline(cfg, str(vid), duration=my.get("duration", 0),
+                                               hint=caption_hint, log=log)
+        hooks = [h for h in (outline.get("hooks") or [])
+                 if h.get("line1") or h.get("line2")][:3] or [{"line1": (my.get("title") or "릴스")[:13], "line2": ""}]
+        cards = outline.get("cards") or []
+
+        log("[4/5] 프레임 추출 + 자막 블러...")
+        try:
+            pool = extract_frame_pool(str(vid), str(work / "pool"), log=log)
+            assign_frames(cards, pool)
+            if blur:
+                clean_card_frames(cfg, cards, str(work / "clean"), log=log)
+        except Exception as e:
+            log(f"      프레임 실패 → 템플릿 배경 폴백: {e}")
+        finally:
+            try:
+                vid.unlink()
+            except Exception:
+                pass
+
+        log("[5/5] 렌더 + 패키징...")
+        bg = None
+        if cards:
+            bg = cards[0].get("frame_clean") or cards[0].get("frame")
+        thumb_paths = []
+        for i, h in enumerate(hooks):
+            tp = work / ("thumb.jpg" if i == 0 else f"thumb{i + 1}.jpg")
+            render_youtube_thumb(bg, h.get("line1", ""), h.get("line2", ""),
+                                 cfg.get("watermark", ""), str(tp))
+            thumb_paths.append(tp)
+        card_paths = []
+        for i, c in enumerate(cards, 1):
+            cp = work / f"card{i:02d}.jpg"
+            render_back_card(c.get("frame_clean") or c.get("frame"),
+                             c.get("text", ""), cfg.get("watermark", ""), str(cp), cfg)
+            card_paths.append(str(cp))
+
+        caption_full = (outline.get("caption") or "").strip()
+        if cfg.get("hashtags"):
+            caption_full += "\n\n" + cfg["hashtags"]
+        if cfg.get("signature"):
+            caption_full += "\n\n" + cfg["signature"]
+        meta = {
+            "title": my.get("title") or hooks[0]["line1"],
+            "site": "인스타 릴스", "url": my.get("webpage_url", reel_url),
+            "template": "reel", "source": "foreign",   # 수입(해외→한국) 분류
+            "hooks": hooks,
+            "skip": bool(outline.get("skip")), "skip_reason": outline.get("skip_reason", ""),
+            "created": datetime.now().isoformat(timespec="seconds"),
+        }
+        pack = packer.build_pack(root, meta, card_paths, thumb_paths, caption_full)
+        source = {"source": "reel", "url": my.get("webpage_url", reel_url),
+                  "hooks": hooks, "caption": outline.get("caption", ""),
+                  "cards": [{"text": c.get("text", ""), "t": c.get("t", 0)} for c in cards]}
+        (Path(pack) / "source.json").write_text(
+            _json.dumps(source, ensure_ascii=False, indent=2), encoding="utf-8")
+        for i, c in enumerate(cards, 1):
+            fr = c.get("frame_clean") or c.get("frame")
+            if fr and Path(fr).exists():
+                try:
+                    shutil.copy(str(fr), str(Path(pack) / f"frame{i:02d}.jpg"))
+                except Exception:
+                    pass
+        return {"pack": pack, "meta": meta, "caption": caption_full,
+                "num_images": len(card_paths), "num_thumbs": len(thumb_paths)}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 # ─────────────────────────── 3) 비디오-온리 다운로드 ───────────────────────────
-def download_video(url, dest, max_height=1080, log=print):
-    """오디오/병합 없이 비디오 스트림만 다운로드. 프레임 추출 전용."""
+def _reel_cookies(cfg):
+    """IG 릴스 다운로드용 yt-dlp 쿠키 옵션. config: ig_reel_cookies_file 또는 ig_reel_cookies_browser(chrome 등)."""
+    cf = (cfg.get("ig_reel_cookies_file") or "").strip()
+    if cf and os.path.exists(cf):
+        return {"cookiefile": cf}
+    br = (cfg.get("ig_reel_cookies_browser") or "").strip()
+    if br:
+        return {"cookies_from_browser": br}
+    return {}
+
+
+def download_video(url, dest, max_height=1080, log=print, cookies=None):
+    """오디오/병합 없이 비디오 스트림만 다운로드. 프레임 추출 전용. cookies=IG 다운로드용 옵션."""
     if yt_dlp is None:
         raise RuntimeError("yt-dlp 가 설치되지 않았습니다")
     os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
@@ -184,6 +365,11 @@ def download_video(url, dest, max_height=1080, log=print):
         "outtmpl": dest, "overwrites": True,
         "retries": 3, "fragment_retries": 3,
     }
+    if cookies:
+        if cookies.get("cookiefile"):
+            opts["cookiefile"] = cookies["cookiefile"]
+        elif cookies.get("cookies_from_browser"):
+            opts["cookiesfrombrowser"] = (cookies["cookies_from_browser"],)
     t0 = time.time()
     with yt_dlp.YoutubeDL(opts) as y:
         y.download([url])
