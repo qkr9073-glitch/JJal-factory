@@ -395,7 +395,7 @@
         <div class="dropmenu">
           <button type="button" data-t="jjal">🖼 <span>짤</span></button>
           <button type="button" data-t="card">🗂 <span>카드뉴스</span></button>
-          <button type="button" data-t="reel">🎬 <span>릴스</span></button>
+          <button type="button" data-t="reel">🎬 <span>릴스 예약</span></button>
         </div>
       </div>
       <button type="button" data-t="ie">🔄 <span>수입·수출</span></button>
@@ -518,7 +518,7 @@
   /* ============ TAB ROUTER (제작소 드롭다운 통합) ============ */
   const tabsEl=$('tabs');
   const STUDIO=['jjal','card','reel'];
-  const STUDIO_LABEL={jjal:'짤',card:'카드뉴스',reel:'릴스'};
+  const STUDIO_LABEL={jjal:'짤',card:'카드뉴스',reel:'릴스 예약'};
   let STUDIO_CUR='jjal';
   tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
     if(b.id==='studioBtn'){setActive(STUDIO_CUR);return;}
