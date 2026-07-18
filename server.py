@@ -4105,7 +4105,7 @@ def api_ie_insta_collect_import():
     return jsonify(ok=True, job=jid)
 
 
-def _run_reel_make_job(jid, url, cfg, hint="", blur=True):
+def _run_reel_make_job(jid, url, cfg, hint="", blur=True, clean="none"):
     """인스타 릴스 URL → 영상 대본 짤 완성팩."""
     job = JOBS[jid]
 
@@ -4118,7 +4118,8 @@ def _run_reel_make_job(jid, url, cfg, hint="", blur=True):
 
     try:
         job.update(status="running", pct=6)
-        result = youtube.build_from_reel(url, cfg, BASE, caption_hint=hint, log=log, blur=blur)
+        result = youtube.build_from_reel(url, cfg, BASE, caption_hint=hint, log=log,
+                                         blur=blur, clean=clean)
         job["result"] = _pack_payload(result)
         job["pct"] = 100
         job["status"] = "done"
@@ -4152,7 +4153,7 @@ def api_ie_insta_collect_make():
         JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
                      "result": None, "error": None, "ts": now}
         threading.Thread(target=_run_reel_make_job,
-                         args=(jid, url, cfg, guide, blur), daemon=True).start()
+                         args=(jid, url, cfg, guide, blur, _clean(data)), daemon=True).start()
         return jsonify(ok=True, job=jid)
     import requests as _rq
     tmpdir = BASE / "_covertmp"

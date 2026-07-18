@@ -1339,9 +1339,9 @@
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">옵션</span><span class="sd">이미지=템플릿</span></div>
           <label class="fld">🎨 템플릿 <span style="color:var(--faint);font-weight:400">(이미지 게시물에만 적용)</span></label>
           <div class="tpl" id="ietpl">${TPLS.map((t,i)=>`<div class="t ${i===IEB.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}"><img src="/memeprev/${t[2]}" loading="lazy" onerror="this.remove()"></div><div class="nm">${t[1]}</div></div>`).join('')}</div>
-          <label class="ck" style="margin-top:12px"><input type="checkbox" id="ie_blur" checked> <span>🌫 <b>자막 블러</b> <span style="color:var(--faint);font-weight:400">— 릴스 자막 가리기. 자막 많거나 살릴 땐 끄기</span></span></label>
-          <label class="fld" style="margin-top:11px">🧹 짤에 박힌 글씨 <span style="color:var(--faint);font-weight:400">(이미지)</span></label>
-          <select class="in" id="ie_clean"><option value="none">그대로 두기</option><option value="bar">하단/상단 바 가리기</option><option value="ai">AI로 제거</option></select>
+          <label class="ck" style="margin-top:12px"><input type="checkbox" id="ie_blur" checked> <span>🌫 <b>자막 블러</b> <span style="color:var(--faint);font-weight:400">— 릴스 자막 가리기(무료·빠름). 아래 'AI로 제거'를 고르면 블러 대신 완전 제거</span></span></label>
+          <label class="fld" style="margin-top:11px">🧹 짤에 박힌 글씨 <span style="color:var(--faint);font-weight:400">(릴스·이미지 공통)</span></label>
+          <select class="in" id="ie_clean"><option value="none">그대로 두기 (블러 설정 따름)</option><option value="bar">하단/상단 바로 가리기 (0원)</option><option value="ai">AI로 완전 제거 (장당 약 55원)</option></select>
           <label class="fld" style="margin-top:11px">🧭 방향 힌트 (선택)</label>
           <input class="in" id="ie_guide" placeholder="예: 반전 강조, 댓글 반응 위주"></div>
         <button class="go" onclick="ieBrowserMake()">🇰🇷 이 소재로 한국판 짤 만들기</button>`;

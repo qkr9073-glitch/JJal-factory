@@ -18,7 +18,7 @@ from pathlib import Path
 
 import requests
 
-from . import brain, packer, thumbnail  # GEMINI_URL/_parse_json + 렌더/패킹 재사용
+from . import brain, cleanup, packer, thumbnail  # GEMINI_URL/_parse_json + 렌더/패킹 재사용
 
 _ASSETS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 CARD_W, CARD_H = 1080, 1350
@@ -251,8 +251,9 @@ def transcribe_video_and_outline(cfg, video_path, duration=0, hint="", log=print
     raise RuntimeError(f"릴스 대본 파싱 실패: {last_err}")
 
 
-def build_from_reel(reel_url, cfg, base_dir, caption_hint="", log=print, blur=True):
-    """인스타 릴스 URL → 짤 완성팩. 영상 다운로드 → Gemini 영상대본 → 후킹/뒷장 렌더(유튜브 짤과 동일 품질)."""
+def build_from_reel(reel_url, cfg, base_dir, caption_hint="", log=print, blur=True, clean="none"):
+    """인스타 릴스 URL → 짤 완성팩. 영상 다운로드 → Gemini 영상대본 → 후킹/뒷장 렌더(유튜브 짤과 동일 품질).
+    clean: 프레임에 박힌 글씨 처리 — none(블러설정 따름)/bar(상하단 바)/ai(Gemini로 완전 제거)."""
     import json as _json
     import shutil
     import tempfile
@@ -279,11 +280,13 @@ def build_from_reel(reel_url, cfg, base_dir, caption_hint="", log=print, blur=Tr
                  if h.get("line1") or h.get("line2")][:3] or [{"line1": (my.get("title") or "릴스")[:13], "line2": ""}]
         cards = outline.get("cards") or []
 
-        log("[4/5] 프레임 추출 + 자막 블러...")
+        log("[4/5] 프레임 추출 + 박힌 글씨 처리...")
         try:
             pool = extract_frame_pool(str(vid), str(work / "pool"), log=log)
             assign_frames(cards, pool)
-            if blur:
+            if clean in ("ai", "bar"):
+                clean_card_frames_edit(cfg, cards, str(work / "clean"), mode=clean, log=log)
+            elif blur:
                 clean_card_frames(cfg, cards, str(work / "clean"), log=log)
         except Exception as e:
             log(f"      프레임 실패 → 템플릿 배경 폴백: {e}")
@@ -354,14 +357,16 @@ def _reel_cookies(cfg):
     return {}
 
 
-def download_video(url, dest, max_height=1080, log=print, cookies=None):
-    """오디오/병합 없이 비디오 스트림만 다운로드. 프레임 추출 전용. cookies=IG 다운로드용 옵션."""
+def download_video(url, dest, max_height=1920, log=print, cookies=None):
+    """오디오/병합 없이 비디오 스트림만 다운로드. 프레임 추출 전용. cookies=IG 다운로드용 옵션.
+    ⚠️ 세로 릴스(예: 1080×1920)는 '높이'가 긴 변이라 height 상한을 1920로 둬야 풀해상도 스트림이 잡힌다.
+       (1080으로 두면 608×1080 저해상도만 받아져 카드 확대 시 화질이 깨진다.)"""
     if yt_dlp is None:
         raise RuntimeError("yt-dlp 가 설치되지 않았습니다")
     os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
     opts = {
         "quiet": True, "no_warnings": True,
-        "format": f"bv*[height<={max_height}]/b[height<={max_height}]/best",
+        "format": f"bv*[height<={max_height}]/b[height<={max_height}]/bv*/b/best",
         "outtmpl": dest, "overwrites": True,
         "retries": 3, "fragment_retries": 3,
     }
@@ -397,16 +402,21 @@ def _brightness(path):
     return sum(d) / len(d)
 
 
-def extract_frame_pool(video, out_dir, interval=0.7, target_h=1350,
+def extract_frame_pool(video, out_dir, interval=0.7, target_h=1920,
                        min_sharp=60, min_bright=28, max_bright=250, log=print):
-    """interval초마다 프레임 추출 → 선명도/밝기 필터 → [{path, t, sharp}] 정렬(선명 우선)."""
+    """interval초마다 프레임 추출 → 선명도/밝기 필터 → [{path, t, sharp}] 정렬(선명 우선).
+    target_h 는 프레임 세로 목표(카드 1080×1350을 확대 없이 채우려면 세로 릴스 기준 ≥1920 필요).
+    원본보다 크게는 안 키운다(min(ih,target_h))."""
     os.makedirs(out_dir, exist_ok=True)
     for f in glob.glob(os.path.join(out_dir, "pool_*.jpg")):
         os.remove(f)
     pat = os.path.join(out_dir, "pool_%03d.jpg")
     t0 = time.time()
-    cmd = [FFMPEG, "-y", "-i", video, "-vf", f"fps=1/{interval},scale=-2:{target_h}",
-           "-q:v", "3", pat]
+    # scale=-2:min(ih,target_h) — 원본이 작으면 그대로, 크면 target_h로 축소(불필요 업스케일 방지).
+    # 필터그래프 안 min()의 쉼표는 \, 로 이스케이프(따옴표와 혼용 금지).
+    cmd = [FFMPEG, "-y", "-i", video, "-vf",
+           f"fps=1/{interval},scale=-2:min(ih\\,{target_h})",
+           "-q:v", "2", pat]
     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     raw = sorted(glob.glob(os.path.join(out_dir, "pool_*.jpg")))
     if not raw:
@@ -555,6 +565,46 @@ def clean_card_frames(cfg, cards, out_dir, log=print):
         c["text_boxes"] = [c["cap_region"]] if c.get("cap_region") else []
         c["frame_clean"] = dest
         c.pop("_cap", None)
+    return cards
+
+
+def clean_card_frames_edit(cfg, cards, out_dir, mode="ai", log=print):
+    """카드 프레임에 박힌 글씨를 AI로 완전 제거(mode='ai') 또는 상/하단 바로 가리기(mode='bar').
+    풀 원본은 건드리지 않도록 clean 폴더에 복사본을 만든 뒤 그 복사본을 편집한다.
+    감지→해당 프레임만 처리, 실패 시 원본 유지(작업 중단 없음)."""
+    from PIL import Image
+    os.makedirs(out_dir, exist_ok=True)
+    done = paid = 0
+    for i, c in enumerate(cards):
+        fr = c.get("frame")
+        if not fr:
+            continue
+        dest = os.path.join(out_dir, f"clean_{i:02d}.jpg")
+        try:
+            Image.open(fr).convert("RGB").save(dest, "JPEG", quality=95)
+        except Exception:
+            continue
+        c["frame_clean"] = dest
+        c["text_boxes"] = []
+        info = cleanup.detect_text(cfg, dest)
+        if not info.get("text"):
+            continue
+        try:
+            if mode == "ai":
+                cleanup.remove_text_ai(cfg, dest)
+                paid += 1
+                done += 1
+            else:  # bar
+                if cleanup.cover_bar(dest, info.get("where", "bottom")):
+                    done += 1
+                else:
+                    log(f"      (카드{i + 1} 글씨가 가운데라 바로는 못 가림 — AI 제거 권장)")
+        except Exception as e:
+            log(f"      (카드{i + 1} 글씨 제거 실패 — 원본 유지: {str(e)[:60]})")
+    if mode == "ai":
+        log(f"      🧹 AI 글씨제거: {done}장 처리 (약 {paid * cleanup.COST_PER_IMAGE_KRW}원)")
+    else:
+        log(f"      🧹 바 가리기: {done}장 처리")
     return cards
 
 
