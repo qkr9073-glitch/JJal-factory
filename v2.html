@@ -662,10 +662,11 @@
       <main class="mainpane">
         <div id="jjobs"></div>
         <div id="jresult"></div>
-        <div class="panehead"><h2>🔥 이슈</h2><span class="n">유튜브 · 커뮤니티에서 소재 고르기</span></div>
+        <div class="panehead"><h2>🔥 이슈</h2><span class="n">유튜브 · 커뮤니티 · 인스타에서 소재 고르기</span></div>
         <div class="chips" style="margin-bottom:14px">
-          <span class="chip ${jState.issue==='youtube'?'on':''}" onclick="issueTab('youtube')">▶️ 유튜브</span>
-          <span class="chip ${jState.issue==='community'?'on':''}" onclick="issueTab('community')">🗨 커뮤니티</span></div>
+          <span class="chip ${jState.issue==='youtube'?'on':''}" data-issue="youtube" onclick="issueTab('youtube')">▶️ 유튜브</span>
+          <span class="chip ${jState.issue==='community'?'on':''}" data-issue="community" onclick="issueTab('community')">🗨 커뮤니티</span>
+          <span class="chip ${jState.issue==='insta'?'on':''}" data-issue="insta" onclick="issueTab('insta')">📸 인스타</span></div>
         <div id="issue"></div>
       </main>
     </div>`;
@@ -674,10 +675,11 @@
     renderIssue();
   }
   function issueTab(t){jState.issue=t;
-    [...document.querySelectorAll('.mainpane .chips .chip')].forEach(c=>c.classList.toggle('on',c.textContent.includes(t==='youtube'?'유튜브':'커뮤니티')));
+    [...document.querySelectorAll('.mainpane .chips .chip[data-issue]')].forEach(c=>c.classList.toggle('on',c.dataset.issue===t));
     renderIssue();}
   function renderIssue(){
     const host=$('issue'); if(!host) return;
+    if(jState.issue==='insta'){renderInstaCollect();return;}
     if(jState.issue==='youtube'){
       host.innerHTML=`
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
@@ -1256,11 +1258,12 @@
       $('ieinfo').innerHTML='<b>수출</b> — 만든 팩을 일본어/영어로 번역·재렌더해 새 팩으로. 해외 계정 발행용.<br>· 🗂 <b>카드뉴스</b>: 번역+현지 폰트 재렌더(전자책 제외)<br>· <span class="ytplay"></span> <b>유튜브 짤</b>: source.json(대본)+프레임으로 후킹·뒷장 재렌더<br><br><span style="color:var(--faint)">커뮤 짤(스크린샷)은 이미지 속 글자를 못 바꿔 수출 미지원.</span>';
       loadIEPacks();
     } else {
+      if(ieImpMethod==='browser')ieImpMethod='capture';   // 브라우저 수집은 제작소-짤 › 📸 인스타로 이관됨
       b.innerHTML=`
         <div class="chips" style="margin-bottom:14px">
           <span class="chip ${ieImpMethod==='capture'?'on':''}" onclick="ieMethod('capture')">📎 해외 캡처</span>
-          <span class="chip ${ieImpMethod==='browser'?'on':''}" onclick="ieMethod('browser')">🧲 브라우저 수집</span>
           <span class="chip ${ieImpMethod==='insta'?'on':''}" onclick="ieMethod('insta')">📸 지정계정 크롤</span></div>
+        <div class="caphint" style="margin-bottom:10px;color:var(--faint)">🧲 <b>브라우저 수집</b>(릴스 헌터)은 <b>제작소 › 짤 › 📸 인스타</b>로 옮겼어요.</div>
         <div id="ieimpbody"></div>`;
       renderIEImport();
     }
@@ -1268,7 +1271,38 @@
   function ieMethod(m){ieImpMethod=m;try{localStorage.setItem('ie_method',m);}catch(_){}renderIEBody();}
   /* ---- 브라우저 수집(확장) → 소재 → 템플릿 → 만들기 ---- */
   let IEB={tpl:0, kind:'all', sc:null, item:null, trSel:new Set()};
-  function ieCollKind(k){IEB.kind=k;renderIEImport();}
+  function ieCollKind(k){IEB.kind=k;
+    document.querySelectorAll('#issue .chip[data-kind]').forEach(c=>c.classList.toggle('on',c.dataset.kind===k));
+    ieLoadCollected();}
+  /* 짤 탭 · 📸 인스타: 브라우저 수집 목록 + 소재→짤 + 대본 추출 (수입탭에서 이리로 이관) */
+  function renderInstaCollect(){
+    const host=$('issue'); if(!host)return;
+    host.innerHTML=`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <b style="font-size:14px">🧲 인스타 수집</b>
+        <span class="chip ${IEB.kind==='all'?'on':''}" data-kind="all" onclick="ieCollKind('all')">전체</span>
+        <span class="chip ${IEB.kind==='image'?'on':''}" data-kind="image" onclick="ieCollKind('image')">🖼 이미지</span>
+        <span class="chip ${IEB.kind==='reel'?'on':''}" data-kind="reel" onclick="ieCollKind('reel')">🎬 릴스</span>
+        <button class="btn primary" style="margin-left:auto" onclick="ieTranscriptsZip()" title="릴스 썸네일의 📝로 고른 것들의 대본을 추출">📝 대본 추출 (<span id="trcount">0</span>)</button>
+        <button class="btn" onclick="ieLoadCollected()">🔄</button>
+        <button class="btn" onclick="ieClearCollected()">🗑 비우기</button></div>
+      <div class="caphint" style="margin-bottom:12px"><b>짤공장 릴스 헌터</b> 확장으로 인스타를 둘러보면 여기에 자동으로 쌓입니다(로그인 X). <b>이미지</b>는 템플릿 골라 한국판 짤, <b>릴스</b>는 영상 대본을 뽑아 유튜브 짤처럼 생성. 릴스 썸네일의 <b>📝</b>를 눌러 여러 개 고른 뒤 <b>대본 추출</b>로 대본만 한꺼번에 뽑을 수 있어요.</div>
+      <div id="ie_collected"><div style="color:var(--faint)">불러오는 중…</div></div>
+      <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+        <div style="font-weight:800;font-size:14px;margin-bottom:10px">🇰🇷 고른 소재로 한국판 짤 만들기</div>
+        <div id="ie_src" class="caphint" style="background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px;margin-bottom:12px">👉 위 목록에서 <b>＋ 소재로</b>를 누르세요</div>
+        <label class="fld">🎨 템플릿 <span style="color:var(--faint);font-weight:400">(이미지 게시물에만 적용)</span></label>
+        <div class="tpl" id="ietpl">${TPLS.map((t,i)=>`<div class="t ${i===IEB.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}"><img src="/memeprev/${t[2]}" loading="lazy" onerror="this.remove()"></div><div class="nm">${t[1]}</div></div>`).join('')}</div>
+        <label class="ck" style="margin-top:12px"><input type="checkbox" id="ie_blur" checked> <span>🌫 <b>자막 블러</b> <span style="color:var(--faint);font-weight:400">— 릴스 자막 가리기(무료·빠름). 아래 'AI로 제거'를 고르면 블러 대신 완전 제거</span></span></label>
+        <label class="fld" style="margin-top:11px">🧹 짤에 박힌 글씨 <span style="color:var(--faint);font-weight:400">(릴스·이미지 공통)</span></label>
+        <select class="in" id="ie_clean"><option value="none">그대로 두기 (블러 설정 따름)</option><option value="bar">하단/상단 바로 가리기 (0원)</option><option value="ai">AI로 완전 제거 (장당 약 55원)</option></select>
+        <label class="fld" style="margin-top:11px">🧭 방향 힌트 (선택)</label>
+        <input class="in" id="ie_guide" placeholder="예: 반전 강조, 댓글 반응 위주">
+        <button class="go" style="margin-top:12px" onclick="ieBrowserMake()">🇰🇷 이 소재로 한국판 짤 만들기</button>
+      </div>`;
+    $('ietpl').addEventListener('click',e=>{const t=e.target.closest('.t');if(!t)return;IEB.tpl=+t.dataset.i;[...$('ietpl').children].forEach((c,i)=>c.classList.toggle('on',i===IEB.tpl));});
+    ieLoadCollected();
+  }
   async function ieLoadCollected(){
     const box=$('ie_collected'); if(!box)return;
     let d; try{d=await apiJson('/api/ie/insta/collected',{code:code(),kind:IEB.kind});}catch(e){d={ok:false,error:'통신 오류'};}
@@ -1300,8 +1334,8 @@
     const scs=[...IEB.trSel];
     if(!scs.length){flash('먼저 릴스 썸네일의 📝를 눌러 대본 뽑을 릴스를 고르세요');return;}
     if(scs.length>30){flash('한 번에 최대 30개까지');return;}
-    startJob('/api/ie/insta/transcripts',{code:code(),shortcodes:scs},`📝 릴스 대본 ${scs.length}개 → ZIP`);
-    flash(`📝 대본 ${scs.length}개 추출 시작 — 완료되면 위 작업목록에서 ZIP 다운로드`);
+    startJob('/api/ie/insta/transcripts',{code:code(),shortcodes:scs},`📝 릴스 대본 추출 ${scs.length}개`);
+    flash(`📝 대본 ${scs.length}개 추출 시작 — 완료되면 위 작업목록에서 다운로드`);
   }
   const IE_SRC_EMPTY='background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px';
   function iePickSrc(sc,item){
@@ -1327,7 +1361,7 @@
   function ieClearCollected(){
     if(!confirm('수집 목록을 전부 비울까요?'))return;
     apiJson('/api/ie/insta/collected_clear',{code:code()}).then(()=>{IEB.sc=null;IEB.item=null;ieLoadCollected();
-      if($('ie_src')){$('ie_src').innerHTML='👉 오른쪽 수집 목록에서 <b>＋ 소재로</b>를 누르세요';$('ie_src').style.cssText=IE_SRC_EMPTY;}});
+      if($('ie_src')){$('ie_src').innerHTML='👉 위 목록에서 <b>＋ 소재로</b>를 누르세요';$('ie_src').style.cssText=IE_SRC_EMPTY;}});
   }
   function ieBrowserMake(){
     if(!IEB.sc){flash('먼저 소재를 고르세요 (＋ 소재로)');return;}
@@ -1350,31 +1384,6 @@
           <textarea class="in" id="iecap" style="min-height:70px;margin-top:8px" placeholder="캡션 원문(선택) — 있으면 더 정확"></textarea></div>
         <button class="go" onclick="ieImport()">🇰🇷 한국판으로 변환 (1~4분)</button>`;
       $('ieinfo').innerHTML='<b>수입 · 해외 캡처</b> — 해외에서 터진 게시물 <b>캡처</b>를 올리면 AI가 소재만 뽑아 <b>한국 타깃 새 짤/카드</b>로 만듭니다. 인스타 크롤 안 함(계정 안전).';
-    } else if(ieImpMethod==='browser'){
-      b.innerHTML=`
-        <div class="step"><div class="sh"><span class="num">1</span><span class="st">소재 고르기</span><span class="sd">오른쪽 목록</span></div>
-          <div id="ie_src" class="caphint" style="background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px">👉 오른쪽 수집 목록에서 <b>＋ 소재로</b>를 누르세요</div></div>
-        <div class="step"><div class="sh"><span class="num">2</span><span class="st">옵션</span><span class="sd">이미지=템플릿</span></div>
-          <label class="fld">🎨 템플릿 <span style="color:var(--faint);font-weight:400">(이미지 게시물에만 적용)</span></label>
-          <div class="tpl" id="ietpl">${TPLS.map((t,i)=>`<div class="t ${i===IEB.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}"><img src="/memeprev/${t[2]}" loading="lazy" onerror="this.remove()"></div><div class="nm">${t[1]}</div></div>`).join('')}</div>
-          <label class="ck" style="margin-top:12px"><input type="checkbox" id="ie_blur" checked> <span>🌫 <b>자막 블러</b> <span style="color:var(--faint);font-weight:400">— 릴스 자막 가리기(무료·빠름). 아래 'AI로 제거'를 고르면 블러 대신 완전 제거</span></span></label>
-          <label class="fld" style="margin-top:11px">🧹 짤에 박힌 글씨 <span style="color:var(--faint);font-weight:400">(릴스·이미지 공통)</span></label>
-          <select class="in" id="ie_clean"><option value="none">그대로 두기 (블러 설정 따름)</option><option value="bar">하단/상단 바로 가리기 (0원)</option><option value="ai">AI로 완전 제거 (장당 약 55원)</option></select>
-          <label class="fld" style="margin-top:11px">🧭 방향 힌트 (선택)</label>
-          <input class="in" id="ie_guide" placeholder="예: 반전 강조, 댓글 반응 위주"></div>
-        <button class="go" onclick="ieBrowserMake()">🇰🇷 이 소재로 한국판 짤 만들기</button>`;
-      $('ietpl').addEventListener('click',e=>{const t=e.target.closest('.t');if(!t)return;IEB.tpl=+t.dataset.i;[...$('ietpl').children].forEach((c,i)=>c.classList.toggle('on',i===IEB.tpl));});
-      $('ieinfo').innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-          <b style="font-size:14px">🧲 브라우저 수집 목록</b>
-          <span class="chip ${IEB.kind==='all'?'on':''}" onclick="ieCollKind('all')">전체</span>
-          <span class="chip ${IEB.kind==='image'?'on':''}" onclick="ieCollKind('image')">🖼 이미지</span>
-          <span class="chip ${IEB.kind==='reel'?'on':''}" onclick="ieCollKind('reel')">🎬 릴스</span>
-          <button class="btn primary" style="margin-left:auto" onclick="ieTranscriptsZip()" title="릴스 썸네일의 📝로 고른 것들의 대본을 ZIP으로">📝 대본 ZIP (<span id="trcount">0</span>)</button>
-          <button class="btn" onclick="ieLoadCollected()">🔄</button>
-          <button class="btn" onclick="ieClearCollected()">🗑 비우기</button></div>
-        <div class="caphint" style="margin-bottom:10px"><b>짤공장 릴스 헌터</b> 확장으로 인스타를 둘러보면 여기에 자동으로 쌓입니다(로그인 X). <b>이미지</b>는 템플릿 골라 한국판 짤, <b>릴스</b>는 영상 대본을 뽑아 유튜브 짤처럼 생성. 릴스 썸네일의 <b>📝</b>를 눌러 여러 개 고른 뒤 <b>대본 ZIP</b>으로 한꺼번에 대본만 뽑을 수 있어요.</div>
-        <div id="ie_collected"><div style="color:var(--faint)">불러오는 중…</div></div>`;
-      ieLoadCollected();
     } else {
       b.innerHTML=`
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">수집 대상 계정</span><span class="sd">부계정으로 수집</span></div>
