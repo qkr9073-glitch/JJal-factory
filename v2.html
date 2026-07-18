@@ -1276,31 +1276,32 @@
         <div class="ib"><div style="font-size:10.5px;color:var(--faint);margin-bottom:2px">${p.kind==='reel'?'🎬':'🖼'+(p.n_img>1?p.n_img:'')} · ${cnt}</div>
           <div style="font-size:11px;line-height:1.4;height:31px;overflow:hidden;color:var(--muted)">${esch((p.caption||'').slice(0,44))}</div>
           <div class="collbtns">
-            ${p.kind==='reel'
-              ? `<button class="btn primary collmk" data-mkreel="${esch(p.shortcode)}">🎬 바로 짤 만들기</button>`
-              : `<button class="btn primary collmk" data-src="${esch(p.shortcode)}">＋ 소재로</button>`}
+            <button class="btn primary collmk" data-src="${esch(p.shortcode)}">＋ 소재로</button>
             <div class="collrow">
               ${p.kind==='reel'?`<a class="btn collmini" href="${esch(p.url)}" target="_blank" title="릴스 보기" style="text-decoration:none">↗</a>`:''}
               <button class="btn collmini" data-del="${esch(p.shortcode)}" title="목록에서 제거" style="flex:1">✕</button></div></div></div></div>`;
     }).join('')+'</div>';
     box.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>iePickSrc(b.dataset.src,list.find(x=>x.shortcode===b.dataset.src)));
-    box.querySelectorAll('[data-mkreel]').forEach(b=>b.onclick=()=>ieMakeReel(b.dataset.mkreel));
     box.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{await apiJson('/api/ie/insta/collected_clear',{code:code(),shortcode:b.dataset.del});ieLoadCollected();});
   }
-  function ieMakeReel(sc){
-    if(!confirm('이 릴스로 짤을 만들까요?\n영상 다운로드 + Gemini 영상대본 분석 (1~3분)'))return;
-    startJob('/api/ie/insta/collect_make',{code:code(),shortcode:sc},'🎬 릴스 → 짤');
-  }
+  const IE_SRC_EMPTY='background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px';
   function iePickSrc(sc,item){
     IEB.sc=sc; IEB.item=item||null;
     const k=item&&item.kind;
     const desc=k==='reel'?'🎬 릴스 (영상 대본 → 짤)':('🖼 이미지 '+((item&&item.n_img)||1)+'장');
-    if($('ie_src'))$('ie_src').innerHTML='✅ '+desc+' <span style="color:var(--faint)">'+esch(((item&&item.caption)||'').slice(0,42))+'</span>';
-    flash('📎 소재 선택됨 — '+(k==='reel'?'[짤 만들기] 누르세요 (릴스는 템플릿 무관)':'템플릿 고르고 [만들기]'));
+    const el=$('ie_src');
+    if(el){
+      el.innerHTML='<div style="font-weight:800;color:var(--gold);font-size:14.5px">✅ 소재 선택됨</div>'
+        +'<div style="margin-top:4px;font-weight:800;font-size:13px">'+desc+'</div>'
+        +'<div style="margin-top:3px;color:var(--muted);font-size:12px;line-height:1.45;max-height:40px;overflow:hidden">'+esch(((item&&item.caption)||'').slice(0,60))+'</div>';
+      el.style.cssText='background:color-mix(in srgb,var(--gold) 15%,transparent);border:2px solid var(--gold);border-radius:10px;padding:12px';
+    }
+    flash('📎 소재 선택됨 — '+(k==='reel'?'아래 [만들기]를 누르세요 (릴스는 템플릿 무관)':'템플릿 고르고 [만들기]'));
   }
   function ieClearCollected(){
     if(!confirm('수집 목록을 전부 비울까요?'))return;
-    apiJson('/api/ie/insta/collected_clear',{code:code()}).then(()=>{IEB.sc=null;IEB.item=null;ieLoadCollected();if($('ie_src'))$('ie_src').innerHTML='👉 오른쪽 수집 목록에서 <b>＋소재</b>를 누르세요';});
+    apiJson('/api/ie/insta/collected_clear',{code:code()}).then(()=>{IEB.sc=null;IEB.item=null;ieLoadCollected();
+      if($('ie_src')){$('ie_src').innerHTML='👉 오른쪽 수집 목록에서 <b>＋ 소재로</b>를 누르세요';$('ie_src').style.cssText=IE_SRC_EMPTY;}});
   }
   function ieBrowserMake(){
     if(!IEB.sc){flash('먼저 소재를 고르세요 (＋소재)');return;}
@@ -1322,7 +1323,7 @@
     } else if(ieImpMethod==='browser'){
       b.innerHTML=`
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">소재 고르기</span><span class="sd">오른쪽 목록</span></div>
-          <div id="ie_src" class="caphint" style="background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px">👉 오른쪽 수집 목록에서 <b>＋소재</b>를 누르세요</div></div>
+          <div id="ie_src" class="caphint" style="background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px">👉 오른쪽 수집 목록에서 <b>＋ 소재로</b>를 누르세요</div></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">템플릿</span></div>
           <div class="tpl" id="ietpl">${TPLS.map((t,i)=>`<div class="t ${i===IEB.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}"><img src="/memeprev/${t[2]}" loading="lazy" onerror="this.remove()"></div><div class="nm">${t[1]}</div></div>`).join('')}</div></div>
         <button class="go" onclick="ieBrowserMake()">🇰🇷 이 소재로 한국판 짤 만들기</button>`;
