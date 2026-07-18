@@ -569,15 +569,23 @@ def clean_card_frames(cfg, cards, out_dir, log=print):
 
 
 def clean_card_frames_edit(cfg, cards, out_dir, mode="ai", log=print):
-    """카드 프레임에 박힌 글씨를 AI로 완전 제거(mode='ai') 또는 상/하단 바로 가리기(mode='bar').
-    풀 원본은 건드리지 않도록 clean 폴더에 복사본을 만든 뒤 그 복사본을 편집한다.
-    감지→해당 프레임만 처리, 실패 시 원본 유지(작업 중단 없음)."""
+    """카드 프레임에 박힌 글씨(자막·워터마크·로고텍스트)를 AI로 완전 제거(mode='ai') 또는
+    상/하단 바로 가리기(mode='bar'). 풀 원본은 건드리지 않도록 clean 폴더 복사본을 편집한다.
+    - AI 모드: 사용자가 유료 제거를 '명시 선택'한 것이므로 판정 게이트 없이 모든 프레임을 제거한다.
+      (게이트로 걸러 '자막 있는데 없다'고 오판되면 워터마크·자막이 남는 문제 방지.)
+      단, 같은 원본 프레임은 한 번만 호출해 재과금을 막는다.
+    - 실패/차단 시 원본 유지(작업 중단 없음)."""
     from PIL import Image
     os.makedirs(out_dir, exist_ok=True)
     done = paid = 0
+    processed = {}   # 원본 frame 경로 -> 결과 dest (동일 프레임 재호출/재과금 방지)
     for i, c in enumerate(cards):
         fr = c.get("frame")
         if not fr:
+            continue
+        c["text_boxes"] = []
+        if fr in processed:                 # 다른 카드가 같은 프레임을 쓰면 결과 재사용
+            c["frame_clean"] = processed[fr]
             continue
         dest = os.path.join(out_dir, f"clean_{i:02d}.jpg")
         try:
@@ -585,16 +593,17 @@ def clean_card_frames_edit(cfg, cards, out_dir, mode="ai", log=print):
         except Exception:
             continue
         c["frame_clean"] = dest
-        c["text_boxes"] = []
-        info = cleanup.detect_text(cfg, dest)
-        if not info.get("text"):
-            continue
+        processed[fr] = dest
         try:
             if mode == "ai":
+                # 게이트 없이 바로 제거 → 자막 + 중앙 워터마크(예: '쥬블리홈') 모두 대상
                 cleanup.remove_text_ai(cfg, dest)
                 paid += 1
                 done += 1
-            else:  # bar
+            else:  # bar — 위치가 필요하므로 감지 사용
+                info = cleanup.detect_text(cfg, dest)
+                if not info.get("text"):
+                    continue
                 if cleanup.cover_bar(dest, info.get("where", "bottom")):
                     done += 1
                 else:

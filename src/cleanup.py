@@ -26,10 +26,13 @@ COST_PER_IMAGE_KRW = 55  # $0.039 × 환율 ≒ 55원 (출력 1290토큰)
 # ⚠️ 프롬프트에 "people/person" 을 넣으면 인물 안전필터에 차단된다(실측).
 #    텍스트 제거만 담백하게 지시할 것.
 EDIT_PROMPTS = [
-    "Remove ALL text and subtitles from this image. Naturally reconstruct the "
-    "background where the text was. Keep everything else the same. Output the edited image.",
-    "Erase every letter, caption, subtitle and watermark overlay in this image, "
-    "filling those areas so they blend with the surrounding image. Output the edited image only.",
+    "Remove ALL overlaid text from this image: subtitles, captions, titles, and any "
+    "semi-transparent watermark or logo text (including a faint watermark in the center). "
+    "Naturally reconstruct the background where the text was. Keep everything else the same. "
+    "Output the edited image.",
+    "Erase every letter, caption, subtitle, and watermark overlay in this image, including "
+    "translucent center watermarks and corner logos, filling those areas so they blend "
+    "seamlessly with the surrounding image. Output the edited image only.",
 ]
 
 DETECT_PROMPT = (
