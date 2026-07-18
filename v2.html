@@ -395,7 +395,8 @@
         <div class="dropmenu">
           <button type="button" data-t="jjal">🖼 <span>짤</span></button>
           <button type="button" data-t="card">🗂 <span>카드뉴스</span></button>
-          <button type="button" data-t="reel">🎬 <span>릴스 예약</span></button>
+          <button type="button" data-t="autoreel">🎬 <span>릴스</span> <span style="font-size:10px;color:var(--gold)">NEW</span></button>
+          <button type="button" data-t="reel">🗓 <span>릴스 예약</span></button>
         </div>
       </div>
       <button type="button" data-t="ie">🔄 <span>수입·수출</span></button>
@@ -517,8 +518,8 @@
 
   /* ============ TAB ROUTER (제작소 드롭다운 통합) ============ */
   const tabsEl=$('tabs');
-  const STUDIO=['jjal','card','reel'];
-  const STUDIO_LABEL={jjal:'짤',card:'카드뉴스',reel:'릴스 예약'};
+  const STUDIO=['jjal','card','autoreel','reel'];
+  const STUDIO_LABEL={jjal:'짤',card:'카드뉴스',autoreel:'릴스',reel:'릴스 예약'};
   let STUDIO_CUR='jjal';
   tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
     if(b.id==='studioBtn'){setActive(STUDIO_CUR);return;}
@@ -541,7 +542,7 @@
     document.querySelectorAll('#tabs [data-t]').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
     route(t);
   }
-  function route(t){({jjal:renderJjal,card:renderCard,reel:renderReel,ie:renderIE,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
+  function route(t){({jjal:renderJjal,card:renderCard,autoreel:renderAutoReel,reel:renderReel,ie:renderIE,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
 
   /* ============ 공용: 접속코드 · API · 잡 폴링 ============ */
   const CODE=$('code');
@@ -638,6 +639,110 @@
     box.prepend(div);
   }
   function gotoTab(t){setActive(t);}
+
+  /* ============ 릴스(자동 쇼츠 제작) TAB ============ */
+  let arState={token:null,fname:'',pid:null};
+  function renderAutoReel(){
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">소스 영상</span><span class="sd">링크 또는 파일</span></div>
+          <input class="in" id="arurl" placeholder="🔗 유튜브 / 틱톡 / 릴스 / 빌리빌리 URL">
+          <div style="text-align:center;color:var(--faint);font-size:12px;margin:6px 0">— 또는 —</div>
+          <div class="drop ${arState.token?'has':''}" style="padding:16px" onclick="document.getElementById('arfile').click()">
+            <div class="big">${arState.token?'✅':'🎬'}</div><div class="t1" id="arfname">${arState.token?esch(arState.fname):'영상 파일 올리기 (mp4)'}</div></div>
+          <input id="arfile" type="file" accept="video/*" style="display:none" onchange="arUpload(this)"></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">대본</span><span class="sd">한 줄 = 한 장면</span></div>
+          <textarea class="in" id="arscript" style="min-height:150px" placeholder="한 줄에 한 문장(장면)씩 적으세요.&#10;예)&#10;재택 3년차가 진짜 쓰는 책상템만 모았습니다.&#10;첫째, 마우스를 노트북에 자석으로 붙이는 거.&#10;둘째, 눈높이 접이식 거치대."></textarea>
+          <div style="font-size:11px;color:var(--faint);margin-top:5px">💡 지금은 대본 직접 입력. (나중에 학습된 AI 대본생성 연결 예정)</div></div>
+        <div class="step"><div class="sh"><span class="num">3</span><span class="st">만들기</span></div>
+          <button class="go" onclick="arCreate()">🎬 자동편집 쇼츠 생성</button>
+          <div style="font-size:11px;color:var(--faint);margin-top:6px">Gemini 시각분석 → 대본매칭 → 정밀컷 → ElevenLabs 음성 → 자막 → BGM (2~4분)</div></div>
+      </aside>
+      <main class="mainpane">
+        <div id="arjobs"></div>
+        <div id="arresult"></div>
+        <div class="panehead"><h2>🎬 자동 쇼츠 제작</h2><span class="n">소스 영상 + 대본 → 자동 컷편집 완성본</span></div>
+        <div class="caphint">소스 영상에서 <b>대본에 맞는 화면 구간</b>을 AI가 골라 이어붙이고 음성·자막·BGM까지 자동으로 얹습니다. 마음에 안 드는 컷은 <b>🔄 리롤</b>로 그 장면만 교체하세요.</div>
+      </main>
+    </div>`;
+    if(arState.pid){/* 이전 결과 유지 안함(간단히) */}
+  }
+  async function arUpload(input){
+    const f=input.files&&input.files[0]; if(!f)return;
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    flash('⏳ 영상 업로드 중…');
+    const fd=new FormData(); fd.append('code',code()); fd.append('file',f);
+    try{const r=await fetch('/api/autoshorts/upload',{method:'POST',body:fd});const d=await r.json();
+      if(!d.ok){flash('❌ '+d.error);return;}
+      arState.token=d.token; arState.fname=f.name;
+      const el=$('arfname'); if(el)el.textContent=f.name;
+      const drop=el&&el.closest('.drop'); if(drop)drop.classList.add('has');
+      flash('✅ 영상 업로드됨 — 대본 넣고 생성하세요');
+    }catch(e){flash('❌ 업로드 실패');}
+  }
+  function arCreate(){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    const url=($('arurl')&&$('arurl').value.trim())||'';
+    const script=($('arscript')&&$('arscript').value.trim())||'';
+    if(!url && !arState.token){flash('소스 영상(링크 또는 파일)을 넣으세요');return;}
+    if(!script){flash('대본을 입력하세요 (한 줄에 한 문장)');return;}
+    startAR('/api/autoshorts/create',{code:code(),script,source_url:url,source_token:arState.token},'🎬 자동편집 쇼츠');
+  }
+  function startAR(endpoint,body,label){
+    apiJson(endpoint,body).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const box=$('arjobs'); if(!box)return;
+      let row=$('ar-'+d.job);
+      if(!row){row=document.createElement('div');row.id='ar-'+d.job;
+        row.style.cssText='background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:10px 13px;margin-bottom:10px;font-size:13px';
+        row.innerHTML=`<b>${esch(label)}</b><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:4%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span>`;
+        box.prepend(row);}
+      arPoll(d.job);
+    }).catch(e=>flash('❌ 통신 오류'));
+  }
+  async function arPoll(jid){
+    const row=$('ar-'+jid); if(!row)return;
+    const fill=row.querySelector('.jbar>div'), jm=row.querySelector('.jm');
+    let d; try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}
+    catch(e){setTimeout(()=>arPoll(jid),2500);return;}
+    if(!d.ok){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='queued'){jm.textContent='🕐 대기 중…';}
+    else{if(fill)fill.style.width=(d.pct||5)+'%';jm.textContent='⏳ '+(d.msg||'작업 중…');}
+    if(d.status==='error'){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';jm.innerHTML='✅ 완성';arResult(d.result);return;}
+    setTimeout(()=>arPoll(jid),1500);
+  }
+  function arResult(res){
+    if(!res)return; arState.pid=res.pid;
+    const box=$('arresult'); if(!box)return;
+    const v=res.video+'?t='+Date.now();
+    const beats=(res.beats||[]).map(b=>`
+      <div style="display:flex;gap:10px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:7px">
+        <img src="${b.thumb}?t=${Date.now()}" style="width:52px;height:92px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#000" onerror="this.style.visibility='hidden'">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12.5px;font-weight:700;line-height:1.4">${esch(b.text)}</div>
+          <div style="font-size:11px;color:var(--faint);margin-top:3px">${b.dur}초 · 후보 ${b.cand}/${b.cand_total}</div>
+        </div>
+        <button class="btn" ${b.cand_total>1?'':'disabled'} onclick="arReroll(${b.i})" title="이 장면을 다른 화면 구간으로 교체">🔄 리롤</button>
+      </div>`).join('');
+    box.innerHTML=`
+      <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          <video src="${v}" controls playsinline style="width:240px;max-width:100%;border-radius:10px;background:#000;flex-shrink:0"></video>
+          <div style="flex:1;min-width:220px">
+            <div style="font-weight:800;margin-bottom:8px">✅ 자동편집 완성 — 장면별 (🔄로 교체)</div>
+            ${beats}
+            <a class="btn primary" href="${v}" download="autoshorts.mp4" style="text-decoration:none;margin-top:6px;display:inline-block">⬇ 다운로드</a>
+          </div>
+        </div>
+      </div>`;
+    scrollTopPane(box);
+  }
+  function arReroll(beat){
+    if(!arState.pid){flash('프로젝트가 없어요');return;}
+    startAR('/api/autoshorts/reroll',{code:code(),pid:arState.pid,beat},`🔄 장면 ${beat+1} 리롤`);
+  }
 
   /* ============ 짤 TAB ============ */
   let jState={tpl:0,site:'전체',sort:0,issue:'community'};

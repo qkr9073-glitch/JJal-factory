@@ -20,7 +20,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import brain, hunter, insights, pipeline, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import autoshorts, brain, hunter, insights, pipeline, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
@@ -4125,6 +4125,107 @@ def api_ie_insta_transcripts_download(name):
     if not fp.exists() or fp.suffix.lower() != ".zip":
         return jsonify(ok=False, error="파일 없음"), 404
     return send_from_directory(str(BASE / "_transcripts"), safe, as_attachment=True)
+
+
+# ─────────────── 자동 쇼츠 제작 (제작소 › 릴스) ───────────────
+def _run_autoshorts_create(jid, cfg, script, url, token):
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        mt = re.match(r"\[(\d)/6\]", m)
+        if mt:
+            job["pct"] = {1: 12, 2: 40, 3: 48, 4: 58, 5: 78, 6: 92}.get(int(mt.group(1)), job["pct"])
+
+    try:
+        job.update(status="running", pct=5)
+        src_path = (BASE / "autoshorts" / "_uploads" / token) if token else None
+        res = autoshorts.create(BASE, cfg, script, source_path=src_path, source_url=url, log=log)
+        res["video"] = f"/autoshorts/{res['pid']}/final.mp4"
+        job["result"] = res
+        job.update(status="done", pct=100, msg="완료")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+def _run_autoshorts_reroll(jid, cfg, pid, beat):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=20, msg=f"비트 {beat+1} 다른 구간으로 교체 중…")
+        res = autoshorts.reroll(BASE, cfg, pid, beat)
+        res["video"] = f"/autoshorts/{pid}/final.mp4"
+        job["result"] = res
+        job.update(status="done", pct=100, msg="완료")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/autoshorts/upload")
+def api_autoshorts_upload():
+    """소스 영상 파일 업로드 → 토큰 반환(create에서 source_token으로 사용)."""
+    cfg = load_config()
+    if not _check_code(cfg, request.form.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    f = request.files.get("file")
+    if not f:
+        return jsonify(ok=False, error="파일이 없습니다"), 400
+    updir = BASE / "autoshorts" / "_uploads"
+    updir.mkdir(parents=True, exist_ok=True)
+    token = uuid.uuid4().hex[:12] + ".mp4"
+    f.save(str(updir / token))
+    return jsonify(ok=True, token=token)
+
+
+@app.post("/api/autoshorts/create")
+def api_autoshorts_create():
+    """소스(링크/업로드) + 대본 → 자동편집 쇼츠 생성(백그라운드)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    script = (data.get("script") or "").strip()
+    url = (data.get("source_url") or "").strip() or None
+    token = (data.get("source_token") or "").strip() or None
+    if not script:
+        return jsonify(ok=False, error="대본을 입력하세요 (한 줄에 한 문장)"), 400
+    if not url and not token:
+        return jsonify(ok=False, error="소스 영상(링크 또는 파일)을 넣으세요"), 400
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_autoshorts_create, args=(jid, cfg, script, url, token), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/autoshorts/reroll")
+def api_autoshorts_reroll():
+    """특정 비트만 다른 후보 구간으로 교체 후 재조립."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    try:
+        beat = int(data.get("beat"))
+    except Exception:
+        return jsonify(ok=False, error="비트 번호 오류"), 400
+    if not pid or not (BASE / "autoshorts" / pid / "state.json").exists():
+        return jsonify(ok=False, error="프로젝트를 찾을 수 없어요"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_autoshorts_reroll, args=(jid, cfg, pid, beat), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.get("/autoshorts/<pid>/<path:fn>")
+def api_autoshorts_file(pid, fn):
+    """완성 영상·썸네일 서빙."""
+    safe_pid = Path(pid).name
+    safe_fn = Path(fn).name
+    d = BASE / "autoshorts" / safe_pid
+    if not (d / safe_fn).exists():
+        return jsonify(ok=False, error="파일 없음"), 404
+    return send_from_directory(str(d), safe_fn)
 
 
 @app.post("/api/ie/insta/collect")
