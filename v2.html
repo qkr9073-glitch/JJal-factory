@@ -115,6 +115,7 @@
   .collmk{width:100%;font-size:11.5px;font-weight:800;padding:7px 4px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
   .collrow{display:flex;gap:4px}
   .collmini{padding:5px 6px;font-size:12px;min-width:30px;text-align:center;line-height:1.2}
+  .collsel{background:color-mix(in srgb,var(--gold) 20%,transparent)!important;color:var(--gold)!important;border:1px solid var(--gold)!important}
   /* 릴스 대량 예약 */
   .bvid{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel);margin-bottom:6px;font-size:12.5px;cursor:grab}
   .bvid.drag{opacity:.4}
@@ -1276,7 +1277,7 @@
         <div class="ib"><div style="font-size:10.5px;color:var(--faint);margin-bottom:2px">${p.kind==='reel'?'🎬':'🖼'+(p.n_img>1?p.n_img:'')} · ${cnt}</div>
           <div style="font-size:11px;line-height:1.4;height:31px;overflow:hidden;color:var(--muted)">${esch((p.caption||'').slice(0,44))}</div>
           <div class="collbtns">
-            <button class="btn primary collmk" data-src="${esch(p.shortcode)}">＋ 소재로</button>
+            <button class="btn ${p.shortcode===IEB.sc?'collsel':'primary'} collmk" data-src="${esch(p.shortcode)}">${p.shortcode===IEB.sc?'✅ 선택됨':'＋ 소재로'}</button>
             <div class="collrow">
               ${p.kind==='reel'?`<a class="btn collmini" href="${esch(p.url)}" target="_blank" title="릴스 보기" style="text-decoration:none">↗</a>`:''}
               <button class="btn collmini" data-del="${esch(p.shortcode)}" title="목록에서 제거" style="flex:1">✕</button></div></div></div></div>`;
@@ -1287,6 +1288,13 @@
   const IE_SRC_EMPTY='background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px';
   function iePickSrc(sc,item){
     IEB.sc=sc; IEB.item=item||null;
+    // 카드 버튼: 선택된 것만 '✅ 선택됨'으로
+    document.querySelectorAll('#ie_collected [data-src]').forEach(b=>{
+      const on=b.dataset.src===sc;
+      b.textContent=on?'✅ 선택됨':'＋ 소재로';
+      b.classList.toggle('primary',!on);
+      b.classList.toggle('collsel',on);
+    });
     const k=item&&item.kind;
     const desc=k==='reel'?'🎬 릴스 (영상 대본 → 짤)':('🖼 이미지 '+((item&&item.n_img)||1)+'장');
     const el=$('ie_src');
