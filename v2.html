@@ -529,6 +529,7 @@
   let CURTAB='jjal';
   function setActive(t){
     CURTAB=t;
+    try{localStorage.setItem('mftab',t);}catch(_){}   // 새로고침 시 마지막 탭 복원용
     if(STUDIO.includes(t))STUDIO_CUR=t;
     $('studioBtn').classList.toggle('on',STUDIO.includes(t));
     const lab=$('studioBtn').querySelector('span');
@@ -2159,7 +2160,13 @@
     const cur=r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
     r.setAttribute('data-theme',cur==='dark'?'light':'dark');}
 
-  renderJjal();
-  refreshMe();
+  // 마지막으로 보던 탭 복원(없으면 짤). 관리자 탭은 관리자일 때만.
+  const VALID_TABS=['jjal','card','reel','ie','sched','result','members'];
+  refreshMe().then(()=>{
+    let t=localStorage.getItem('mftab')||'jjal';
+    if(!VALID_TABS.includes(t)) t='jjal';
+    if(t==='members'&&!isAdmin()) t='jjal';
+    setActive(t);
+  }).catch(()=>setActive('jjal'));
   loadAccounts();
 </script>
