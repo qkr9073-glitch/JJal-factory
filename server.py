@@ -3971,7 +3971,7 @@ def api_ie_insta_collected():
             "caption": (it.get("caption", "") or "")[:200],
             "viewCount": int(it.get("viewCount", 0) or 0),
             "likeCount": int(it.get("likeCount", 0) or 0),
-            "n_img": len(imgs), "thumb": imgs[0] if imgs else "",
+            "n_img": len(imgs), "thumb": imgs[0] if imgs else it.get("thumbUrl", ""),
             "collected_at": it.get("collected_at", ""),
         })
     return jsonify(ok=True, items=out[:400])

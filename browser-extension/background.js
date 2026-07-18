@@ -363,7 +363,8 @@ function compactItemForLocalApp(item) {
     commentCount: item.commentCount || 0,
     takenAt: item.takenAt || "",
     caption: item.caption || "",
-    imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls.slice(0, 12) : []
+    imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls.slice(0, 12) : [],
+    thumbUrl: item.thumbUrl || ""
   };
 }
 
@@ -453,13 +454,14 @@ function normalizeInstagramNode(node) {
   const takenAt = node.taken_at || node.taken_at_timestamp || node.device_timestamp || "";
 
   if (isVideo) {   // 릴스/영상
+    const poster = igImageUrls(node)[0] || node.thumbnail_url || node.thumbnail_src || "";
     return {
       platform: "instagram", kind: "reel",
       url: `https://www.instagram.com/reel/${shortcode}/`,
       shortcode, title: "", channel: "",
       viewCount: numberFrom(node.play_count ?? node.view_count ?? node.video_view_count ?? node.ig_play_count ?? node.playCount),
       likeCount, commentCount, takenAt,
-      caption: extractCaption(node), imageUrls: []
+      caption: extractCaption(node), imageUrls: [], thumbUrl: poster
     };
   }
 

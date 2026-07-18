@@ -102,6 +102,8 @@
   /* IE 수입 방식 · 인스타 수집 결과 */
   .igcard{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--panel)}
   .igcard img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#000}
+  .igth{position:relative;aspect-ratio:1;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:34px;color:var(--faint)}
+  .igth img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   .igcard .ib{padding:9px 10px}
   .iggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
   /* 릴스 대량 예약 */
@@ -1259,8 +1261,9 @@
     box.innerHTML='<div class="iggrid">'+list.map(p=>{
       const cnt=p.kind==='reel'?('▶ '+(p.viewCount||0).toLocaleString()):('♥ '+(p.likeCount||0).toLocaleString());
       const badge=p.kind==='reel'?'🎬 릴스':(p.n_img>1?('🖼 '+p.n_img+'장'):'🖼 이미지');
+      const icon=p.kind==='reel'?'🎬':'🖼';
       return `<div class="igcard">
-        <img src="${esch(p.thumb||'')}" loading="lazy" onerror="this.style.opacity=.2">
+        <div class="igth">${icon}${p.thumb?`<img src="${esch(p.thumb)}" loading="lazy" onerror="this.remove()">`:''}</div>
         <div class="ib"><div style="font-size:11px;color:var(--faint);margin-bottom:3px">${badge} · ${cnt}</div>
           <div style="font-size:12px;line-height:1.45;max-height:52px;overflow:hidden;color:var(--muted)">${esch((p.caption||'').slice(0,80))}</div>
           <div style="display:flex;gap:5px;margin-top:8px">
