@@ -1312,8 +1312,12 @@
       if($('ie_src')){$('ie_src').innerHTML='👉 오른쪽 수집 목록에서 <b>＋ 소재로</b>를 누르세요';$('ie_src').style.cssText=IE_SRC_EMPTY;}});
   }
   function ieBrowserMake(){
-    if(!IEB.sc){flash('먼저 소재를 고르세요 (＋소재)');return;}
-    startJob('/api/ie/insta/collect_make',{code:code(),shortcode:IEB.sc,template:TPLS[IEB.tpl][2]},'🧲 수집소재 → 짤');
+    if(!IEB.sc){flash('먼저 소재를 고르세요 (＋ 소재로)');return;}
+    startJob('/api/ie/insta/collect_make',{code:code(),shortcode:IEB.sc,
+      template:TPLS[IEB.tpl][2],
+      blur:$('ie_blur')?$('ie_blur').checked:true,
+      clean:($('ie_clean')&&$('ie_clean').value)||'none',
+      guide:($('ie_guide')&&$('ie_guide').value.trim())||''},'🧲 수집소재 → 짤');
   }
   function renderIEImport(){
     const b=$('ieimpbody'); if(!b)return;
@@ -1332,8 +1336,14 @@
       b.innerHTML=`
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">소재 고르기</span><span class="sd">오른쪽 목록</span></div>
           <div id="ie_src" class="caphint" style="background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px">👉 오른쪽 수집 목록에서 <b>＋ 소재로</b>를 누르세요</div></div>
-        <div class="step"><div class="sh"><span class="num">2</span><span class="st">템플릿</span></div>
-          <div class="tpl" id="ietpl">${TPLS.map((t,i)=>`<div class="t ${i===IEB.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}"><img src="/memeprev/${t[2]}" loading="lazy" onerror="this.remove()"></div><div class="nm">${t[1]}</div></div>`).join('')}</div></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">옵션</span><span class="sd">이미지=템플릿</span></div>
+          <label class="fld">🎨 템플릿 <span style="color:var(--faint);font-weight:400">(이미지 게시물에만 적용)</span></label>
+          <div class="tpl" id="ietpl">${TPLS.map((t,i)=>`<div class="t ${i===IEB.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}"><img src="/memeprev/${t[2]}" loading="lazy" onerror="this.remove()"></div><div class="nm">${t[1]}</div></div>`).join('')}</div>
+          <label class="ck" style="margin-top:12px"><input type="checkbox" id="ie_blur" checked> <span>🌫 <b>자막 블러</b> <span style="color:var(--faint);font-weight:400">— 릴스 자막 가리기. 자막 많거나 살릴 땐 끄기</span></span></label>
+          <label class="fld" style="margin-top:11px">🧹 짤에 박힌 글씨 <span style="color:var(--faint);font-weight:400">(이미지)</span></label>
+          <select class="in" id="ie_clean"><option value="none">그대로 두기</option><option value="bar">하단/상단 바 가리기</option><option value="ai">AI로 제거</option></select>
+          <label class="fld" style="margin-top:11px">🧭 방향 힌트 (선택)</label>
+          <input class="in" id="ie_guide" placeholder="예: 반전 강조, 댓글 반응 위주"></div>
         <button class="go" onclick="ieBrowserMake()">🇰🇷 이 소재로 한국판 짤 만들기</button>`;
       $('ietpl').addEventListener('click',e=>{const t=e.target.closest('.t');if(!t)return;IEB.tpl=+t.dataset.i;[...$('ietpl').children].forEach((c,i)=>c.classList.toggle('on',i===IEB.tpl));});
       $('ieinfo').innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">

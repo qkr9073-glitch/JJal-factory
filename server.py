@@ -4018,7 +4018,7 @@ def api_ie_insta_collect_import():
     return jsonify(ok=True, job=jid)
 
 
-def _run_reel_make_job(jid, url, cfg, hint=""):
+def _run_reel_make_job(jid, url, cfg, hint="", blur=True):
     """인스타 릴스 URL → 영상 대본 짤 완성팩."""
     job = JOBS[jid]
 
@@ -4031,7 +4031,7 @@ def _run_reel_make_job(jid, url, cfg, hint=""):
 
     try:
         job.update(status="running", pct=6)
-        result = youtube.build_from_reel(url, cfg, BASE, caption_hint=hint, log=log, blur=True)
+        result = youtube.build_from_reel(url, cfg, BASE, caption_hint=hint, log=log, blur=blur)
         job["result"] = _pack_payload(result)
         job["pct"] = 100
         job["status"] = "done"
@@ -4052,6 +4052,8 @@ def api_ie_insta_collect_make():
     item = next((x for x in _collected_load() if x.get("shortcode") == sc), None)
     if not item:
         return jsonify(ok=False, error="수집 항목을 찾을 수 없어요"), 404
+    blur = data.get("blur") is not False   # 자막 블러(릴스), 기본 켬
+    guide = (data.get("guide") or "").strip()
     imgs = item.get("imageUrls") or []
     if not imgs:
         # 릴스(영상) → 영상 다운로드 + Gemini 영상대본으로 짤 (유튜브 짤 품질)
@@ -4063,8 +4065,7 @@ def api_ie_insta_collect_make():
         JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
                      "result": None, "error": None, "ts": now}
         threading.Thread(target=_run_reel_make_job,
-                         args=(jid, url, cfg, (data.get("guide") or "").strip()),
-                         daemon=True).start()
+                         args=(jid, url, cfg, guide, blur), daemon=True).start()
         return jsonify(ok=True, job=jid)
     import requests as _rq
     tmpdir = BASE / "_covertmp"
@@ -4087,7 +4088,7 @@ def api_ie_insta_collect_make():
                  "result": None, "error": None, "ts": now}
     JOBQ.put((jid, _run_images_job,
               (jid, paths, item.get("caption", ""), True, cfg,
-               _template(data), None, (data.get("guide") or "").strip())))
+               _template(data), _clean(data), guide)))
     return jsonify(ok=True, job=jid)
 
 
