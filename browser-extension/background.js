@@ -338,15 +338,13 @@ async function sendToLocalAppFromBackground(message) {
     }, 7000);
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    await chrome.tabs.create({ url: "http://localhost:8777/v2" });
+    // 짤공장은 이미 열려 있으므로 새 탭을 띄우지 않는다
     return {
       ok: true,
       count: urls.length
     };
   } catch {
-    const encoded = encodeURIComponent(urls.join("\\n"));
-    await chrome.tabs.create({ url: `http://localhost:8777/v2` });
-    return { ok: false, fallback: true, count: urls.length, error: "대본앱 API 연결 실패, URL만 전달했습니다." };
+    return { ok: false, count: urls.length, error: "짤공장 서버 연결 실패 — 짤공장(localhost:8777)이 켜져 있는지 확인하세요." };
   }
 }
 
