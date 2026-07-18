@@ -1,0 +1,146 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f7fb;
+  --panel: #fff;
+  --line: #dfe4ef;
+  --text: #172033;
+  --muted: #65708a;
+  --accent: #1769e0;
+  --danger: #a7392f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 390px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Arial, "Noto Sans KR", sans-serif;
+}
+
+.app {
+  padding: 14px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 20px;
+}
+
+header p,
+.hint {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.panel {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.field span,
+.stats span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+input,
+select {
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--text);
+  font-size: 14px;
+}
+
+button {
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+button.wide {
+  width: 100%;
+  margin-top: 8px;
+}
+
+button.dark {
+  background: #111827;
+  border-color: #111827;
+  color: #fff;
+}
+
+.buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.buttons.two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stats strong {
+  display: block;
+  min-height: 22px;
+}
+
+.preview h2 {
+  font-size: 15px;
+}
+
+ol {
+  margin: 10px 0 0;
+  padding-left: 20px;
+}
+
+li {
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.meta {
+  display: block;
+  color: var(--muted);
+}

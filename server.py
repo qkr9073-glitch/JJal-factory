@@ -3902,6 +3902,161 @@ def api_admin_ytkeys_remove():
 
 
 # ── 인스타 수입: 지정 계정에서 이미지 캐러셀 수집(릴스 제외) ──────
+# ── 브라우저 확장(짤공장 릴스 헌터)이 보낸 수집 데이터 ────────────
+IG_COLLECTED_FILE = BASE / "ig_collected.json"
+_collect_lock = threading.Lock()
+
+
+def _collected_load():
+    try:
+        d = json.loads(IG_COLLECTED_FILE.read_text(encoding="utf-8"))
+        return d if isinstance(d, list) else []
+    except Exception:
+        return []
+
+
+@app.post("/api/ie/insta/collect")
+def api_ie_insta_collect():
+    """확장 → 수집 항목 수신(인증 없음, 로컬 전용). shortcode 기준 dedup·조회수 최댓값 병합."""
+    data = request.get_json(silent=True) or {}
+    incoming = data.get("items") or []
+    if not isinstance(incoming, list):
+        return jsonify(ok=False, error="items 형식 오류"), 400
+    with _collect_lock:
+        cur = _collected_load()
+        by_key = {(it.get("platform", ""), it.get("shortcode") or it.get("url")): it for it in cur}
+        added = 0
+        for it in incoming[:500]:
+            if not isinstance(it, dict):
+                continue
+            key = (it.get("platform", ""), it.get("shortcode") or it.get("url"))
+            if not key[1]:
+                continue
+            it["collected_at"] = datetime.now().isoformat(timespec="seconds")
+            prev = by_key.get(key)
+            if prev:   # 조회수는 0 아닌 최신값 우선, 나머지 최신으로 덮음
+                it["viewCount"] = max(int(it.get("viewCount", 0) or 0), int(prev.get("viewCount", 0) or 0))
+                if not it.get("imageUrls") and prev.get("imageUrls"):
+                    it["imageUrls"] = prev["imageUrls"]
+            else:
+                added += 1
+            by_key[key] = it
+        merged = list(by_key.values())
+        merged.sort(key=lambda x: (int(x.get("viewCount", 0) or 0), int(x.get("likeCount", 0) or 0)), reverse=True)
+        merged = merged[:600]
+        IG_COLLECTED_FILE.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    return jsonify(ok=True, total=len(merged), added=added)
+
+
+@app.post("/api/ie/insta/collected")
+def api_ie_insta_collected():
+    """수집 항목 목록(우리 UI용). 조회수/좋아요순."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    kind = (data.get("kind") or "all").strip()   # all|reel|image
+    items = _collected_load()
+    out = []
+    for it in items:
+        k = it.get("kind", "")
+        if kind == "reel" and k != "reel":
+            continue
+        if kind == "image" and k not in ("image", "carousel"):
+            continue
+        imgs = it.get("imageUrls") or []
+        out.append({
+            "platform": it.get("platform", ""), "kind": k,
+            "url": it.get("url", ""), "shortcode": it.get("shortcode", ""),
+            "caption": (it.get("caption", "") or "")[:200],
+            "viewCount": int(it.get("viewCount", 0) or 0),
+            "likeCount": int(it.get("likeCount", 0) or 0),
+            "n_img": len(imgs), "thumb": imgs[0] if imgs else "",
+            "collected_at": it.get("collected_at", ""),
+        })
+    return jsonify(ok=True, items=out[:400])
+
+
+@app.post("/api/ie/insta/collected_clear")
+def api_ie_insta_collected_clear():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    sc = (data.get("shortcode") or "").strip()
+    with _collect_lock:
+        if sc:   # 한 건만 제거
+            items = [x for x in _collected_load() if x.get("shortcode") != sc]
+        else:    # 전체 비우기
+            items = []
+        IG_COLLECTED_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    return jsonify(ok=True, total=len(items))
+
+
+@app.post("/api/ie/insta/collect_import")
+def api_ie_insta_collect_import():
+    """수집한 이미지 게시물(캐러셀) → 그 이미지 URL로 완성팩 생성(소재로 바로 쓰기)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    sc = (data.get("shortcode") or "").strip()
+    item = next((x for x in _collected_load() if x.get("shortcode") == sc), None)
+    if not item:
+        return jsonify(ok=False, error="수집 항목을 찾을 수 없어요"), 404
+    imgs = item.get("imageUrls") or []
+    if not imgs:
+        return jsonify(ok=False, error="이 게시물은 이미지 URL이 없어요 (릴스는 짤 만들기로)"), 400
+    post = {"image_urls": imgs, "username": item.get("shortcode", ""),
+            "caption": item.get("caption", ""), "url": item.get("url", ""),
+            "likes": item.get("likeCount", 0)}
+    now = time.time()
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
+                 "result": None, "error": None, "ts": now}
+    threading.Thread(target=_run_ie_import, args=(jid, cfg, post), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/ie/insta/collect_make")
+def api_ie_insta_collect_make():
+    """수집한 이미지 게시물 → 이미지 내려받아 '해외→한국 현지화' 완성팩(템플릿 적용) 생성."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    sc = (data.get("shortcode") or "").strip()
+    item = next((x for x in _collected_load() if x.get("shortcode") == sc), None)
+    if not item:
+        return jsonify(ok=False, error="수집 항목을 찾을 수 없어요"), 404
+    imgs = item.get("imageUrls") or []
+    if not imgs:
+        return jsonify(ok=False, error="릴스(영상)는 아직 짤 자동생성 미지원 — 이미지 게시물만 가능"), 400
+    import requests as _rq
+    tmpdir = BASE / "_covertmp"
+    tmpdir.mkdir(exist_ok=True)
+    paths = []
+    try:
+        for i, u in enumerate(imgs[:10]):
+            r = _rq.get(u, timeout=40)
+            r.raise_for_status()
+            p = tmpdir / (uuid.uuid4().hex[:12] + ".jpg")
+            from PIL import Image as _Img
+            import io as _io
+            _Img.open(_io.BytesIO(r.content)).convert("RGB").save(p, "JPEG", quality=90)
+            paths.append(str(p))
+    except Exception as e:
+        return jsonify(ok=False, error=f"이미지 내려받기 실패: {str(e)[:100]}"), 502
+    now = time.time()
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
+                 "result": None, "error": None, "ts": now}
+    JOBQ.put((jid, _run_images_job,
+              (jid, paths, item.get("caption", ""), True, cfg,
+               _template(data), None, (data.get("guide") or "").strip())))
+    return jsonify(ok=True, job=jid)
+
+
 @app.post("/api/ie/insta/targets")
 def api_ie_insta_targets():
     """지정 크롤 계정 목록 조회/추가/삭제. (누구나 조회, 관리자만 수정)"""

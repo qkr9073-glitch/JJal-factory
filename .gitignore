@@ -25,6 +25,7 @@ schedule.json
 members.json
 pack_owners.json
 ig_targets.json
+ig_collected.json
 ig_session/
 ig_accounts.json
 youtube_keys.json

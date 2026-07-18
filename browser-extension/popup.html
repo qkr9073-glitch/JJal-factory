@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>짤공장 릴스 헌터 수집기</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <h1>짤공장 릴스 헌터</h1>
+        <p>현재 탭에서 링크와 조회수를 모아 짤공장으로 보냅니다.</p>
+      </header>
+
+      <section class="panel">
+        <label class="field">
+          <span>계정명 / 프로필 URL / 채널 URL (선택)</span>
+          <input id="accountInput" type="text" placeholder="이미 릴스/쇼츠 탭이면 비워두세요">
+        </label>
+        <button id="openBtn" type="button" class="wide">릴스/쇼츠 탭 열기</button>
+        <p class="hint">이미 원하는 탭에 들어가 있다면 바로 수집 시작을 누르면 됩니다.</p>
+      </section>
+
+      <section class="panel">
+        <div class="stats">
+          <div>
+            <span>현재 탭</span>
+            <strong id="modeLabel">확인 중</strong>
+          </div>
+          <div>
+            <span>상태</span>
+            <strong id="status">대기</strong>
+          </div>
+          <div>
+            <span>수집</span>
+            <strong id="count">0개</strong>
+          </div>
+        </div>
+        <div class="buttons">
+          <button id="startBtn" type="button" class="primary">현재 탭 감시 시작</button>
+          <button id="stopBtn" type="button">감시 중지</button>
+          <button id="clearBtn" type="button" class="danger">초기화</button>
+        </div>
+        <p id="modeHint" class="hint">Instagram은 릴스 탭에서, YouTube는 Shorts 탭 또는 동영상 탭(롱폼)에서 수집하세요.</p>
+      </section>
+
+      <section class="panel">
+        <label class="field">
+          <span>최소 조회수 필터</span>
+          <select id="minViews">
+            <option value="0">전체</option>
+            <option value="100000">10만 이상</option>
+            <option value="200000">20만 이상</option>
+            <option value="500000">50만 이상</option>
+            <option value="1000000">100만 이상</option>
+          </select>
+        </label>
+        <p class="hint">수집은 전체를 보관하고, 미리보기/저장/짤공장 보내기에만 필터가 적용됩니다.</p>
+      </section>
+
+      <section class="panel">
+        <div class="buttons two">
+          <button id="csvBtn" type="button">CSV 저장</button>
+          <button id="jsonBtn" type="button">JSON 저장</button>
+        </div>
+        <button id="copyBtn" type="button" class="wide dark">URL 복사</button>
+        <button id="sendLocalBtn" type="button" class="wide primary">짤공장으로 보내기</button>
+        <p class="hint">수집 후 짤공장 → 수입·수출 → 인스타 수집에서 확인합니다.</p>
+      </section>
+
+      <section class="panel preview">
+        <h2>미리보기</h2>
+        <ol id="previewList"></ol>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

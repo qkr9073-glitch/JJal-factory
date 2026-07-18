@@ -1239,12 +1239,51 @@
       b.innerHTML=`
         <div class="chips" style="margin-bottom:14px">
           <span class="chip ${ieImpMethod==='capture'?'on':''}" onclick="ieMethod('capture')">📎 해외 캡처</span>
-          <span class="chip ${ieImpMethod==='insta'?'on':''}" onclick="ieMethod('insta')">📸 인스타 수집</span></div>
+          <span class="chip ${ieImpMethod==='browser'?'on':''}" onclick="ieMethod('browser')">🧲 브라우저 수집</span>
+          <span class="chip ${ieImpMethod==='insta'?'on':''}" onclick="ieMethod('insta')">📸 지정계정 크롤</span></div>
         <div id="ieimpbody"></div>`;
       renderIEImport();
     }
   }
   function ieMethod(m){ieImpMethod=m;renderIEBody();}
+  /* ---- 브라우저 수집(확장) → 소재 → 템플릿 → 만들기 ---- */
+  let IEB={tpl:0, kind:'all', sc:null, item:null};
+  function ieCollKind(k){IEB.kind=k;renderIEImport();}
+  async function ieLoadCollected(){
+    const box=$('ie_collected'); if(!box)return;
+    let d; try{d=await apiJson('/api/ie/insta/collected',{code:code(),kind:IEB.kind});}catch(e){d={ok:false,error:'통신 오류'};}
+    if(!box)return;
+    if(!d.ok){box.innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
+    const list=d.items||[];
+    if(!list.length){box.innerHTML='<div style="color:var(--faint)">아직 수집된 게 없어요. 짤공장 릴스 헌터 확장을 켜고 인스타를 둘러보세요.</div>';return;}
+    box.innerHTML='<div class="iggrid">'+list.map(p=>{
+      const cnt=p.kind==='reel'?('▶ '+(p.viewCount||0).toLocaleString()):('♥ '+(p.likeCount||0).toLocaleString());
+      const badge=p.kind==='reel'?'🎬 릴스':(p.n_img>1?('🖼 '+p.n_img+'장'):'🖼 이미지');
+      return `<div class="igcard">
+        <img src="${esch(p.thumb||'')}" loading="lazy" onerror="this.style.opacity=.2">
+        <div class="ib"><div style="font-size:11px;color:var(--faint);margin-bottom:3px">${badge} · ${cnt}</div>
+          <div style="font-size:12px;line-height:1.45;max-height:52px;overflow:hidden;color:var(--muted)">${esch((p.caption||'').slice(0,80))}</div>
+          <div style="display:flex;gap:5px;margin-top:8px">
+            ${p.kind==='reel'?`<a class="btn" href="${esch(p.url)}" target="_blank" style="flex:1;text-align:center;text-decoration:none;font-size:12px">릴스 보기↗</a>`
+              :`<button class="btn primary" style="flex:1" data-src="${esch(p.shortcode)}">＋소재</button>`}
+            <button class="btn" data-del="${esch(p.shortcode)}" title="목록에서 제거">✕</button></div></div></div>`;
+    }).join('')+'</div>';
+    box.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>iePickSrc(b.dataset.src,list.find(x=>x.shortcode===b.dataset.src)));
+    box.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{await apiJson('/api/ie/insta/collected_clear',{code:code(),shortcode:b.dataset.del});ieLoadCollected();});
+  }
+  function iePickSrc(sc,item){
+    IEB.sc=sc; IEB.item=item||null;
+    if($('ie_src'))$('ie_src').innerHTML='✅ 선택됨: '+esch((item&&item.caption)||sc).slice(0,60)+' <span style="color:var(--faint)">('+((item&&item.n_img)||1)+'장)</span>';
+    flash('📎 소재 선택됨 — 템플릿 고르고 만들기');
+  }
+  function ieClearCollected(){
+    if(!confirm('수집 목록을 전부 비울까요?'))return;
+    apiJson('/api/ie/insta/collected_clear',{code:code()}).then(()=>{IEB.sc=null;IEB.item=null;ieLoadCollected();if($('ie_src'))$('ie_src').innerHTML='👉 오른쪽 수집 목록에서 <b>＋소재</b>를 누르세요';});
+  }
+  function ieBrowserMake(){
+    if(!IEB.sc){flash('먼저 소재를 고르세요 (＋소재)');return;}
+    startJob('/api/ie/insta/collect_make',{code:code(),shortcode:IEB.sc,template:TPLS[IEB.tpl][2]},'🧲 수집소재 → 짤');
+  }
   function renderIEImport(){
     const b=$('ieimpbody'); if(!b)return;
     if(ieImpMethod==='capture'){
@@ -1258,6 +1297,24 @@
           <textarea class="in" id="iecap" style="min-height:70px;margin-top:8px" placeholder="캡션 원문(선택) — 있으면 더 정확"></textarea></div>
         <button class="go" onclick="ieImport()">🇰🇷 한국판으로 변환 (1~4분)</button>`;
       $('ieinfo').innerHTML='<b>수입 · 해외 캡처</b> — 해외에서 터진 게시물 <b>캡처</b>를 올리면 AI가 소재만 뽑아 <b>한국 타깃 새 짤/카드</b>로 만듭니다. 인스타 크롤 안 함(계정 안전).';
+    } else if(ieImpMethod==='browser'){
+      b.innerHTML=`
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">소재 고르기</span><span class="sd">오른쪽 목록</span></div>
+          <div id="ie_src" class="caphint" style="background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px">👉 오른쪽 수집 목록에서 <b>＋소재</b>를 누르세요</div></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">템플릿</span></div>
+          <div class="tpl" id="ietpl">${TPLS.map((t,i)=>`<div class="t ${i===IEB.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}"><img src="/memeprev/${t[2]}" loading="lazy" onerror="this.remove()"></div><div class="nm">${t[1]}</div></div>`).join('')}</div></div>
+        <button class="go" onclick="ieBrowserMake()">🇰🇷 이 소재로 한국판 짤 만들기</button>`;
+      $('ietpl').addEventListener('click',e=>{const t=e.target.closest('.t');if(!t)return;IEB.tpl=+t.dataset.i;[...$('ietpl').children].forEach((c,i)=>c.classList.toggle('on',i===IEB.tpl));});
+      $('ieinfo').innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <b style="font-size:14px">🧲 브라우저 수집 목록</b>
+          <span class="chip ${IEB.kind==='all'?'on':''}" onclick="ieCollKind('all')">전체</span>
+          <span class="chip ${IEB.kind==='image'?'on':''}" onclick="ieCollKind('image')">🖼 이미지</span>
+          <span class="chip ${IEB.kind==='reel'?'on':''}" onclick="ieCollKind('reel')">🎬 릴스</span>
+          <button class="btn" style="margin-left:auto" onclick="ieLoadCollected()">🔄</button>
+          <button class="btn" onclick="ieClearCollected()">🗑 비우기</button></div>
+        <div class="caphint" style="margin-bottom:10px"><b>짤공장 릴스 헌터</b> 확장으로 인스타를 둘러보면 여기에 자동으로 쌓입니다(로그인 X). <b>이미지 게시물</b>은 ＋소재→템플릿→만들기로 한국판 짤 생성. (릴스 영상 자동제작은 준비 중)</div>
+        <div id="ie_collected"><div style="color:var(--faint)">불러오는 중…</div></div>`;
+      ieLoadCollected();
     } else {
       b.innerHTML=`
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">수집 대상 계정</span><span class="sd">부계정으로 수집</span></div>
