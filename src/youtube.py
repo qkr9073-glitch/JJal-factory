@@ -628,9 +628,32 @@ def _wrap_text(draw, text, font, max_w):
     return out
 
 
-def render_back_card(frame, text, watermark, out_path, cfg=None, lang="ko"):
+def _apply_blur_regions(canvas, regions):
+    """canvas(배경)에 정규화 박스[{x,y,w,h} 0~1] 영역을 가우시안 블러. 텍스트 그리기 전에 호출."""
+    from PIL import ImageFilter
+    if not regions:
+        return
+    W, H = canvas.size
+    for b in regions:
+        try:
+            x = max(0.0, min(1.0, float(b.get("x", 0))))
+            y = max(0.0, min(1.0, float(b.get("y", 0))))
+            x0, y0 = int(x * W), int(y * H)
+            x1 = min(W, int((x + float(b.get("w", 0))) * W))
+            y1 = min(H, int((y + float(b.get("h", 0))) * H))
+        except (TypeError, ValueError):
+            continue
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            continue
+        rad = max(8, min(x1 - x0, y1 - y0) // 5)
+        region = canvas.crop((x0, y0, x1, y1)).filter(ImageFilter.GaussianBlur(rad))
+        canvas.paste(region, (x0, y0))
+
+
+def render_back_card(frame, text, watermark, out_path, cfg=None, lang="ko", blur_regions=None):
     """뒷장 카드: 프레임(4:5 꽉채움) 위에 대본 장문을 작은 글씨로 얹는다.
-    frame 이 없으면 에메랄드 그라데이션 템플릿 배경(폴백)."""
+    frame 이 없으면 에메랄드 그라데이션 템플릿 배경(폴백).
+    blur_regions: 배경(프레임)에만 적용할 블러 영역 — 텍스트 얹기 전에 처리해 글자는 선명 유지."""
     from PIL import Image, ImageDraw
     canvas = Image.new("RGB", (CARD_W, CARD_H), (12, 14, 22))
     if frame and Path(frame).exists():
@@ -665,6 +688,7 @@ def render_back_card(frame, text, watermark, out_path, cfg=None, lang="ko"):
         overlay.putpixel((0, y), int(230 * (y / grad_h) ** 1.4))
     overlay = overlay.resize((CARD_W, grad_h))
     canvas.paste(Image.new("RGB", (CARD_W, grad_h), (0, 0, 0)), (0, CARD_H - grad_h), overlay)
+    _apply_blur_regions(canvas, blur_regions)   # 배경 블러(텍스트 얹기 전)
     draw = ImageDraw.Draw(canvas)
 
     base_y = CARD_H - 130 - block_h
@@ -680,15 +704,18 @@ def render_back_card(frame, text, watermark, out_path, cfg=None, lang="ko"):
     return str(out_path)
 
 
-def render_youtube_thumb(bg_path, line1, line2, watermark, out_path, lang="ko"):
+def render_youtube_thumb(bg_path, line1, line2, watermark, out_path, lang="ko", blur_regions=None):
     """대표 썸네일: 유튜브 썸네일(또는 프레임)을 4:5 꽉채움 배경으로 후킹 2줄 렌더.
-    기존 thumbnail.render 재사용(가짜 커뮤 헤더 없이 자막형). lang='ja'면 일본어 폰트."""
+    기존 thumbnail.render 재사용(가짜 커뮤 헤더 없이 자막형). lang='ja'면 일본어 폰트.
+    blur_regions: 배경에만 블러(후킹 텍스트 얹기 전)."""
     from PIL import Image
     tmp = str(Path(out_path).with_suffix(".bg.jpg"))
     if bg_path and Path(bg_path).exists():
-        _cover_fill(Image.open(bg_path).convert("RGB"), CARD_W, CARD_H).save(tmp, "JPEG", quality=92)
+        bgimg = _cover_fill(Image.open(bg_path).convert("RGB"), CARD_W, CARD_H)
     else:
-        Image.new("RGB", (CARD_W, CARD_H), (18, 44, 36)).save(tmp, "JPEG", quality=92)
+        bgimg = Image.new("RGB", (CARD_W, CARD_H), (18, 44, 36))
+    _apply_blur_regions(bgimg, blur_regions)   # 배경 블러(텍스트 전)
+    bgimg.save(tmp, "JPEG", quality=92)
     fp = _ja_font_path() if lang == "ja" else None
     thumbnail.render(tmp, line1, line2, watermark, out_path, header=None, font_path=fp)
     try:

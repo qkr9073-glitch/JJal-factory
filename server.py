@@ -3038,9 +3038,76 @@ def api_pack_arrange():
     return jsonify(ok=True, images=[f"{i + 1:02d}.jpg" for i in range(len(order))])
 
 
+def _rerender_base_with_blur(d, base, cfg, new_boxes):
+    """유튜브/릴스 팩(source.json+frame)이면 프레임 배경에만 블러하고 텍스트를 재렌더한다.
+    → 완성 텍스트(후킹/워터마크)는 선명 유지. 프레임 기반 아니면 None(기존 평면 블러로)."""
+    src_f = d / "source.json"
+    if not src_f.exists():
+        return None
+    try:
+        src = json.loads(src_f.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if src.get("source") not in ("youtube", "reel"):
+        return None
+    try:
+        meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        meta = {}
+    lang = meta.get("lang", "ko")
+    wm = cfg.get("watermark", "")
+    # 누적 블러 영역(_blur.json) — 여러 번 그려도 합쳐서 재렌더
+    blur_file = d / "_blur.json"
+    try:
+        acc = json.loads(blur_file.read_text(encoding="utf-8"))
+        if not isinstance(acc, dict):
+            acc = {}
+    except Exception:
+        acc = {}
+    regions = list(acc.get(base) or [])
+    for b in new_boxes[:40]:
+        try:
+            regions.append({"x": float(b.get("x", 0)), "y": float(b.get("y", 0)),
+                            "w": float(b.get("w", 0)), "h": float(b.get("h", 0))})
+        except (TypeError, ValueError):
+            continue
+    orig_dir = d / "_orig"
+    orig_dir.mkdir(exist_ok=True)
+    if not (orig_dir / base).exists() and (d / base).exists():
+        shutil.copy(str(d / base), str(orig_dir / base))   # 최초 원본 백업
+    m = re.fullmatch(r"(\d{2})\.jpg", base)
+    if m:                                     # 뒷장 카드
+        n = int(m.group(1))
+        frame = d / f"frame{n:02d}.jpg"
+        cards = src.get("cards") or []
+        if not frame.exists() or n < 1 or n > len(cards):
+            return None
+        youtube.render_back_card(str(frame), cards[n - 1].get("text", ""), wm,
+                                 str(d / base), cfg, lang, blur_regions=regions)
+    else:                                     # 대표/후보 썸네일
+        tm = re.fullmatch(r"thumb(\d*)\.jpg", base)
+        if not tm:
+            return None
+        idx = 0 if tm.group(1) == "" else (int(tm.group(1)) - 1)
+        hooks = src.get("hooks") or []
+        if idx < 0 or idx >= len(hooks):
+            return None
+        bg = d / "ytthumb.jpg"
+        if not bg.exists():
+            bg = d / "frame01.jpg"
+        hk = hooks[idx]
+        youtube.render_youtube_thumb(str(bg) if bg.exists() else None,
+                                     hk.get("line1", ""), hk.get("line2", ""), wm,
+                                     str(d / base), lang, blur_regions=regions)
+    acc[base] = regions
+    blur_file.write_text(json.dumps(acc, ensure_ascii=False, indent=2), encoding="utf-8")
+    return len(new_boxes)
+
+
 @app.post("/api/pack/mosaic")
 def api_pack_mosaic():
-    """짤/썸네일에 블러 박스 적용 — boxes=[{x,y,w,h}] 정규화(0~1) 영역을 가우시안 블러."""
+    """짤/썸네일에 블러 박스 적용 — boxes=[{x,y,w,h}] 정규화(0~1) 영역을 가우시안 블러.
+    유튜브/릴스 짤은 프레임에만 블러하고 텍스트를 재렌더(글자 선명 유지)."""
     data = request.get_json(silent=True) or {}
     cfg = load_config()
     if not _check_code(cfg, data.get("code")):
@@ -3056,7 +3123,14 @@ def api_pack_mosaic():
     boxes = data.get("boxes") or []
     if not isinstance(boxes, list) or not boxes:
         return jsonify(ok=False, error="가릴 영역을 최소 1개 그려주세요"), 400
-    try:
+    try:   # 유튜브/릴스 짤: 프레임에만 블러 + 텍스트 재렌더(글자 선명)
+        re_applied = _rerender_base_with_blur(d, base, cfg, boxes)
+        if re_applied is not None:
+            _rebuild_pack_zip(d)
+            return jsonify(ok=True, image=base, applied=re_applied, rerendered=True)
+    except Exception as e:
+        return jsonify(ok=False, error=f"재렌더 블러 실패: {str(e)[:100]}"), 500
+    try:   # 그 외(카드뉴스/커뮤 짤): 완성 이미지에 평면 블러
         from PIL import Image as _Img
         from PIL import ImageFilter as _F
         img = _Img.open(d / base).convert("RGB")
@@ -3107,16 +3181,29 @@ def api_pack_restore():
     if not orig_dir.is_dir():
         return jsonify(ok=False, error="복구할 원본이 없어요 (아직 편집 안 한 팩)"), 404
     base = (data.get("base") or "").strip()
+    blur_file = d / "_blur.json"
+    try:
+        acc = json.loads(blur_file.read_text(encoding="utf-8")) if blur_file.exists() else {}
+        if not isinstance(acc, dict):
+            acc = {}
+    except Exception:
+        acc = {}
     restored = 0
     if base:
         if not re.fullmatch(r"(?:\d{2}|thumb\d*)\.jpg", base) or not (orig_dir / base).exists():
             return jsonify(ok=False, error="이 이미지의 원본이 없어요"), 404
         shutil.copy(str(orig_dir / base), str(d / base))
+        acc.pop(base, None)     # 누적 블러 기록도 초기화
         restored = 1
     else:
         for p in orig_dir.glob("*.jpg"):
             shutil.copy(str(p), str(d / p.name))
             restored += 1
+        acc = {}
+    try:
+        blur_file.write_text(json.dumps(acc, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
     _rebuild_pack_zip(d)
     return jsonify(ok=True, restored=restored)
 
