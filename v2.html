@@ -916,7 +916,7 @@
     scrollTopPane($('ttsOut'));
   }
   /* ===== ⑤ 자막 스타일 ===== */
-  let subState={fonts:[],style:null};
+  let subState={fonts:[],style:null,_loaded:{}};
   function renderSubsStep(b){
     if(!wiz.pid){b.innerHTML=`<div class="panehead"><h2>⑤ 자막</h2></div><div class="lcard">먼저 <b>③ 영상</b>·<b>④ 음성</b>을 완료하세요.</div>`;return;}
     b.innerHTML=`
@@ -943,9 +943,9 @@
           </div>
           <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" onclick="wizPrev()">← 이전(음성)</button><button class="go" style="flex:1;margin-top:0" onclick="subSave()">💾 저장 + 다음: 컷 →</button></div>
         </div>
-        <div style="flex:1;min-width:260px"><div class="lcard"><b>미리보기</b>
-          <div id="sfPrev" style="margin-top:10px;aspect-ratio:9/16;max-height:440px;margin-inline:auto;background:linear-gradient(160deg,#3a4a55,#12181d);border-radius:12px;position:relative;overflow:hidden">
-            <div id="sfPrevText" style="position:absolute;left:6%;right:6%;text-align:center;line-height:1.25;font-weight:800">자막 미리보기<br>이렇게 나와요</div>
+        <div style="flex:1;min-width:340px"><div class="lcard"><b>미리보기</b> <span style="color:var(--faint);font-size:12px">(실제 영상 비율·크기와 최대한 동일)</span>
+          <div id="sfPrev" style="margin-top:10px;aspect-ratio:9/16;height:min(74vh,680px);max-width:100%;margin-inline:auto;background:linear-gradient(160deg,#3a4a55,#12181d);border-radius:12px;position:relative;overflow:hidden">
+            <div id="sfPrevText" style="position:absolute;left:7.4%;right:7.4%;text-align:center;line-height:1.22;font-weight:800">자막 미리보기<br>이렇게 나와요</div>
           </div></div></div>
       </div>
       <style id="sfFaces"></style>`;
@@ -982,12 +982,14 @@
     subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,pop,margin_v:al===2?450:(al===8?230:0)};
     $('sfSizeV').textContent=size+'px';
     const box=$('sfPrev'), t=$('sfPrevText'); if(!box||!t)return;
-    const scale=(box.clientHeight||440)/1920;
     const paint=()=>{
+      const scale=(box.clientHeight||680)/1920;   // 실측 높이 기준(1920 캔버스 대비)
       t.style.fontFamily=`'${family}', 'Malgun Gothic', sans-serif`;
       t.style.fontSize=Math.max(10,size*scale)+'px';
       t.style.color=primary;
-      t.style.webkitTextStroke=(ow*scale*1.4).toFixed(1)+'px '+outline;
+      // ASS 외곽(글자 바깥) 느낌: 획을 글자 뒤로(paint-order) + 실제 두께에 맞춤
+      t.style.paintOrder='stroke fill';
+      t.style.webkitTextStroke=ow>0?((ow*scale).toFixed(2)+'px '+outline):'0';
       t.style.fontWeight=bold?'800':'400';
       t.style.top=al===8?'12%':(al===5?'44%':'auto');
       t.style.bottom=al===2?'22%':'auto';
@@ -995,7 +997,15 @@
       t.style.animation=pop?'subpop 1.6s ease-in-out infinite':'none';
     };
     paint();
-    if(file&&window.FontFace){try{document.fonts.load(`24px '${family}'`).then(paint).catch(()=>{});}catch(_){}}
+    requestAnimationFrame(paint);   // 레이아웃 확정 후 재측정(초기 clientHeight 0 방지)
+    if(file){
+      const url=`/fonts/${encodeURIComponent(file)}`;
+      if(window.FontFace&&!subState._loaded[family]){
+        try{const ff=new FontFace(family,`url('${url}')`);
+          ff.load().then(face=>{document.fonts.add(face);subState._loaded[family]=1;paint();}).catch(()=>{});
+        }catch(_){}
+      } else if(window.FontFace){ try{document.fonts.load(`24px '${family}'`).then(paint).catch(()=>{});}catch(_){} }
+    }
   }
   function subFontUpload(input){
     const file=input.files&&input.files[0]; if(!file)return;
@@ -1064,17 +1074,34 @@
     if(!e)return; wiz._edit=e;
     const v=e.preview+'?t='+Date.now();
     const blocks=(e.blocks||[]).map(bl=>`
-      <div style="display:flex;gap:10px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:7px">
-        <img src="${bl.thumb}?t=${Date.now()}" style="width:46px;height:82px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#000" onerror="this.style.visibility='hidden'">
-        <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;line-height:1.4">${esch(bl.tag||'(태그 없음)')}</div>
-          <div style="font-size:11px;color:var(--faint);margin-top:3px">${bl.start}~${bl.end}s (${bl.dur}s) · 후보 ${bl.cand}/${bl.cand_total}</div></div>
-        ${bl.cand_total>1?`<button class="btn" onclick="editReroll(${bl.i})" title="이 컷을 다른 클립으로">🔄 리롤</button>`:`<span style="font-size:11px;color:var(--faint);white-space:nowrap">대체 없음</span>`}
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;gap:9px;align-items:center">
+        <img src="${bl.thumb}?t=${Date.now()}" style="width:44px;height:78px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#000" onerror="this.style.visibility='hidden'">
+        <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;line-height:1.35;overflow:hidden;text-overflow:ellipsis">${esch(bl.tag||'(태그 없음)')}</div>
+          <div style="font-size:11px;color:var(--faint);margin-top:3px">컷 ${bl.i+1} · ${bl.start}~${bl.end}s (${bl.dur}s) · 후보 ${bl.cand}/${bl.cand_total}</div>
+          <div style="display:flex;gap:5px;margin-top:6px">
+            <button class="btn collmini" onclick="blurOpen(${bl.i})" title="이 컷 블러/모자이크">${bl.blur?'🌫✓':'🌫'}</button>
+            ${bl.cand_total>1?`<button class="btn collmini" onclick="editReroll(${bl.i})" title="이 컷을 다른 클립으로">🔄 교체</button>`:''}
+          </div></div>
       </div>`).join('');
-    $('editOut').innerHTML=`<div class="lcard"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
-        <video src="${v}" controls playsinline style="width:340px;max-width:100%;border-radius:12px;background:#000;flex-shrink:0"></video>
-        <div style="width:330px;max-width:100%;max-height:600px;overflow:auto"><div style="font-weight:800;margin-bottom:8px">✂️ 컷 배치 (🔄로 교체)</div>${blocks}</div>
-      </div></div>`;
+    $('editOut').innerHTML=`<div class="lcard">
+        <div style="text-align:center"><video src="${v}" controls playsinline style="width:min(430px,88vw);border-radius:14px;background:#000"></video></div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 8px">
+          <div style="font-weight:800">✂️ 컷 배치 <span style="font-weight:400;color:var(--faint);font-size:12px">(🌫 블러 · 🔄 교체)</span></div>
+          <button class="btn" style="margin-left:auto" onclick="editRestyle()" title="정밀컷은 그대로, 자막 폰트·스타일만 다시 입힘(빠름)">🔤 자막 다시 입히기</button></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px">${blocks}</div>
+      </div>`;
     scrollTopPane($('editOut'));
+  }
+  function editRestyle(){
+    flash('🔤 자막 다시 입히는 중…');
+    apiJson('/api/reelproj/restyle',{code:code(),pid:wiz.pid}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const jid=d.job;
+      (async function pp(){let j;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(pp,2000);return;}
+        if(j.status==='done'){editRender(j.result);flash('✅ 자막 다시 입혔어요');}
+        else if(j.status==='error'){flash('❌ '+j.error);}
+        else setTimeout(pp,1500);})();
+    });
   }
   function editReroll(block){
     flash(`🔄 컷 ${block+1} 교체 중…`);
@@ -1087,6 +1114,46 @@
         else setTimeout(pp,1500);})();
     });
   }
+  /* ===== ⑥ 컷별 블러(모자이크) ===== */
+  let blurState={};
+  function blurOpen(i){
+    const bl=((wiz._edit&&wiz._edit.blocks)||[]).find(x=>x.i===i); if(!bl)return;
+    blurState={i,box:null};
+    const ov=document.createElement('div'); ov.id='blurOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center';
+    ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;max-height:94vh;overflow:auto">
+      <div style="font-weight:800;margin-bottom:4px;font-size:16px">🌫 컷 ${i+1} 블러 영역</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">가릴 부분을 <b>드래그</b>해서 사각형으로 지정하세요 · 가장자리는 부드럽게(페더) 처리됩니다</div>
+      <div id="blurCanvas" style="position:relative;height:min(76vh,660px);aspect-ratio:9/16;max-width:92vw;background:#000;overflow:hidden;cursor:crosshair;margin:0 auto;user-select:none;border-radius:10px">
+        <img src="${bl.thumb}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover;pointer-events:none" draggable="false">
+        <div id="blurRect" style="position:absolute;border:2px solid #ff4d6d;background:rgba(255,77,109,.22);box-shadow:0 0 0 9999px rgba(0,0,0,.28);display:none;pointer-events:none"></div></div>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn" onclick="blurResetSel()">↺ 영역 초기화</button>
+        <button class="btn" onclick="blurClear()">🚫 블러 제거</button>
+        <button class="btn" onclick="blurClose()">닫기</button>
+        <button class="btn primary" onclick="blurApply()">적용</button></div></div>`;
+    document.body.appendChild(ov);
+    const cv=$('blurCanvas'), rect=$('blurRect'); let sx,sy,drawing=false;
+    cv.onmousedown=e=>{const r=cv.getBoundingClientRect();sx=e.clientX-r.left;sy=e.clientY-r.top;drawing=true;rect.style.display='block';rect.style.left=sx+'px';rect.style.top=sy+'px';rect.style.width='0px';rect.style.height='0px';};
+    cv.onmousemove=e=>{if(!drawing)return;const r=cv.getBoundingClientRect();const cx=Math.max(0,Math.min(r.width,e.clientX-r.left)),cy=Math.max(0,Math.min(r.height,e.clientY-r.top));const x=Math.min(sx,cx),y=Math.min(sy,cy),w=Math.abs(cx-sx),h=Math.abs(cy-sy);rect.style.left=x+'px';rect.style.top=y+'px';rect.style.width=w+'px';rect.style.height=h+'px';blurState.box={x:x/r.width,y:y/r.height,w:w/r.width,h:h/r.height};};
+    window.onmouseup=()=>{drawing=false;};
+  }
+  function blurClose(){const o=$('blurOv');if(o)o.remove();window.onmouseup=null;}
+  function blurResetSel(){blurState.box=null;const r=$('blurRect');if(r)r.style.display='none';flash('영역을 지웠어요 · 다시 드래그하세요');}
+  function blurClear(){blurSend(null);}
+  function blurApply(){if(!blurState.box||blurState.box.w<0.03||blurState.box.h<0.03){flash('가릴 영역을 드래그하세요');return;}blurSend(blurState.box);}
+  function blurSend(box){
+    const i=blurState.i; flash('🌫 적용 중… (컷 재렌더)'); blurClose();
+    apiJson('/api/reelproj/block_blur',{code:code(),pid:wiz.pid,block:i,blur:box}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const jid=d.job;
+      (async function pp(){let j;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(pp,2000);return;}
+        if(j.status==='done'){editRender(j.result);flash(box?'✅ 블러 적용됨':'✅ 블러 제거됨');}
+        else if(j.status==='error'){flash('❌ '+j.error);}
+        else setTimeout(pp,1500);})();
+    });
+  }
+
   /* ===== ⑦ BGM + 완성 ===== */
   let bgmState={list:[],sel:'',peek:null};
   function renderBgmStep(b){
@@ -1190,9 +1257,15 @@
   function bgmRenderFinal(v){
     const url=v+'?t='+Date.now();
     $('bgFinal').innerHTML=`<div class="lcard"><div style="font-weight:800;margin-bottom:8px">🎉 완성 쇼츠</div>
-      <video src="${url}" controls playsinline style="width:250px;max-width:100%;border-radius:10px;background:#000"></video>
-      <div style="margin-top:10px"><a class="btn primary" href="${url}" download="shorts.mp4" style="text-decoration:none">⬇ 다운로드</a></div></div>`;
+      <video src="${url}" controls playsinline style="width:min(375px,86vw);max-width:100%;border-radius:12px;background:#000"></video>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="${url}" download="shorts.mp4" style="text-decoration:none">⬇ 다운로드</a><button class="btn" onclick="bgmToResults()">📦 결과물로 보내기</button></div></div>`;
     scrollTopPane($('bgFinal'));
+  }
+  function bgmToResults(){
+    apiJson('/api/reelproj/to_results',{code:code(),pid:wiz.pid}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      flash('📦 결과물 탭으로 보냈어요!');
+    });
   }
 
   /* ===== ① 대본학습 + (다음:소재추천) ===== */
@@ -2331,7 +2404,7 @@
   const packBase=n=>`/packs/${encodeURIComponent(n)}`;
   const isJp=p=>p.story||p.lang==='ja';
   const acctOf=p=>isJp(p)?'kangaroostory.jp':(p.type==='cardnews'?'kangarooshort':'sowho77');
-  const iconOf=p=>isJp(p)?'📖':(p.type==='cardnews'?'🗂':'🏭');
+  const iconOf=p=>pkind(p)==='reel'?'🎬':(isJp(p)?'📖':(p.type==='cardnews'?'🗂':'🏭'));
   let ACCTS=['sowho77','kangarooshort','kangaroostory.jp'];   // 서버에서 갱신(관리자가 추가한 계정 포함)
   async function loadAccounts(){
     if(!code())return;
@@ -2371,15 +2444,16 @@
   function setKind(f){rKind=f;paintRail();paintGrid();}
   // 결과물 분류: 일본어/영어 먼저(수출), 그다음 소재/종류로. 레거시(source 없음) 폴백 포함
   function pkind(p){
+    const s=p.source||'';
+    if(s==='autoshort'||p.template==='reel'||p.type==='reel') return 'reel';
     if(p.lang==='ja'||p.story) return 'jp';
     if(p.lang==='en') return 'en';
-    const s=p.source||'';
     if(s==='youtube'||p.template==='youtube') return 'yt';
     if(s==='foreign'||s==='insta_import') return 'import';
     if(p.type==='cardnews'||s==='cardnews') return 'card';
     return 'community';   // community + 레거시 짤
   }
-  const KINDS=[['yt','▶️','유튜브 짤'],['community','🗨','커뮤니티 짤'],['jp','🇯🇵','일본 수출'],['en','🇺🇸','영어 수출'],['import','🇰🇷','한글 수입'],['card','🗂','카드뉴스']];
+  const KINDS=[['reel','🎬','자동쇼츠'],['yt','▶️','유튜브 짤'],['community','🗨','커뮤니티 짤'],['jp','🇯🇵','일본 수출'],['en','🇺🇸','영어 수출'],['import','🇰🇷','한글 수입'],['card','🗂','카드뉴스']];
   function paintRail(){
     const nUp=PACKS.filter(p=>p.published).length, nNo=PACKS.length-nUp;
     const cnt={}; PACKS.forEach(p=>{const k=pkind(p);cnt[k]=(cnt[k]||0)+1;});
@@ -2411,6 +2485,21 @@
       const stat=p.published?'<span class="mchip up">📤 업로드완료</span>':'<span class="mchip no">🆕 미업로드</span>';
       const jp=isJp(p)?'<span class="mchip jp">🇯🇵</span>':'';
       const card=document.createElement('div'); card.className='card'; card.tabIndex=0;
+      if(pkind(p)==='reel'){                 // 자동쇼츠(세로영상): 잘림없이(contain) + 호버 재생
+        const vsrc=`${base}/${p.video||'video.mp4'}`;
+        card.innerHTML=`<div class="thumb" style="background:#000">
+          <img class="cimg" src="${base}/${p.thumb}?t=${Date.now()}" loading="lazy" style="width:100%;height:100%;object-fit:contain;display:block">
+          <video class="cvid" src="${vsrc}" muted loop playsinline preload="none" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;transition:opacity .2s"></video>
+          <div class="cchips"><span class="mchip count">🎬 릴스</span>${stat}</div>
+          <div class="hovercta"><span>클릭해서 편집·대표컷 →</span></div></div>
+          <div class="meta"><div class="t">${iconOf(p)} ${esch(p.title)}</div><div class="d">${esch((p.created||'').replace('T',' ').slice(0,16))}</div></div>`;
+        const vid=card.querySelector('.cvid');
+        card.addEventListener('mouseenter',()=>{vid.style.opacity=1;try{vid.currentTime=0;vid.play();}catch(_){}} );
+        card.addEventListener('mouseleave',()=>{vid.style.opacity=0;try{vid.pause();}catch(_){}} );
+        card.addEventListener('click',()=>openReelModal(p.name));
+        card.addEventListener('keydown',e=>{if(e.key==='Enter')openReelModal(p.name);});
+        g.appendChild(card); return;
+      }
       card.innerHTML=`<div class="thumb">
         <img class="cimg" src="${base}/${p.thumb}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">
         <div class="cchips"><span class="mchip count">🖼 ${p.n||0}장</span>${jp}${stat}</div>
@@ -2457,6 +2546,81 @@
   }
   function closeModal(){$('scrim').classList.remove('open');closePop();PK=null;}
   function reloadModal(){ if(PK) openModal(PK.name); }
+
+  /* ---- 자동쇼츠(릴스) 전용 모달: 영상재생 + 대표컷 3택 + CTA캡션 ---- */
+  let PKR=null;
+  async function openReelModal(name){
+    let d; try{d=await apiJson('/api/pack',{code:code(),pack:name});}catch(e){flash('통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    PKR=d; const base=packBase(d.name), ts=Date.now();
+    const cands=(d.reel_thumbs&&d.reel_thumbs.length)?d.reel_thumbs:(d.thumbs||[]).filter(x=>x!=='thumb.jpg');
+    const cover=d.cover||'';
+    const ov=document.createElement('div'); ov.id='reelOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.onclick=e=>{if(e.target===ov)closeReelModal();};
+    ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;max-width:960px;width:100%;max-height:94vh;overflow:auto;display:flex;gap:18px;flex-wrap:wrap">
+      <div style="flex:0 0 auto;text-align:center">
+        <video src="${base}/${d.video||'video.mp4'}?t=${ts}" controls autoplay muted loop playsinline style="height:min(70vh,620px);max-width:100%;border-radius:14px;background:#000"></video>
+      </div>
+      <div style="flex:1;min-width:280px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:8px"><div style="font-weight:800;font-size:17px">🎬 ${esch(d.title)}</div>
+          <button class="btn collmini" style="margin-left:auto" onclick="closeReelModal()">✕</button></div>
+        <div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">📸 인스타 대표 썸네일 (클릭해서 지정)</div>
+          <div id="reelCovers" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${cands.map(fn=>`
+            <div class="reelcov ${fn===cover?'sel':''}" data-fn="${fn}" onclick="reelSetCover('${fn}')" style="cursor:pointer;border:2px solid ${fn===cover?'var(--gold)':'var(--line)'};border-radius:9px;overflow:hidden;position:relative;background:#000">
+              <img src="${base}/${fn}?t=${ts}" style="width:100%;aspect-ratio:9/16;object-fit:cover;display:block">
+              ${fn===cover?'<div style="position:absolute;bottom:0;left:0;right:0;background:var(--gold);color:#04120c;font-size:10px;font-weight:800;text-align:center;padding:2px">✅ 대표</div>':''}
+            </div>`).join('')||'<div class="caphint">대표컷 후보 없음</div>'}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;flex:1">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">📝 캡션 (대본 기반 CTA 자동생성 · 수정 가능)</div>
+          <textarea id="reelCap" style="flex:1;min-height:150px;width:100%;resize:vertical;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);padding:10px;font:inherit;line-height:1.5">${esch(d.caption||'')}</textarea>
+          <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+            <button class="btn" onclick="reelRegenCap()" title="대본으로 캡션 새로 생성">✨ 캡션 새로생성</button>
+            <button class="btn" onclick="reelSaveCap()">💾 캡션 저장</button></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px">
+          <a class="btn primary" href="${base}/${d.video||'video.mp4'}" download="${esch(d.name)}.mp4" style="text-decoration:none">⬇ 영상 다운로드</a>
+          <button class="btn" onclick="reelDelete()" style="margin-left:auto">🗑 삭제</button></div>
+      </div></div>`;
+    document.body.appendChild(ov);
+  }
+  function closeReelModal(){const o=$('reelOv');if(o)o.remove();PKR=null;}
+  function reelSetCover(fn){
+    if(!PKR)return;
+    apiJson('/api/pack/reelcover',{code:code(),pack:PKR.name,cover:fn}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      PKR.cover=fn;
+      [...document.querySelectorAll('#reelCovers .reelcov')].forEach(el=>{
+        const on=el.dataset.fn===fn; el.style.borderColor=on?'var(--gold)':'var(--line)';
+        el.querySelector('div')&&el.querySelector('div').remove();
+        if(on){const b=document.createElement('div');b.style.cssText='position:absolute;bottom:0;left:0;right:0;background:var(--gold);color:#04120c;font-size:10px;font-weight:800;text-align:center;padding:2px';b.textContent='✅ 대표';el.appendChild(b);}
+      });
+      flash('✅ 대표 썸네일 지정됨'); loadPacks();
+    });
+  }
+  function reelSaveCap(){
+    if(!PKR)return;
+    apiJson('/api/caption/save',{code:code(),pack:PKR.name,caption:$('reelCap').value}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;} flash('💾 캡션 저장됨');
+    });
+  }
+  function reelRegenCap(){
+    if(!PKR)return; flash('✨ 캡션 생성 중…');
+    apiJson('/api/pack/recaption',{code:code(),pack:PKR.name}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      if($('reelCap'))$('reelCap').value=d.caption||''; flash('✅ 새 캡션 생성됨');
+    });
+  }
+  function reelDelete(){
+    if(!PKR)return; const nm=PKR.name;
+    if(!confirm('이 릴스를 삭제할까요? (휴지통으로 이동 · 복구 가능)'))return;
+    apiJson('/api/pack/delete',{code:code(),pack:nm}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      closeReelModal(); loadPacks(); flash('🗑 휴지통으로 이동했어요');
+    });
+  }
   function paintThumbs(){
     if(!PK)return; const base=packBase(PK.name);
     $('thumbrow').innerHTML=(PK.thumbs||[]).map((fn,i)=>{

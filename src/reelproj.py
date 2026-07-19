@@ -329,6 +329,30 @@ def _gjson(cfg, prompt, maxtok=4096):
     return brain._parse_json(raw)
 
 
+def caption_cta(cfg, script, topic=""):
+    """영상 대본 기반 인스타 릴스 캡션(훅 + 핵심 + CTA + 해시태그) 자동 생성."""
+    script = (script or "").strip()
+    if not script:
+        return (topic or "").strip()
+    prompt = f"""너는 인스타 릴스 카피라이터다. 아래 영상 대본을 바탕으로 릴스 캡션을 써라.
+[소재] {topic}
+[대본]
+{script[:1500]}
+
+규칙:
+- 첫 줄: 스크롤을 멈추게 하는 강한 훅 한 줄(이모지 1개 이내).
+- 본문 2~3줄: 대본 핵심을 짧고 쉽게. 과장 금지.
+- 마지막 줄: 행동 유도(CTA) 한 줄 — 저장/팔로우/댓글/프로필 링크 중 소재에 맞는 것으로 자연스럽게.
+- 그 아래 해시태그 5~8개(한국어 위주, 소재 관련).
+- 한국어. 존댓말 살짝. 이모지 과하지 않게.
+반드시 JSON만: {{"caption":"...(줄바꿈 \\n 포함 전체 캡션)..."}}"""
+    try:
+        cap = str(_gjson(cfg, prompt).get("caption", "")).strip()
+        return cap or script
+    except Exception:
+        return script
+
+
 def _match_edl(cfg, subs, total, clips):
     """자막 타이밍에 클립 배치(내용 전환점 블록화, 태그매칭, 재사용금지)."""
     sub_lines = "\n".join(f"[{round(s['s'],1)}~{round(s['e'],1)}s] {s['t']}" for s in subs)
@@ -445,6 +469,53 @@ def set_subs_style(base, pid, style):
     return st["subs_style"]
 
 
+def _apply_blur(path, bl, feather=10):
+    """클립(1080x1920)의 정규화 박스(x,y,w,h 0~1) 영역에 블러 적용(가장자리 페더). 제자리 덮어씀."""
+    try:
+        x, y, w, h = float(bl.get("x", 0)), float(bl.get("y", 0)), float(bl.get("w", 0)), float(bl.get("h", 0))
+    except Exception:
+        return
+    if w <= 0.02 or h <= 0.02:
+        return
+    x = max(0.0, min(0.98, x)); y = max(0.0, min(0.98, y))
+    w = min(w, 1 - x); h = min(h, 1 - y)
+    W, H = 1080, 1920
+
+    def _ev(n):
+        n = int(round(n)); return n - (n % 2)
+    cw, ch = max(4, _ev(w * W)), max(4, _ev(h * H))
+    cx, cy = _ev(x * W), _ev(y * H)
+    f = max(0, int(feather))
+    tmp = Path(str(path) + ".b.mp4")
+    if f >= 2 and cw > 2 * f + 4 and ch > 2 * f + 4:
+        # 크롭 스트림을 복제해 하나는 블러, 하나는 흰박스 마스크(가장자리 gblur=페더)로 → 유한 합성
+        fc = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},split[c1][c2];"
+              f"[c1]gblur=sigma=22[fg];"
+              f"[c2]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill,"
+              f"drawbox=x={f}:y={f}:w=iw-{2 * f}:h=ih-{2 * f}:color=white:t=fill,"
+              f"gblur=sigma={max(1.0, f * 0.6):.1f},format=gray[m];"
+              f"[fg][m]alphamerge[fga];"
+              f"[0:v][fga]overlay={cx}:{cy}[v]")
+    else:
+        fc = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},gblur=sigma=22[fg];"
+              f"[0:v][fg]overlay={cx}:{cy}[v]")
+    autoshorts._run([autoshorts.FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(path),
+                     "-filter_complex", fc, "-map", "[v]", "-r", "30", "-c:v", "libx264", "-preset",
+                     "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-an", str(tmp)])
+    tmp.replace(path)
+
+
+def set_block_blur(base, pid, idx, blur):
+    st = load(base, pid)
+    edl = st.get("edl") or []
+    if not (0 <= idx < len(edl)):
+        raise RuntimeError("잘못된 블록")
+    edl[idx]["blur"] = blur or None
+    _assemble_edit(base, pid, st, only_idx=idx)
+    save(base, pid, st)
+    return edit_public(base, pid, st)
+
+
 def _assemble_edit(base, pid, st, only_idx=None):
     """EDL대로 각 블록 클립을 need초로 맞춰 컷 → 이어붙이고 음성+자막 미리보기."""
     FF = autoshorts.FFMPEG
@@ -458,10 +529,18 @@ def _assemble_edit(base, pid, st, only_idx=None):
         c = byid.get(e["cands"][e["used"]]) or byid.get(e["clip_id"])
         need = e["end"] - e["start"]
         _fit_clip(edir.parent / "clips" / c["file"], c.get("dur", need), need, edir / f"s{i}.mp4")
+        if e.get("blur"):
+            _apply_blur(edir / f"s{i}.mp4", e["blur"])
     (edir / "_list.txt").write_text("".join(f"file 's{i}.mp4'\n" for i in range(len(edl))), encoding="utf-8")
-    _run = autoshorts._run
-    _run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
-          "-i", "_list.txt", "-c", "copy", "video.mp4"], cwd=str(edir))
+    autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+                     "-i", "_list.txt", "-c", "copy", "video.mp4"], cwd=str(edir))
+    _mux_subs(base, pid, st)
+
+
+def _mux_subs(base, pid, st):
+    """edit/video.mp4(무자막) + tts + 현재 자막스타일 → preview.mp4 (재컷 없이 자막만 재합성)."""
+    FF = autoshorts.FFMPEG
+    edir = pdir(base, pid) / "edit"
     style = st.get("subs_style") or DEFAULT_STYLE
     _subs_ass(edir / "sub.ass", st["tts"]["subs"], style)
     # 커스텀 폰트면 edit 폴더로 복사 → fontsdir=. 로 libass가 찾게(경로 콜론 회피)
@@ -476,9 +555,21 @@ def _assemble_edit(base, pid, st, only_idx=None):
         except Exception:
             pass
     # cwd=edir 이므로 상위 tts 폴더는 ../tts 로 참조(절대/상대 base 모두 안전)
-    _run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", "video.mp4", "-i", "../tts/tts.mp3",
-          "-vf", ff_arg, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
-          "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", "preview.mp4"], cwd=str(edir))
+    autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", "video.mp4", "-i", "../tts/tts.mp3",
+                     "-vf", ff_arg, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
+                     "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", "preview.mp4"], cwd=str(edir))
+
+
+def restyle_subs(base, pid):
+    """자막 스타일만 바꿔 preview.mp4 재합성(정밀컷 결과 재사용, 빠름). BGM 완성본은 무효화."""
+    st = load(base, pid)
+    if not (pdir(base, pid) / "edit" / "video.mp4").exists():
+        raise RuntimeError("먼저 ⑥ 정밀 컷을 생성하세요")
+    _mux_subs(base, pid, st)
+    st.pop("final", None)          # 자막 바뀌었으니 이전 완성본 무효
+    st.pop("bgm", None)
+    save(base, pid, st)
+    return edit_public(base, pid, st)
 
 
 def build_edit(cfg, base, pid, log=print):
@@ -521,7 +612,8 @@ def edit_public(base, pid, st):
         blocks.append({"i": i, "start": round(e["start"], 1), "end": round(e["end"], 1),
                        "dur": round(e["end"] - e["start"], 1), "tag": c.get("tag", ""),
                        "thumb": f"/reelproj/{pid}/clips/{c.get('thumb','')}",
-                       "cand": e["used"] + 1, "cand_total": len(e.get("cands", []))})
+                       "cand": e["used"] + 1, "cand_total": len(e.get("cands", [])),
+                       "blur": bool(e.get("blur"))})
     return {"preview": f"/reelproj/{pid}/edit/preview.mp4", "blocks": blocks}
 
 

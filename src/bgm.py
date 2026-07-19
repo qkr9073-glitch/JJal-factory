@@ -4,7 +4,33 @@
 import shutil
 from pathlib import Path
 
+from . import autoshorts
+
 _EXT = (".mp3", ".wav")
+
+
+def _trim_lead_silence(path):
+    """BGM 앞부분 무음구간 자동 제거(원본보다 무음이 긴 경우 방지). 실패해도 원본 유지."""
+    p = Path(path)
+    tmp = p.with_name(p.stem + ".trim" + p.suffix)
+    af = "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0:detection=peak"
+    if p.suffix.lower() == ".wav":
+        acodec = ["-c:a", "pcm_s16le"]
+    else:
+        acodec = ["-c:a", "libmp3lame", "-b:a", "256k"]
+    try:
+        autoshorts._run([autoshorts.FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+                         "-i", str(p), "-af", af] + acodec + [str(tmp)])
+        if tmp.exists() and tmp.stat().st_size > 1024:
+            tmp.replace(p)
+        elif tmp.exists():
+            tmp.unlink()
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
 
 
 def bdir(base, code):
@@ -22,7 +48,9 @@ def save_upload(base, code, filename, data):
     safe = Path(filename).name
     if Path(safe).suffix.lower() not in _EXT:
         raise RuntimeError("mp3/wav 파일만 가능합니다")
-    (bdir(base, code) / safe).write_bytes(data)
+    dst = bdir(base, code) / safe
+    dst.write_bytes(data)
+    _trim_lead_silence(dst)          # 앞부분 무음 자동 제거
     return list_bgm(base, code)
 
 

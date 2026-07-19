@@ -2375,6 +2375,10 @@ def favicon():
 
 @app.get("/fonts/<path:name>")
 def serve_font(name):
+    # 릴스 자막 폰트 라이브러리(BASE/fonts)를 먼저, 없으면 UI 폰트(assets/fonts)
+    lib = BASE / "fonts" / Path(name).name
+    if lib.exists():
+        return send_from_directory(BASE / "fonts", Path(name).name, max_age=2592000)
     return send_from_directory(BASE / "assets" / "fonts", name, max_age=2592000)
 
 
@@ -2779,6 +2783,7 @@ def api_packs():
                           "thumb": thumb,
                           "story": is_story,
                           "lang": meta.get("lang", "ko"),
+                          "video": (meta.get("video") or ""),
                           "used": len(checked), "archived": show_arch,
                           "published": d.name in pub})
             if len(packs) >= 60:
@@ -2846,6 +2851,11 @@ def api_pack_detail():
         "caption": caption,
         "thumbs": sorted(p.name for p in d.glob("thumb*.jpg")),
         "images": sorted(p.name for p in d.glob("[0-9][0-9].jpg")),
+        "source": meta.get("source", ""),
+        "template": meta.get("template", ""),
+        "video": (meta.get("video") or (lambda v: v[0].name if v else "")(sorted(d.glob("*.mp4")))),
+        "reel_thumbs": meta.get("reel_thumbs", []),
+        "cover": meta.get("cover", ""),
         "zip": zips[0].name if zips else "",
         "ebook": (d / "ebook.pdf").exists(),
         "hooks": meta.get("hooks", []),
@@ -2895,6 +2905,57 @@ def api_caption_save():
         return jsonify(ok=False, error="캡션이 비어 있어요"), 400
     (pack_dir / "caption.txt").write_text(cap, encoding="utf-8")
     return jsonify(ok=True)
+
+
+@app.post("/api/pack/recaption")
+def api_pack_recaption():
+    """릴스 캡션을 대본 기반 CTA로 재생성(meta.script 사용)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    pd = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not pd.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    try:
+        meta = json.loads((pd / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        meta = {}
+    script = meta.get("script", "")
+    if not script:
+        return jsonify(ok=False, error="대본 정보가 없어요(옛 릴스는 재생성 불가)"), 400
+    cap = reelproj.caption_cta(cfg, script, meta.get("title", ""))
+    (pd / "caption.txt").write_text(cap, encoding="utf-8")
+    return jsonify(ok=True, caption=cap)
+
+
+@app.post("/api/pack/reelcover")
+def api_pack_reelcover():
+    """릴스 대표 썸네일(커버)을 후보 3장 중 하나로 지정 → thumb.jpg 교체 + meta 갱신."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    pd = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not pd.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    fn = Path((data.get("cover") or "").strip()).name
+    src = pd / fn
+    if not fn.startswith("thumb") or not src.exists():
+        return jsonify(ok=False, error="대표컷 후보가 아니에요"), 400
+    try:
+        shutil.copy(str(src), str(pd / "thumb.jpg"))
+        meta = {}
+        mf = pd / "meta.json"
+        if mf.exists():
+            meta = json.loads(mf.read_text(encoding="utf-8"))
+        meta["cover"] = fn
+        mf.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        return jsonify(ok=False, error=f"교체 실패: {e}"), 500
+    return jsonify(ok=True, cover=fn)
 
 
 # ── 사용완료 체크 → 보관함 이동 시스템 ─────────────────────────
@@ -3505,18 +3566,30 @@ def _sched_save(items):
                               encoding="utf-8")
 
 
+def _sched_autohold(items, now, grace=600):
+    """상태 자동 정리: 시간 지난 승인대기(await)=보류(hold), 시간 지난 pending=놓침(missed).
+    데이터는 그대로 두고 status만 바꿔 재예약 가능하게. 변경 여부 반환."""
+    ch = False
+    for e in items:
+        stt = e.get("status")
+        ts = e.get("ts", 0)
+        if stt == "await" and ts < now:          # 승인 안 된 채 시간 지남 → 보류
+            e["status"] = "hold"
+            e["held_at"] = datetime.now().isoformat(timespec="seconds")
+            ch = True
+        elif stt == "pending" and ts < now - grace:   # 승인됐지만 게시 못 함 → 놓침
+            e["status"] = "missed"
+            ch = True
+    return ch
+
+
 def _scheduler_loop():
     """예약 큐 주기 확인 → 시간 되면 자동 게시. 서버 꺼져 놓친 건 시작 시 '놓침' 처리."""
     grace = 600   # 10분 이상 지난 pending = (서버 꺼졌던 것) → 놓침
     try:
         items = _sched_load()
         now = time.time()
-        ch = False
-        for e in items:
-            if e.get("status") == "pending" and e.get("ts", 0) < now - grace:
-                e["status"] = "missed"
-                ch = True
-        if ch:
+        if _sched_autohold(items, now, grace):
             _sched_save(items)
     except Exception:
         pass
@@ -3524,6 +3597,9 @@ def _scheduler_loop():
         try:
             items = _sched_load()
             now = time.time()
+            ch = _sched_autohold(items, now, grace)
+            if ch:
+                _sched_save(items)
             due = [e for e in items
                    if e.get("status") == "pending" and e.get("ts", 0) <= now]
             if due:
@@ -3607,6 +3683,8 @@ def api_schedule_list():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     items = _sched_load()
+    if _sched_autohold(items, time.time()):     # 목록 조회 시점에 지난 예약 즉시 정리
+        _sched_save(items)
     # 일반 회원은 본인이 만든 예약만, 관리자는 전체
     if not _is_admin(cfg, data.get("code")):
         mycode = (data.get("code") or "").strip()
@@ -3703,8 +3781,12 @@ def api_schedule_reschedule():
         if e.get("id") == sid:
             if not _is_admin(cfg, mycode) and e.get("by_code") != mycode:
                 return jsonify(ok=False, error="본인 예약만 변경할 수 있습니다"), 403
-            if e.get("status") not in ("pending", "await"):
+            if e.get("status") not in ("pending", "await", "hold", "missed"):
                 return jsonify(ok=False, error="이미 처리된 예약은 변경할 수 없습니다"), 400
+            # 보류/놓침 건을 재예약하면 다시 승인 대기(관리자면 바로 확정)
+            if e.get("status") in ("hold", "missed"):
+                e["status"] = "pending" if _is_admin(cfg, mycode) else "await"
+                e.pop("held_at", None)
             e["ts"] = ts
             e["when"] = (data.get("when") or "").strip()
             hit = True
@@ -4395,6 +4477,82 @@ def api_reelproj_clips():
     return jsonify(ok=True, clips=reelproj.clips_public(pid, reelproj.load(BASE, pid)))
 
 
+@app.post("/api/reelproj/to_results")
+def api_reelproj_to_results():
+    """완성 쇼츠를 상단 '결과물' 탭으로 보냄(팩 생성)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    st = reelproj.load(BASE, pid)
+    final = BASE / "reelproj" / pid / "edit" / "final.mp4"
+    if not final.exists():
+        return jsonify(ok=False, error="완성본이 없어요 (⑦ 완성 먼저)"), 400
+    title = (st.get("topic") or "자동 쇼츠").strip()[:40]
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    from datetime import datetime as _dt
+    base_name = f"{_dt.now():%Y%m%d_%H%M}_" + re.sub(r"[^\w가-힣]+", "_", title).strip("_")[:30]
+    pack = OUTPUT / base_name
+    n = 1
+    while pack.exists():
+        n += 1
+        pack = OUTPUT / f"{base_name}_{n}"
+    pack.mkdir(parents=True)
+    ff = autoshorts.FFMPEG
+    shutil.copy(str(final), str(pack / "video.mp4"))
+    # 대표컷 후보 3장 추출(영상 길이의 20/50/80% 지점) → 인스타 썸네일 선택용
+    dur = 0.0
+    try:
+        pr = autoshorts._run([autoshorts.FFPROBE, "-v", "error", "-show_entries",
+                              "format=duration", "-of", "csv=p=0", str(final)])
+        dur = float((pr.stdout or "0").strip() or 0)
+    except Exception:
+        dur = 0.0
+    reel_thumbs = []
+    for i, frac in enumerate((0.2, 0.5, 0.8), 1):
+        ss = max(0.1, dur * frac) if dur > 0 else (0.5 * i)
+        tn = f"thumb{i}.jpg"
+        try:
+            autoshorts._run([ff, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{ss:.2f}",
+                             "-i", str(final), "-frames:v", "1", "-vf", "scale=720:-2", str(pack / tn)])
+            if (pack / tn).exists():
+                reel_thumbs.append(tn)
+        except Exception:
+            pass
+    # 기본 대표컷 = 가운데(thumb2), 없으면 첫 후보
+    cover = "thumb2.jpg" if "thumb2.jpg" in reel_thumbs else (reel_thumbs[0] if reel_thumbs else "")
+    if cover:
+        shutil.copy(str(pack / cover), str(pack / "thumb.jpg"))
+    else:
+        try:
+            autoshorts._run([ff, "-hide_banner", "-loglevel", "error", "-y", "-ss", "0.5",
+                             "-i", str(final), "-frames:v", "1", "-vf", "scale=720:-2", str(pack / "thumb.jpg")])
+        except Exception:
+            pass
+    # 캡션 = 대본 기반 CTA 자동 생성(실패 시 대본 원문)
+    caption = reelproj.caption_cta(cfg, st.get("script", ""), title)
+    (pack / "caption.txt").write_text(caption, encoding="utf-8")
+    meta = {"title": title, "created": _dt.now().isoformat(timespec="seconds"),
+            "source": "autoshort", "type": "reel", "template": "reel", "video": "video.mp4",
+            "reel_thumbs": reel_thumbs, "cover": cover, "script": str(st.get("script", "")),
+            "site": "자동 쇼츠", "lang": "ko"}
+    (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    (pack / "review.html").write_text(
+        "<!doctype html><meta charset=utf-8><title>" + title + "</title>"
+        "<body style='background:#111;color:#eee;font-family:sans-serif;text-align:center;padding:20px'>"
+        f"<h2>{title}</h2><video src='video.mp4' controls style='max-width:360px;width:100%;border-radius:12px'></video>"
+        f"<pre style='text-align:left;max-width:360px;margin:16px auto;white-space:pre-wrap'>{caption}</pre></body>",
+        encoding="utf-8")
+    _owner_set(pack.name, code)
+    st["sent_to_results"] = pack.name
+    reelproj.save(BASE, pid, st)
+    return jsonify(ok=True, pack=pack.name)
+
+
 @app.post("/api/reelproj/list")
 def api_reelproj_list():
     """계정별 저장된 프로젝트 목록(이어하기용)."""
@@ -4729,6 +4887,64 @@ def _run_reelproj_edit_reroll(jid, cfg, pid, idx):
         job.update(status="done", pct=100, msg="완료")
     except Exception as e:
         job.update(status="error", error=str(e)[:220])
+
+
+def _run_reelproj_block_blur(jid, cfg, pid, idx, blur):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=25, msg=f"컷 {idx+1} 블러 적용 중…")
+        res = reelproj.set_block_blur(BASE, pid, idx, blur)
+        job["result"] = res
+        job.update(status="done", pct=100, msg="완료")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/reelproj/block_blur")
+def api_reelproj_block_blur():
+    """정밀 컷의 특정 블록에 블러 박스 지정/해제 후 그 컷만 재렌더."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    try:
+        idx = int(data.get("block"))
+    except Exception:
+        return jsonify(ok=False, error="블록 번호 오류"), 400
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    blur = data.get("blur")   # {x,y,w,h} 또는 null(해제)
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_reelproj_block_blur, args=(jid, cfg, pid, idx, blur), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+def _run_reelproj_restyle(jid, cfg, pid):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=30, msg="자막 다시 입히는 중…")
+        job["result"] = reelproj.restyle_subs(BASE, pid)
+        job.update(status="done", pct=100, msg="완료")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/reelproj/restyle")
+def api_reelproj_restyle():
+    """정밀 컷 재사용 + 현재 자막 스타일만 다시 입혀 미리보기 재생성(빠름)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_reelproj_restyle, args=(jid, cfg, pid), daemon=True).start()
+    return jsonify(ok=True, job=jid)
 
 
 @app.post("/api/reelproj/edit_reroll")
