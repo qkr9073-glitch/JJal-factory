@@ -4439,7 +4439,7 @@ def api_reelproj_tts_file(pid, fn):
     return send_from_directory(str(d), safe)
 
 
-def _run_reelproj_tts(jid, cfg, pid):
+def _run_reelproj_tts(jid, cfg, pid, speed):
     job = JOBS[jid]
 
     def log(m):
@@ -4452,7 +4452,7 @@ def _run_reelproj_tts(jid, cfg, pid):
 
     try:
         job.update(status="running", pct=5)
-        res = reelproj.build_tts(cfg, BASE, pid, log=log)
+        res = reelproj.build_tts(cfg, BASE, pid, speed=speed, log=log)
         job["result"] = res
         job.update(status="done", pct=100, msg=f"완료 — {res.get('n_sub',0)}개 자막 · {res.get('dur',0)}초")
     except Exception as e:
@@ -4545,9 +4545,13 @@ def api_reelproj_tts():
     pid = (data.get("pid") or "").strip()
     if not pid or not reelproj.exists(BASE, pid):
         return jsonify(ok=False, error="프로젝트가 없어요 (③ 영상수집부터)"), 404
+    try:
+        speed = float(data.get("speed", 1.0))
+    except Exception:
+        speed = 1.0
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
-    threading.Thread(target=_run_reelproj_tts, args=(jid, cfg, pid), daemon=True).start()
+    threading.Thread(target=_run_reelproj_tts, args=(jid, cfg, pid, speed), daemon=True).start()
     return jsonify(ok=True, job=jid)
 
 

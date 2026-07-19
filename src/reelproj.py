@@ -200,7 +200,7 @@ def state_public(base, pid):
     tts = None
     if t and (pdir(base, pid) / "tts" / "tts.mp3").exists():
         tts = {"dur": t.get("dur"), "n_sub": t.get("n_sub"), "subs": t.get("subs", []),
-               "audio": f"/reelproj/{pid}/tts/tts.mp3"}
+               "speed": t.get("speed", 1.0), "audio": f"/reelproj/{pid}/tts/tts.mp3"}
     edit = None
     if st.get("edl") and (pdir(base, pid) / "edit" / "preview.mp4").exists():
         try:
@@ -211,9 +211,10 @@ def state_public(base, pid):
             "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit}
 
 
-def build_tts(cfg, base, pid, log=print):
+def build_tts(cfg, base, pid, speed=1.0, log=print):
     """확정 대본 → 문장별 ElevenLabs TTS(타임스탬프) → 앞뒤 무음 트림 → 이어붙여
-    '몰아치는' 음성 + 짧은 구절 자막(문장부호/2어절). state['tts'] 저장."""
+    '몰아치는' 음성 + 짧은 구절 자막. speed로 말속도 조절(atempo, 톤 유지). state['tts'] 저장."""
+    speed = max(0.6, min(1.8, float(speed or 1.0)))
     st = load(base, pid)
     lines = [ln.strip() for ln in str(st.get("script", "")).splitlines() if ln.strip()]
     if not lines:
@@ -238,10 +239,12 @@ def build_tts(cfg, base, pid, log=print):
         e1 = float(words[-1]["s"]) + float(words[-1]["d"]) + 0.04   # 뒤 살짝 여유
         ln = tdir / f"line{i}.mp3"
         autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{s0:.3f}",
-                         "-to", f"{e1:.3f}", "-i", str(raw), "-c:a", "libmp3lame", "-q:a", "2", str(ln)])
+                         "-to", f"{e1:.3f}", "-i", str(raw), "-af", f"atempo={speed:.3f}",
+                         "-c:a", "libmp3lame", "-q:a", "2", str(ln)])
         line_files.append(ln.name)
-        for ch in autoshorts._chunks(words):               # 짧은 구절 자막
-            subs.append({"s": round(cum + (ch["s"] - s0), 2), "e": round(cum + (ch["e"] - s0), 2), "t": ch["t"]})
+        for ch in autoshorts._chunks(words):               # 짧은 구절 자막(속도만큼 타이밍 축소)
+            subs.append({"s": round(cum + (ch["s"] - s0) / speed, 2),
+                         "e": round(cum + (ch["e"] - s0) / speed, 2), "t": ch["t"]})
         cum += autoshorts._dur(ln)
         try:
             raw.unlink(missing_ok=True)
@@ -251,9 +254,12 @@ def build_tts(cfg, base, pid, log=print):
     (tdir / "_list.txt").write_text("".join(f"file '{n}'\n" for n in line_files), encoding="utf-8")
     autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
                      "-i", "_list.txt", "-c:a", "libmp3lame", "-q:a", "2", "tts.mp3"], cwd=str(tdir))
-    st["tts"] = {"audio": "tts/tts.mp3", "dur": round(cum, 2), "subs": subs, "n_sub": len(subs)}
+    st["tts"] = {"audio": "tts/tts.mp3", "dur": round(cum, 2), "subs": subs, "n_sub": len(subs), "speed": speed}
+    # 음성이 바뀌면 기존 정밀컷(edl/edit)은 무효 → 제거
+    st.pop("edl", None)
+    st.pop("edit", None)
     save(base, pid, st)
-    return {"dur": st["tts"]["dur"], "n_sub": len(subs), "subs": subs,
+    return {"dur": st["tts"]["dur"], "n_sub": len(subs), "subs": subs, "speed": speed,
             "audio": f"/reelproj/{pid}/tts/tts.mp3"}
 
 

@@ -830,6 +830,11 @@
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>🎙 음성 생성</b>
           <span style="font-size:12px;color:var(--muted)">확정 대본으로 생성 · 문장 사이 빈 구간을 잘라 몰아치게</span>
           <button class="btn primary" style="margin-left:auto" onclick="ttsRun()">음성 생성</button></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:11px;flex-wrap:wrap">
+          <span style="font-size:12.5px;color:var(--muted);white-space:nowrap">🐢 말속도 <b id="ttsSpeedV" style="color:var(--ink)">1.15x</b> 🐇</span>
+          <input type="range" id="ttsSpeed" min="0.8" max="1.6" step="0.05" value="1.15" style="flex:1;min-width:180px" oninput="var el=document.getElementById('ttsSpeedV');if(el)el.textContent=(+this.value).toFixed(2)+'x'">
+        </div>
+        <div class="caphint" style="margin-top:5px;color:var(--faint)">느리면 오른쪽(🐇)으로. 톤은 유지되고 속도만 바뀝니다. 바꾸면 [음성 생성] 다시 누르세요.</div>
         <div id="ttsJob"></div>
       </div>
       <div id="ttsOut"></div>
@@ -838,7 +843,8 @@
   }
   function ttsLoad(){apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok&&d.tts)ttsRender(d.tts);});}
   function ttsRun(){
-    apiJson('/api/reelproj/tts',{code:code(),pid:wiz.pid}).then(d=>{
+    const speed=parseFloat(($('ttsSpeed')&&$('ttsSpeed').value)||'1.15');
+    apiJson('/api/reelproj/tts',{code:code(),pid:wiz.pid,speed}).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
       $('ttsJob').innerHTML=`<div id="tj-${d.job}" style="margin-top:10px;font-size:13px"><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-bottom:5px"><div style="height:100%;width:5%;background:var(--gold);transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span></div>`;
       ttsPoll(d.job);
@@ -857,6 +863,7 @@
   }
   function ttsRender(t){
     if(!t)return; wiz._tts=t;
+    if(t.speed&&$('ttsSpeed')){$('ttsSpeed').value=t.speed;const v=$('ttsSpeedV');if(v)v.textContent=(+t.speed).toFixed(2)+'x';}
     const subs=(t.subs||[]).map(s=>`<span style="color:var(--faint)">${s.s}s</span> ${esch(s.t)}`).join('<br>');
     $('ttsOut').innerHTML=`<div class="lcard">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>🔊 완성 음성</b><span style="color:var(--faint);font-size:12px">${t.dur}초 · 짧은 구절 자막 ${t.n_sub}개</span></div>
