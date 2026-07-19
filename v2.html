@@ -122,6 +122,14 @@
   .wizsep{color:var(--faint)}
   .lcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
   .catrow{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px}
+  .catgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+  .catcard{background:var(--panel2);border:1px solid var(--line);border-radius:13px;overflow:hidden;display:flex;flex-direction:column}
+  .catcard .banner{height:84px;display:flex;align-items:center;justify-content:center;font-size:38px;position:relative;text-shadow:0 2px 8px rgba(0,0,0,.35)}
+  .catcard .cnt{position:absolute;top:7px;right:8px;background:rgba(10,14,20,.62);color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:20px;text-shadow:none}
+  .catcard .cbody{padding:10px 12px 4px;flex:1;display:flex;flex-direction:column;gap:4px}
+  .catcard .cnm{font-weight:800;font-size:14.5px}
+  .catcard .csm{font-size:11.5px;color:var(--muted);line-height:1.45;max-height:52px;overflow:hidden}
+  .catcard .cacts{display:flex;gap:4px;padding:9px 11px}
   .trpick{position:absolute;top:5px;left:5px;display:flex;align-items:center;gap:3px;background:rgba(10,14,20,.72);border:1.5px solid rgba(255,255,255,.35);border-radius:8px;padding:3px 6px;font-size:12px;cursor:pointer;user-select:none}
   .trpick.on{background:var(--gold);border-color:var(--gold);color:#12141a}
   .trpick input{margin:0;cursor:pointer}
@@ -697,18 +705,31 @@
     const av=$('lavail'); if(av)av.textContent=learnState.avail?`· 미학습 대본 ${learnState.avail}개`:'· 새로 학습할 대본 없음';
     paintCats();
   }
+  function catEmoji(name){
+    const n=String(name||'');
+    if(/쇼핑|제품|상품|템|추천|리뷰|판매|가성비/.test(n))return '🛍️';
+    if(/유머|웃|개그|밈|드립/.test(n))return '😂';
+    if(/이슈|시사|화제|뉴스|논란/.test(n))return '🔥';
+    if(/썰|경험|사연|이야기|스토리/.test(n))return '💬';
+    if(/정보|팁|꿀팁|지식|하우투|방법/.test(n))return '💡';
+    if(/뷰티|화장|메이크업|코스메틱/.test(n))return '💄';
+    if(/음식|요리|맛집|먹|레시피/.test(n))return '🍜';
+    if(/여행|브이로그|일상|데일리/.test(n))return '🎬';
+    if(/운동|헬스|건강|다이어트/.test(n))return '💪';
+    if(/돈|재테크|투자|부업|수익/.test(n))return '💰';
+    if(/패션|옷|코디|스타일/.test(n))return '👗';
+    if(/감성|힐링|위로|명언/.test(n))return '🌿';
+    return '📄';
+  }
   function paintCats(){
     const el=$('lcats'); if(!el)return;
     if(!learnState.cats.length){el.innerHTML='<div style="color:var(--faint)">아직 학습된 프로파일이 없어요. 위에서 <b>[학습 시작]</b>을 누르세요.</div>';return;}
-    el.innerHTML=learnState.cats.map((c,i)=>`
-      <div class="catrow">
-        <div style="flex:1;min-width:0">
-          <div><b>${esch(c.name)}</b> <span style="color:var(--faint);font-size:12px">· 대본 ${c.count}개</span></div>
-          <div style="font-size:12px;color:var(--muted);line-height:1.4;margin-top:2px;max-height:34px;overflow:hidden">${esch(c.summary||'(프로파일 분석 대기)')}</div></div>
-        <button class="btn collmini" onclick="learnProfile(${i})" title="프로파일 보기">👁</button>
-        <button class="btn collmini" onclick="learnRename(${i})" title="이름 변경">✎</button>
-        <button class="btn collmini" onclick="learnDelete(${i})" title="삭제·초기화">🗑</button>
-      </div>`).join('');
+    el.innerHTML='<div class="catgrid">'+learnState.cats.map((c,i)=>`
+      <div class="catcard">
+        <div class="banner" style="background:${grad(i*4+3)}"><span>${catEmoji(c.name)}</span><span class="cnt">${c.count}개</span></div>
+        <div class="cbody"><div class="cnm">${esch(c.name)}</div><div class="csm">${esch(c.summary||'프로파일 분석 대기…')}</div></div>
+        <div class="cacts"><button class="btn collmini" style="flex:1" onclick="learnProfile(${i})">👁 보기</button><button class="btn collmini" onclick="learnRename(${i})" title="이름 변경">✎</button><button class="btn collmini" onclick="learnDelete(${i})" title="삭제·초기화">🗑</button></div>
+      </div>`).join('')+'</div>';
   }
   function learnRun(){
     if(!code()){flash('접속코드를 입력하세요');return;}
