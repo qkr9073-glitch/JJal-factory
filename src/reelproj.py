@@ -6,6 +6,7 @@ state.json: {pid, code, script, topic, category, clips:[{id,file,thumb,tag,dur,s
 clips/ : 러프컷 클립(9:16) + 썸네일. 원본은 컷 후 삭제(용량), src_url로 재수집 가능.
 """
 import json
+import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,17 @@ from pathlib import Path
 import requests
 
 from . import autoshorts, brain, youtube
+
+
+def _has_video(path):
+    """영상(비디오) 트랙이 있는지. TikTok 사진 게시물은 오디오만 받아져 여기서 걸러짐."""
+    try:
+        r = subprocess.run([autoshorts.FFPROBE, "-v", "error", "-select_streams", "v",
+                            "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(path)],
+                           capture_output=True, text=True, creationflags=autoshorts._NO_WINDOW)
+        return "video" in (r.stdout or "")
+    except Exception:
+        return True   # 확인 실패 시 일단 진행
 
 
 def root(base):
@@ -101,12 +113,14 @@ def highlight_segments(cfg, video, topic, log=print):
 
 
 def collect_clips(cfg, base, pid, urls, log=print):
-    """URL 목록 → 각 영상 다운로드 → AI 러프컷(하이라이트 다중) → 9:16 클립+태그 누적."""
+    """URL 목록 → 각 영상 다운로드 → AI 러프컷(하이라이트 다중) → 9:16 클립+태그 누적.
+    반환: {'clips':[...], 'failed':[url,...]} (실패 영상 표시용)."""
     st = load(base, pid)
     topic = st.get("topic") or ""
     cdir = pdir(base, pid) / "clips"
     cdir.mkdir(exist_ok=True)
     total = len(urls)
+    failed = []
     for ui, url in enumerate(urls):
         log(f"[{ui+1}/{total}] 영상 다운로드…")
         vid = pdir(base, pid) / "_src.mp4"
@@ -114,13 +128,35 @@ def collect_clips(cfg, base, pid, urls, log=print):
             youtube.download_video(url, str(vid), cookies=youtube._reel_cookies(cfg))
         except Exception as e:
             log(f"   다운로드 실패, 건너뜀: {str(e)[:60]}")
+            failed.append(url)
+            continue
+        if not _has_video(vid):
+            log("   영상 트랙 없음(사진 게시물?), 건너뜀")
+            failed.append(url)
+            try:
+                vid.unlink(missing_ok=True)
+            except Exception:
+                pass
             continue
         log(f"[{ui+1}/{total}] 하이라이트 분석·컷…")
         try:
             segs = highlight_segments(cfg, vid, topic, log=log)
         except Exception as e:
-            log(f"   분석 실패: {str(e)[:60]}")
+            # Gemini 영상처리 실패(특이 포맷 등) → 표준 mp4로 재인코딩 후 1회 재시도
+            log(f"   분석 실패, 재인코딩 후 재시도… ({str(e)[:40]})")
             segs = []
+            try:
+                norm = pdir(base, pid) / "_norm.mp4"
+                autoshorts._run([autoshorts.FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(vid),
+                                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac",
+                                 "-movflags", "+faststart", str(norm)])
+                segs = highlight_segments(cfg, norm, topic, log=log)
+                vid = norm
+            except Exception as e2:
+                log(f"   재시도도 실패, 건너뜀: {str(e2)[:50]}")
+        if not segs:
+            if url not in failed:
+                failed.append(url)
         slen = autoshorts._dur(vid)
         for ci, seg in enumerate(segs):
             cid = f"{ui}_{ci}_{uuid.uuid4().hex[:4]}"
@@ -135,12 +171,13 @@ def collect_clips(cfg, base, pid, urls, log=print):
                                     "src_url": url})
             except Exception as e:
                 log(f"   컷 실패: {str(e)[:50]}")
-        try:
-            vid.unlink(missing_ok=True)
-        except Exception:
-            pass
+        for tmp in ("_src.mp4", "_norm.mp4"):
+            try:
+                (pdir(base, pid) / tmp).unlink(missing_ok=True)
+            except Exception:
+                pass
         save(base, pid, st)   # 영상 하나 끝날 때마다 자동저장
-    return clips_public(pid, st)
+    return {"clips": clips_public(pid, st), "failed": failed}
 
 
 def clips_public(pid, st):

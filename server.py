@@ -4340,9 +4340,14 @@ def _run_reelproj_collect(jid, cfg, pid, urls):
 
     try:
         job.update(status="running", pct=5)
-        clips = reelproj.collect_clips(cfg, BASE, pid, urls, log=log)
-        job["result"] = {"pid": pid, "clips": clips}
-        job.update(status="done", pct=100, msg=f"완료 — 클립 {len(clips)}개")
+        res = reelproj.collect_clips(cfg, BASE, pid, urls, log=log)
+        clips = res.get("clips", [])
+        failed = res.get("failed", [])
+        job["result"] = {"pid": pid, "clips": clips, "failed": failed}
+        msg = f"완료 — 클립 {len(clips)}개"
+        if failed:
+            msg += f" · ⚠️ {len(failed)}개 영상 실패(형식 문제로 분석 불가)"
+        job.update(status="done", pct=100, msg=msg)
     except Exception as e:
         job.update(status="error", error=str(e)[:220])
 

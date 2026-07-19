@@ -795,7 +795,11 @@
     if(d.status==='queued')jm.textContent='🕐 대기 중…';
     else{if(fill)fill.style.width=(d.pct||5)+'%';jm.textContent='⏳ '+(d.msg||'처리 중…');}
     if(d.status==='error'){jm.textContent='❌ '+d.error;return;}
-    if(d.status==='done'){if(fill)fill.style.width='100%';jm.textContent='✅ '+(d.msg||'완료');clipRender(d.result.clips);return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';jm.textContent='✅ '+(d.msg||'완료');
+      clipRender(d.result.clips);
+      const fl=(d.result&&d.result.failed)||[];
+      if(fl.length)flash(`⚠️ ${fl.length}개 영상은 형식 문제로 분석 실패 — 다른 링크로 교체해보세요`);
+      return;}
     setTimeout(()=>clipPoll(jid),2000);
   }
   function clipLoad(){apiJson('/api/reelproj/clips',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok)clipRender(d.clips);});}
