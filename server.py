@@ -4437,10 +4437,11 @@ def api_learn_genscript():
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     cat = (data.get("category") or "").strip()
     topic = (data.get("topic") or "").strip()
+    tone = (data.get("tone") or "basic").strip()
     if not cat or not topic:
         return jsonify(ok=False, error="스타일 분류와 소재를 입력하세요"), 400
     try:
-        vers = scriptlearn.generate_scripts(cfg, BASE, code, cat, topic)
+        vers = scriptlearn.generate_scripts(cfg, BASE, code, cat, topic, tone=tone)
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:180]), 400
     if not vers:

@@ -123,6 +123,12 @@
   .lcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
   .catrow{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px}
   .catgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+  .scriptgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+  .scriptcard{background:var(--panel2);border:1px solid var(--line);border-radius:13px;padding:16px;display:flex;flex-direction:column;gap:11px}
+  .scriptcard .schead{border-bottom:1px solid var(--line);padding-bottom:10px}
+  .scriptcard .sctitle{font-weight:800;font-size:15.5px;line-height:1.35}
+  .scriptcard .scapproach{font-size:12px;color:var(--gold);font-weight:700;margin-top:4px;line-height:1.45}
+  .scriptcard .scbody{font-size:15px;line-height:1.9;color:var(--ink);white-space:pre-wrap;flex:1}
   .catcard{background:var(--panel2);border:1px solid var(--line);border-radius:13px;overflow:hidden;display:flex;flex-direction:column}
   .catcard .banner{height:84px;display:flex;align-items:center;justify-content:center;font-size:38px;position:relative;text-shadow:0 2px 8px rgba(0,0,0,.35)}
   .catcard .cnt{position:absolute;top:7px;right:8px;background:rgba(10,14,20,.62);color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:20px;text-shadow:none}
@@ -688,6 +694,11 @@
           <input class="in" id="gsTopic" style="flex:1;min-width:220px" placeholder="소재/주제 (예: 발라도 안 끈적이는 스틱 선크림)">
           <button class="btn primary" onclick="gsGen()">✍️ 대본 3개 생성</button>
         </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <span style="font-size:12.5px;color:var(--muted)">🎚 톤 강도</span>
+          <select class="in" id="gsTone" style="max-width:150px"><option value="mild">담백하게</option><option value="basic" selected>기본(학습 톤)</option><option value="strong">강하게</option></select>
+          <span style="font-size:11.5px;color:var(--faint)">학습 톤이 과하면 '담백하게'</span>
+        </div>
         <div class="caphint" style="margin-top:8px">💡 네이버 트렌드 소재추천은 API 키 확인 후 붙습니다. 지금은 소재를 <b>직접 입력</b>하세요.</div>
       </div>
       <div id="gsOut">${cats.length?'':'<div class="caphint">먼저 <b>① 학습·소재</b>에서 대본을 학습하세요(스타일이 있어야 생성 가능).</div>'}</div>
@@ -701,21 +712,21 @@
     const cat=($('gsCat')&&$('gsCat').value)||'', topic=($('gsTopic')&&$('gsTopic').value.trim())||'';
     if(!cat){flash('학습된 스타일이 없어요 (① 단계에서 학습)');return;}
     if(!topic){flash('소재를 입력하세요');return;}
+    const tone=($('gsTone')&&$('gsTone').value)||'basic';
     $('gsOut').innerHTML='<div class="lcard"><b>✍️ 대본 생성 중…</b> <span style="color:var(--faint)">10초쯤 걸려요</span></div>';
-    apiJson('/api/learn/genscript',{code:code(),category:cat,topic}).then(d=>{
+    apiJson('/api/learn/genscript',{code:code(),category:cat,topic,tone}).then(d=>{
       if(!d.ok){$('gsOut').innerHTML='<div class="lcard" style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
       wiz._gs={vers:d.versions,topic,cat}; gsRender();
     }).catch(e=>{$('gsOut').innerHTML='<div class="lcard" style="color:var(--danger)">❌ 통신 오류</div>';});
   }
   function gsRender(){
     const vers=wiz._gs.vers||[];
-    $('gsOut').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 10px"><b>3가지 버전 — 마음에 드는 걸 고르세요</b><button class="btn" onclick="gsGen()">🔄 셋 다 별로 → 다시 생성</button></div>`
-      +'<div class="catgrid">'+vers.map((v,i)=>`
-        <div class="catcard">
-          <div class="cbody"><div class="cnm">${esch(v.title||('버전 '+(i+1)))}</div>
-            <div style="font-size:11px;color:var(--gold);font-weight:700;margin-bottom:5px">${esch(v.approach||'')}</div>
-            <div class="csm" style="max-height:180px;white-space:pre-wrap">${esch(v.script||'')}</div></div>
-          <div class="cacts"><button class="btn primary" style="flex:1" onclick="gsPick(${i})">이 대본 선택 ✍️</button></div>
+    $('gsOut').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 12px"><b>3가지 버전 — 마음에 드는 걸 고르세요</b><button class="btn" onclick="gsGen()">🔄 셋 다 별로 → 다시 생성</button></div>`
+      +'<div class="scriptgrid">'+vers.map((v,i)=>`
+        <div class="scriptcard">
+          <div class="schead"><div class="sctitle">${esch(v.title||('버전 '+(i+1)))}</div><div class="scapproach">${esch(v.approach||'')}</div></div>
+          <div class="scbody">${esch(v.script||'')}</div>
+          <button class="btn primary" onclick="gsPick(${i})">이 대본 선택 ✍️</button>
         </div>`).join('')+'</div>';
   }
   function gsPick(i){

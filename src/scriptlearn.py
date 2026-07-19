@@ -212,8 +212,15 @@ def learn(cfg, base, code, corpus, log=print):
     return {"added": len(corpus), "affected": sorted(affected), "categories": summary(base, code)}
 
 
-def generate_scripts(cfg, base, code, category, topic, n=3):
-    """학습된 '{category}' 프로파일 스타일로 '{topic}' 소재의 쇼츠 대본 n버전 생성."""
+_TONE = {
+    "mild": "톤 조절: 학습 스타일은 유지하되 과장·하이프를 확 줄여 담백하고 차분하게 써라. 과한 감탄사·낚시성·단정 표현은 자제.",
+    "basic": "",
+    "strong": "톤 조절: 학습된 톤보다 더 세고 몰입감 있는 훅·표현으로 써라(단, 허위·과대광고성 표현은 금지).",
+}
+
+
+def generate_scripts(cfg, base, code, category, topic, n=3, tone="basic"):
+    """학습된 '{category}' 프로파일 스타일로 '{topic}' 소재의 쇼츠 대본 n버전 생성. tone: mild|basic|strong."""
     data = load(base, code)
     c = (data.get("categories") or {}).get(category)
     if not c:
@@ -221,10 +228,12 @@ def generate_scripts(cfg, base, code, category, topic, n=3):
     prof = c.get("profile") or {}
     proftxt = "\n".join(f"- {k}: {v}" for k, v in prof.items() if v)
     examples = "\n\n---\n".join(str(s.get("text", ""))[:600] for s in c.get("scripts", [])[-3:])
+    tone_line = _TONE.get(tone, "")
     prompt = f"""너는 '{category}' 성격의 쇼츠 대본 작가다. 아래 학습된 스타일 프로파일과 예시 대본을 충실히 따라,
 소재 '{topic}'에 대한 쇼츠 대본을 {n}가지 버전으로 써라.
 - {n}개는 서로 '훅과 구성'이 뚜렷이 달라야 한다. 단, 전체 톤·문체·구조는 이 프로파일에서 벗어나지 말 것.
 - 각 대본은 실제 내레이션할 문장만. 한 줄에 한 문장(의미 단위)으로 줄바꿈. 지시문/괄호/이모지 금지.
+{tone_line and ('- ' + tone_line)}
 
 [학습된 스타일 프로파일]
 {proftxt}
