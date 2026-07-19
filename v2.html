@@ -668,14 +668,54 @@
   let wiz={step:'learn'};
   function wizIdx(s){return WIZ_STEPS.findIndex(x=>x[0]===s);}
   function renderAutoReel(){
+    if(!wiz._restored){wiz._restored=true;wizRestore();}
     $('view').innerHTML=`
     <div class="view" style="flex-direction:column">
-      <div class="wizbar">${WIZ_STEPS.map((s,i)=>`<span class="wizstep ${s[0]===wiz.step?'on':(wizIdx(s[0])<wizIdx(wiz.step)?'done':'')}" style="cursor:pointer" onclick="wizGo('${s[0]}')">${s[1]}</span>${i<WIZ_STEPS.length-1?'<span class="wizsep">›</span>':''}`).join('')}</div>
+      <div class="wizbar">${WIZ_STEPS.map((s,i)=>`<span class="wizstep ${s[0]===wiz.step?'on':(wizIdx(s[0])<wizIdx(wiz.step)?'done':'')}" style="cursor:pointer" onclick="wizGo('${s[0]}')">${s[1]}</span>${i<WIZ_STEPS.length-1?'<span class="wizsep">›</span>':''}`).join('')}
+        <button class="btn" style="margin-left:auto" onclick="wizProjects()">📂 내 프로젝트</button>${wiz.pid?'<button class="btn" onclick="wizNew()">＋ 새로</button>':''}</div>
       <div id="wizbody" class="mainpane" style="width:100%"></div>
     </div>`;
     renderWizStep();
   }
-  function wizGo(s){wiz.step=s;renderAutoReel();}
+  function wizGo(s){wiz.step=s;wizSave();renderAutoReel();}
+  function wizSave(){try{localStorage.setItem('reelwiz',JSON.stringify({pid:wiz.pid||'',step:wiz.step}));}catch(_){}}
+  function wizRestore(){
+    let s;try{s=JSON.parse(localStorage.getItem('reelwiz')||'{}');}catch(_){return;}
+    if(!s.pid||!code())return;
+    apiJson('/api/reelproj/state',{code:code(),pid:s.pid}).then(d=>{
+      if(d&&d.ok){wiz.pid=s.pid;wiz.script=d.script;wiz.topic=d.topic;wiz.category=d.category;wiz.step=s.step||wiz.step;renderAutoReel();}
+    }).catch(()=>{});
+  }
+  function wizNew(){wiz={step:'learn',_restored:true};wizSave();renderAutoReel();}
+  function wizPrev(){const i=wizIdx(wiz.step);if(i>0)wizGo(WIZ_STEPS[i-1][0]);}
+  function wizProjects(){
+    const b=$('wizbody'); if(!b)return;
+    apiJson('/api/reelproj/list',{code:code()}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const ps=d.projects||[];
+      b.innerHTML=`<div class="panehead"><h2>📂 내 프로젝트</h2><span class="n">이어서 작업할 프로젝트를 고르세요 (자동 저장됨)</span></div>`+
+        (ps.length?('<div class="catgrid">'+ps.map(p=>{
+          const done=[p.n_clips?('영상'+p.n_clips):'',p.has_tts?'음성':'',p.has_edit?'컷':'',p.has_final?'완성✓':''].filter(Boolean).join(' · ')||'대본만';
+          return `<div class="catcard"><div class="cbody"><div class="cnm">${esch(p.topic||'(제목없음)')}</div>
+            <div style="font-size:11.5px;color:var(--gold);margin:4px 0">${esch(p.category||'')} · ${done}</div>
+            <div style="font-size:11px;color:var(--faint)">${esch((p.updated||'').replace('T',' '))}</div></div>
+            <div class="cacts"><button class="btn primary" style="flex:1" onclick="wizOpen('${p.pid}')">이어하기</button><button class="btn collmini" onclick="wizDelProj('${p.pid}')" title="삭제">🗑</button></div></div>`;
+        }).join('')+'</div>'):'<div class="lcard" style="color:var(--faint)">저장된 프로젝트가 없어요. ① 학습부터 시작하세요.</div>')+
+        `<div style="margin-top:12px"><button class="btn" onclick="renderAutoReel()">← 돌아가기</button></div>`;
+    });
+  }
+  function wizOpen(pid){
+    apiJson('/api/reelproj/state',{code:code(),pid}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      wiz.pid=pid;wiz.script=d.script;wiz.topic=d.topic;wiz.category=d.category;
+      wiz.step=d.final?'bgm':(d.edit?'edit':(d.tts?'subs':'clips'));
+      wizSave();renderAutoReel();flash('📂 프로젝트 이어가기');
+    });
+  }
+  function wizDelProj(pid){
+    if(!confirm('이 프로젝트를 삭제할까요? (되돌릴 수 없음)'))return;
+    apiJson('/api/reelproj/delete',{code:code(),pid}).then(d=>{if(d.ok){if(wiz.pid===pid){wiz.pid=null;wizSave();}wizProjects();}});
+  }
   function renderWizStep(){
     const b=$('wizbody'); if(!b)return;
     if(wiz.step==='learn')return renderLearnStep(b);
@@ -771,7 +811,7 @@
       </div>
       <div id="clipJob"></div>
       <div class="lcard"><div style="display:flex;justify-content:space-between;align-items:center"><b>🎞 클립 창고</b><span id="clipCount" style="color:var(--faint);font-size:12px"></span></div><div id="clipGrid" style="margin-top:10px"><div style="color:var(--faint)">아직 없음</div></div></div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:20px"><button class="btn" onclick="wizGo('tts')">다음: 음성 →</button></div>`;
+      <div style="display:flex;justify-content:space-between;margin-bottom:20px"><button class="btn" onclick="wizPrev()">← 이전</button><button class="btn" onclick="wizGo('tts')">다음: 음성 →</button></div>`;
     if(wiz.pid)clipLoad();
   }
   function clipAddBox(){
@@ -787,7 +827,7 @@
     if(wiz.pid)body.pid=wiz.pid;
     apiJson('/api/reelproj/collect',body).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
-      wiz.pid=d.pid;
+      wiz.pid=d.pid; wizSave();
       $('clipJob').innerHTML=`<div id="cj-${d.job}" class="lcard" style="padding:11px 13px"><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:5%;background:var(--gold);transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span></div>`;
       clipPoll(d.job);
     }).catch(e=>flash('❌ 통신 오류'));
@@ -841,7 +881,7 @@
         <div id="ttsJob"></div>
       </div>
       <div id="ttsOut"></div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:20px"><button class="btn" onclick="wizGo('subs')">다음: 자막 →</button></div>`;
+      <div style="display:flex;justify-content:space-between;margin-bottom:20px"><button class="btn" onclick="wizPrev()">← 이전</button><button class="btn" onclick="wizGo('subs')">다음: 자막 →</button></div>`;
     ttsLoad();
   }
   function ttsLoad(){apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok&&d.tts)ttsRender(d.tts);});}
@@ -886,9 +926,9 @@
           <div class="lcard">
             <label class="fld">폰트 <span style="color:var(--faint);font-weight:400">(전 계정 공유)</span></label>
             <div style="display:flex;gap:6px"><select class="in" id="sfFont" style="flex:1" onchange="subApply()"></select>
-              <button class="btn" onclick="document.getElementById('sfUp').click()">＋업로드</button></div>
+              <button class="btn" onclick="document.getElementById('sfUp').click()" title="폰트 업로드">＋</button>
+              <button class="btn collmini" onclick="subFontDelCur()" title="선택한 폰트 삭제">🗑</button></div>
             <input id="sfUp" type="file" accept=".ttf,.otf,.ttc" style="display:none" onchange="subFontUpload(this)">
-            <div id="sfManage" style="margin-top:7px"></div>
             <label class="fld" style="margin-top:13px">크기 <b id="sfSizeV" style="color:var(--ink)"></b></label>
             <input type="range" id="sfSize" min="40" max="110" step="2" oninput="subApply()" style="width:100%">
             <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;align-items:center">
@@ -901,7 +941,7 @@
             <label class="ck" style="margin-top:12px"><input type="checkbox" id="sfBold" onchange="subApply()"> <span>굵게</span></label>
             <label class="ck" style="margin-top:8px"><input type="checkbox" id="sfPop" onchange="subApply()"> <span>🫧 뿅 튀어나오는 효과</span></label>
           </div>
-          <button class="go" onclick="subSave()">💾 저장 + 다음: 컷 →</button>
+          <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" onclick="wizPrev()">← 이전(음성)</button><button class="go" style="flex:1;margin-top:0" onclick="subSave()">💾 저장 + 다음: 컷 →</button></div>
         </div>
         <div style="flex:1;min-width:260px"><div class="lcard"><b>미리보기</b>
           <div id="sfPrev" style="margin-top:10px;aspect-ratio:9/16;max-height:440px;margin-inline:auto;background:linear-gradient(160deg,#3a4a55,#12181d);border-radius:12px;position:relative;overflow:hidden">
@@ -924,12 +964,12 @@
         $('sfSize').value=st.size||72; $('sfPrimary').value=st.primary||'#FFFFFF'; $('sfOutline').value=st.outline||'#000000';
         $('sfOw').value=(st.outline_w!=null?st.outline_w:5); $('sfBold').checked=st.bold!==false; $('sfPop').checked=!!st.pop;
         subPos(st.align||2,true);
-        subFontManage(); subApply();
+        subApply();
       });
   }
-  function subFontManage(){
-    const el=$('sfManage'); if(!el)return;
-    el.innerHTML=subState.fonts.length?('<div style="font-size:11.5px;color:var(--faint)">업로드된 폰트: '+subState.fonts.map(x=>`<span style="display:inline-block;margin:2px 4px 0 0">${esch(x.name)} <a onclick="subFontDelete('${encodeURIComponent(x.file)}')" style="color:var(--danger);cursor:pointer">✕</a></span>`).join('')+'</div>'):'';
+  function subFontDelCur(){
+    const file=$('sfFont').value; if(!file){flash('삭제할 폰트를 선택하세요 (기본 폰트는 삭제 불가)');return;}
+    subFontDelete(encodeURIComponent(file));
   }
   function subPos(al,silent){ subState._al=al;
     [...document.querySelectorAll('#sfPos .chip')].forEach(c=>c.classList.toggle('on',+c.dataset.al===al));
@@ -939,20 +979,23 @@
     const file=$('sfFont').value, f=subState.fonts.find(x=>x.file===file);
     const family=f?f.family:'Malgun Gothic';
     const size=+$('sfSize').value, primary=$('sfPrimary').value, outline=$('sfOutline').value, ow=+$('sfOw').value, bold=$('sfBold').checked, pop=$('sfPop').checked, al=subState._al||2;
-    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,pop,margin_v:al===2?320:(al===8?120:0)};
+    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,pop,margin_v:al===2?450:(al===8?230:0)};
     $('sfSizeV').textContent=size+'px';
-    // 미리보기
     const box=$('sfPrev'), t=$('sfPrevText'); if(!box||!t)return;
     const scale=(box.clientHeight||440)/1920;
-    t.style.fontFamily=`'${family}', 'Malgun Gothic', sans-serif`;
-    t.style.fontSize=Math.max(10,size*scale)+'px';
-    t.style.color=primary;
-    t.style.webkitTextStroke=(ow*scale*1.4).toFixed(1)+'px '+outline;
-    t.style.fontWeight=bold?'800':'400';
-    t.style.top=al===8?'6%':(al===5?'44%':'auto');
-    t.style.bottom=al===2?'14%':'auto';
-    t.style.transformOrigin='center';
-    t.style.animation=pop?'subpop 1.6s ease-in-out infinite':'none';
+    const paint=()=>{
+      t.style.fontFamily=`'${family}', 'Malgun Gothic', sans-serif`;
+      t.style.fontSize=Math.max(10,size*scale)+'px';
+      t.style.color=primary;
+      t.style.webkitTextStroke=(ow*scale*1.4).toFixed(1)+'px '+outline;
+      t.style.fontWeight=bold?'800':'400';
+      t.style.top=al===8?'12%':(al===5?'44%':'auto');
+      t.style.bottom=al===2?'22%':'auto';
+      t.style.transformOrigin='center';
+      t.style.animation=pop?'subpop 1.6s ease-in-out infinite':'none';
+    };
+    paint();
+    if(file&&window.FontFace){try{document.fonts.load(`24px '${family}'`).then(paint).catch(()=>{});}catch(_){}}
   }
   function subFontUpload(input){
     const file=input.files&&input.files[0]; if(!file)return;
@@ -962,7 +1005,7 @@
       if(!d.ok){flash('❌ '+d.error);return;}
       subState.fonts=d.fonts||[]; $('sfFaces').textContent=subState.fonts.map(x=>`@font-face{font-family:'${x.family}';src:url('/fonts/${encodeURIComponent(x.file)}')}`).join('');
       const cur=$('sfFont').value; $('sfFont').innerHTML=`<option value="">기본 (맑은 고딕)</option>`+subState.fonts.map(x=>`<option value="${esch(x.file)}">${esch(x.name)}</option>`).join(''); $('sfFont').value=cur;
-      subFontManage(); flash('✅ 폰트 추가됨'); subApply();
+      flash('✅ 폰트 추가됨'); subApply();
     }).catch(e=>flash('❌ 업로드 실패'));
   }
   function subFontDelete(fileEnc){
@@ -973,7 +1016,7 @@
       subState.fonts=d.fonts||[];
       if($('sfFont').value===file)$('sfFont').value='';
       $('sfFont').innerHTML=`<option value="">기본 (맑은 고딕)</option>`+subState.fonts.map(x=>`<option value="${esch(x.file)}" ${x.file===$('sfFont').value?'selected':''}>${esch(x.name)}</option>`).join('');
-      subFontManage(); subApply(); flash('🗑 삭제됨');
+      subApply(); flash('🗑 삭제됨');
     });
   }
   function subSave(){
@@ -995,7 +1038,7 @@
         <div id="editJob"></div>
       </div>
       <div id="editOut"></div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:20px"><button class="btn" onclick="wizGo('bgm')">다음: BGM →</button></div>`;
+      <div style="display:flex;justify-content:space-between;margin-bottom:20px"><button class="btn" onclick="wizPrev()">← 이전(자막)</button><button class="btn" onclick="wizGo('bgm')">다음: BGM →</button></div>`;
     editLoad();
   }
   function editLoad(){apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok&&d.edit)editRender(d.edit);});}
@@ -1027,9 +1070,9 @@
           <div style="font-size:11px;color:var(--faint);margin-top:3px">${bl.start}~${bl.end}s (${bl.dur}s) · 후보 ${bl.cand}/${bl.cand_total}</div></div>
         ${bl.cand_total>1?`<button class="btn" onclick="editReroll(${bl.i})" title="이 컷을 다른 클립으로">🔄 리롤</button>`:`<span style="font-size:11px;color:var(--faint);white-space:nowrap">대체 없음</span>`}
       </div>`).join('');
-    $('editOut').innerHTML=`<div class="lcard"><div style="display:flex;gap:14px;flex-wrap:wrap">
-        <video src="${v}" controls playsinline style="width:250px;max-width:100%;border-radius:10px;background:#000;flex-shrink:0"></video>
-        <div style="flex:1;min-width:240px"><div style="font-weight:800;margin-bottom:8px">✂️ 컷 배치 (🔄로 교체)</div>${blocks}</div>
+    $('editOut').innerHTML=`<div class="lcard"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+        <video src="${v}" controls playsinline style="width:340px;max-width:100%;border-radius:12px;background:#000;flex-shrink:0"></video>
+        <div style="width:330px;max-width:100%;max-height:600px;overflow:auto"><div style="font-weight:800;margin-bottom:8px">✂️ 컷 배치 (🔄로 교체)</div>${blocks}</div>
       </div></div>`;
     scrollTopPane($('editOut'));
   }
@@ -1073,7 +1116,8 @@
           </div>
           <div id="bgFinal"></div>
         </div>
-      </div>`;
+      </div>
+      <div style="margin:4px 0 20px"><button class="btn" onclick="wizPrev()">← 이전(컷)</button></div>`;
     bgmLoad();
   }
   function bgmLoad(){

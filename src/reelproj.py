@@ -53,6 +53,53 @@ def save(base, pid, st):
     (pdir(base, pid) / "state.json").write_text(json.dumps(st, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _phrase_chunks(words):
+    """의미단위에 가깝게(짧게) 끊기: 누적 6자↑ & 2어절↑ 또는 3어절, 문장부호에서 끊음."""
+    out, cur, ln = [], [], 0
+    for w in words:
+        t = str(w.get("t", ""))
+        cur.append(w)
+        ln += len(t.replace(" ", ""))
+        endp = t.strip().endswith((".", ",", "!", "?", "…", "~"))
+        if endp or (ln >= 6 and len(cur) >= 2) or len(cur) >= 3:
+            out.append(cur)
+            cur, ln = [], 0
+    if cur:
+        out.append(cur)
+    ev = []
+    for g in out:
+        ev.append({"s": g[0]["s"], "e": g[-1]["s"] + g[-1]["d"],
+                   "t": " ".join(str(x["t"]) for x in g).strip().rstrip(".")})
+    return ev
+
+
+def list_projects(base, code):
+    """계정별 프로젝트 목록(최근순)."""
+    out = []
+    for sj in (root(base)).glob("*/state.json"):
+        try:
+            st = json.loads(sj.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if str(st.get("code", "")) != str(code):
+            continue
+        out.append({"pid": st.get("pid", sj.parent.name),
+                    "topic": st.get("topic", "") or (st.get("script", "")[:20]),
+                    "category": st.get("category", ""),
+                    "updated": st.get("updated", ""),
+                    "n_clips": len(st.get("clips", [])),
+                    "has_tts": bool(st.get("tts")), "has_edit": bool(st.get("edl")),
+                    "has_final": bool(st.get("final"))})
+    out.sort(key=lambda x: x.get("updated", ""), reverse=True)
+    return out
+
+
+def delete_project(base, pid):
+    d = pdir(base, pid)
+    if d.exists():
+        shutil.rmtree(str(d), ignore_errors=True)
+
+
 def new_project(base, code, script, topic="", category=""):
     pid = uuid.uuid4().hex[:10]
     st = {"pid": pid, "code": str(code), "script": script, "topic": topic, "category": category,
@@ -247,7 +294,7 @@ def build_tts(cfg, base, pid, speed=1.0, log=print):
                          "-to", f"{e1:.3f}", "-i", str(raw), "-af", f"atempo={speed:.3f}",
                          "-c:a", "libmp3lame", "-q:a", "2", str(ln)])
         line_files.append(ln.name)
-        for ch in autoshorts._chunks(words):               # 짧은 구절 자막(속도만큼 타이밍 축소)
+        for ch in _phrase_chunks(words):                   # 의미단위 짧은 구절 자막(속도만큼 타이밍 축소)
             subs.append({"s": round(cum + (ch["s"] - s0) / speed, 2),
                          "e": round(cum + (ch["e"] - s0) / speed, 2), "t": ch["t"]})
         cum += autoshorts._dur(ln)

@@ -4395,6 +4395,30 @@ def api_reelproj_clips():
     return jsonify(ok=True, clips=reelproj.clips_public(pid, reelproj.load(BASE, pid)))
 
 
+@app.post("/api/reelproj/list")
+def api_reelproj_list():
+    """계정별 저장된 프로젝트 목록(이어하기용)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, projects=reelproj.list_projects(BASE, code))
+
+
+@app.post("/api/reelproj/delete")
+def api_reelproj_delete():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if pid and reelproj.exists(BASE, pid):
+        reelproj.delete_project(BASE, pid)
+    return jsonify(ok=True, projects=reelproj.list_projects(BASE, code))
+
+
 @app.post("/api/reelproj/state")
 def api_reelproj_state():
     """프로젝트 전체 상태(대본·클립·음성)."""
