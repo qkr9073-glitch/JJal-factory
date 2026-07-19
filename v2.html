@@ -684,7 +684,8 @@
     if(wiz.step==='tts')return renderTtsStep(b);
     if(wiz.step==='subs')return renderSubsStep(b);
     if(wiz.step==='edit')return renderEditStep(b);
-    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b> ~ <b>⑥ 컷</b>이 완성됐어요. 마지막 <b>⑦ BGM</b> 남았습니다.</div>`;
+    if(wiz.step==='bgm')return renderBgmStep(b);
+    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div>`;
   }
   /* ===== ② 대본 생성 ===== */
   async function renderScriptStep(b){
@@ -1042,6 +1043,112 @@
         else if(j.status==='error'){flash('❌ '+j.error);}
         else setTimeout(pp,1500);})();
     });
+  }
+  /* ===== ⑦ BGM + 완성 ===== */
+  let bgmState={list:[],sel:'',peek:null};
+  function renderBgmStep(b){
+    if(!wiz.pid){b.innerHTML=`<div class="panehead"><h2>⑦ BGM</h2></div><div class="lcard">먼저 <b>⑥ 컷</b>까지 완료하세요.</div>`;return;}
+    b.innerHTML=`
+      <div class="panehead"><h2>⑦ BGM + 완성</h2><span class="n">배경음악 고르고 볼륨 맞춰 최종 합치기</span></div>
+      <div class="view" style="gap:16px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:290px">
+          <div class="lcard">
+            <div style="display:flex;align-items:center;gap:8px"><b>🎵 내 BGM</b><span style="color:var(--faint);font-size:12px">(계정별·mp3/wav)</span><button class="btn" style="margin-left:auto" onclick="document.getElementById('bgUp').click()">＋업로드</button></div>
+            <input id="bgUp" type="file" accept=".mp3,.wav,audio/*" style="display:none" onchange="bgmUpload(this)">
+            <div id="bgList" style="margin-top:10px"><div style="color:var(--faint)">불러오는 중…</div></div>
+          </div>
+          <div class="lcard"><b>🔗 다른 계정 BGM 가져오기</b>
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><input class="in" id="bgOther" placeholder="상대 접속코드" style="max-width:160px"><button class="btn" onclick="bgmPeek()">조회</button></div>
+            <div id="bgPeek"></div></div>
+        </div>
+        <div style="flex:1;min-width:280px">
+          <div class="lcard">
+            <b>🎬 최종 합치기</b>
+            <div style="margin-top:8px;font-size:13px">선택 BGM: <b id="bgSelName">없음</b></div>
+            <label class="fld" style="margin-top:11px">BGM 볼륨 <b id="bgDbV" style="color:var(--ink)">-20 dB</b></label>
+            <input type="range" id="bgDb" min="-30" max="0" step="1" value="-20" style="width:100%" oninput="var e=document.getElementById('bgDbV');if(e)e.textContent=this.value+' dB'">
+            <div class="caphint" style="margin-top:4px">기본 -20dB(작게). 조정 후 [완성]을 다시 누르면 재믹스 → 미리듣기.</div>
+            <button class="go" style="margin-top:12px" onclick="bgmFinal()">🎬 완성 (합치기)</button>
+            <div id="bgJob"></div>
+          </div>
+          <div id="bgFinal"></div>
+        </div>
+      </div>`;
+    bgmLoad();
+  }
+  function bgmLoad(){
+    Promise.all([apiJson('/api/bgm/list',{code:code()}),apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid})]).then(([bl,st])=>{
+      bgmState.list=(bl&&bl.bgm)||[];
+      const sb=(st&&st.bgm)||{};
+      bgmState.sel=sb.file||'';
+      if($('bgDb')&&sb.db!=null){$('bgDb').value=sb.db;const e=$('bgDbV');if(e)e.textContent=sb.db+' dB';}
+      bgmRenderList(); bgmSelName();
+      if(st&&st.final)bgmRenderFinal(st.final.video);
+    });
+  }
+  function bgmRenderList(){
+    const el=$('bgList'); if(!el)return;
+    let h=`<label class="catrow" style="cursor:pointer"><input type="radio" name="bgsel" ${bgmState.sel===''?'checked':''} onchange="bgmSelect('')"> <b>BGM 없음</b></label>`;
+    h+=bgmState.list.map(x=>`<div class="catrow"><input type="radio" name="bgsel" ${bgmState.sel===x.file?'checked':''} onchange="bgmSelect('${encodeURIComponent(x.file)}')"> <b style="white-space:nowrap">${esch(x.name)}</b><audio src="${x.url}" controls preload="none" style="height:32px;flex:1;min-width:120px"></audio><button class="btn collmini" onclick="bgmDel('${encodeURIComponent(x.file)}')" title="삭제">🗑</button></div>`).join('');
+    el.innerHTML=h||'<div style="color:var(--faint)">업로드된 BGM이 없어요</div>';
+  }
+  function bgmSelect(enc){bgmState.sel=enc?decodeURIComponent(enc):'';bgmSelName();}
+  function bgmSelName(){const el=$('bgSelName');if(el){const f=bgmState.list.find(x=>x.file===bgmState.sel);el.textContent=bgmState.sel?(f?f.name:bgmState.sel):'없음';}}
+  function bgmUpload(input){
+    const file=input.files&&input.files[0]; if(!file)return;
+    const fd=new FormData(); fd.append('code',code()); fd.append('file',file);
+    flash('⏳ BGM 업로드 중…');
+    fetch('/api/bgm/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      bgmState.list=d.bgm||[]; bgmRenderList(); flash('✅ BGM 추가됨');
+    }).catch(e=>flash('❌ 업로드 실패'));
+  }
+  function bgmDel(enc){
+    const file=decodeURIComponent(enc);
+    if(!confirm('이 BGM을 삭제할까요?'))return;
+    apiJson('/api/bgm/delete',{code:code(),file}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      bgmState.list=d.bgm||[]; if(bgmState.sel===file)bgmState.sel=''; bgmRenderList(); bgmSelName();
+    });
+  }
+  function bgmPeek(){
+    const oc=($('bgOther')&&$('bgOther').value.trim())||'';
+    if(!oc){flash('상대 코드를 입력하세요');return;}
+    apiJson('/api/bgm/peek',{code:code(),other_code:oc}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      bgmState.peek={code:oc,list:d.bgm||[]};
+      const el=$('bgPeek');
+      if(!d.bgm||!d.bgm.length){el.innerHTML='<div style="color:var(--faint);margin-top:8px">그 계정엔 BGM이 없어요</div>';return;}
+      el.innerHTML='<div style="margin-top:10px">'+d.bgm.map((x,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0"><input type="checkbox" class="bgpk" value="${i}"> <b style="white-space:nowrap">${esch(x.name)}</b><audio src="${x.url}" controls preload="none" style="height:30px;flex:1;min-width:100px"></audio></label>`).join('')+`<button class="btn primary" style="margin-top:6px" onclick="bgmImport()">＋ 내 목록으로 가져오기</button></div>`;
+    });
+  }
+  function bgmImport(){
+    if(!bgmState.peek)return;
+    const files=[...document.querySelectorAll('#bgPeek .bgpk:checked')].map(x=>bgmState.peek.list[+x.value].file);
+    if(!files.length){flash('가져올 BGM을 고르세요');return;}
+    apiJson('/api/bgm/import',{code:code(),other_code:bgmState.peek.code,files}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      bgmState.list=d.bgm||[]; bgmRenderList(); $('bgPeek').innerHTML=''; flash(`✅ ${d.imported}개 가져옴`);
+    });
+  }
+  function bgmFinal(){
+    const db=($('bgDb')&&$('bgDb').value)||'-20';
+    $('bgJob').innerHTML='<div class="caphint" style="margin-top:10px">🎬 합치는 중…</div>';
+    apiJson('/api/reelproj/final',{code:code(),pid:wiz.pid,bgm_code:code(),bgm_file:bgmState.sel,bgm_db:parseFloat(db)}).then(d=>{
+      if(!d.ok){$('bgJob').innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
+      const jid=d.job;
+      (async function pp(){let j;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(pp,2000);return;}
+        if(j.status==='done'){$('bgJob').innerHTML='<div style="color:var(--gold);margin-top:8px">✅ 완성!</div>';bgmRenderFinal(j.result.video);}
+        else if(j.status==='error'){$('bgJob').innerHTML='<div style="color:var(--danger)">❌ '+esch(j.error)+'</div>';}
+        else{$('bgJob').querySelector('.caphint')&&($('bgJob').querySelector('.caphint').textContent='🎬 '+(j.msg||'합치는 중…'));setTimeout(pp,1500);}})();
+    });
+  }
+  function bgmRenderFinal(v){
+    const url=v+'?t='+Date.now();
+    $('bgFinal').innerHTML=`<div class="lcard"><div style="font-weight:800;margin-bottom:8px">🎉 완성 쇼츠</div>
+      <video src="${url}" controls playsinline style="width:250px;max-width:100%;border-radius:10px;background:#000"></video>
+      <div style="margin-top:10px"><a class="btn primary" href="${url}" download="shorts.mp4" style="text-decoration:none">⬇ 다운로드</a></div></div>`;
+    scrollTopPane($('bgFinal'));
   }
 
   /* ===== ① 대본학습 + (다음:소재추천) ===== */

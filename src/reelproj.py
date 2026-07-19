@@ -208,9 +208,12 @@ def state_public(base, pid):
             edit = edit_public(base, pid, st)
         except Exception:
             edit = None
+    final = None
+    if st.get("final") and (pdir(base, pid) / "edit" / "final.mp4").exists():
+        final = {"video": f"/reelproj/{pid}/edit/final.mp4"}
     return {"pid": pid, "script": st.get("script", ""), "topic": st.get("topic", ""),
             "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit,
-            "subs_style": st.get("subs_style", DEFAULT_STYLE)}
+            "subs_style": st.get("subs_style", DEFAULT_STYLE), "final": final, "bgm": st.get("bgm")}
 
 
 def build_tts(cfg, base, pid, speed=1.0, log=print):
@@ -473,6 +476,38 @@ def edit_public(base, pid, st):
                        "thumb": f"/reelproj/{pid}/clips/{c.get('thumb','')}",
                        "cand": e["used"] + 1, "cand_total": len(e.get("cands", []))})
     return {"preview": f"/reelproj/{pid}/edit/preview.mp4", "blocks": blocks}
+
+
+def build_final(cfg, base, pid, bgm_code="", bgm_file="", bgm_db=-20.0, log=print):
+    """⑦ 최종: ⑥ 컷 미리보기(영상+음성+자막)에 BGM 믹스 → final.mp4. BGM 없으면 그대로 복사."""
+    st = load(base, pid)
+    edir = pdir(base, pid) / "edit"
+    prev = edir / "preview.mp4"
+    if not prev.exists():
+        raise RuntimeError("먼저 ⑥ 정밀 컷을 생성하세요")
+    FF = autoshorts.FFMPEG
+    final = edir / "final.mp4"
+    bgm_path = None
+    if bgm_file and bgm_code:
+        p = Path(base) / "bgm" / str(bgm_code).strip() / Path(bgm_file).name
+        if p.exists():
+            bgm_path = p
+    if bgm_path:
+        log("[1/1] BGM 믹스…")
+        db = max(-40.0, min(0.0, float(bgm_db)))
+        fc = (f"[1:a]volume={db}dB,aformat=sample_rates=44100:channel_layouts=stereo[b];"
+              "[0:a]aformat=sample_rates=44100:channel_layouts=stereo[v];"
+              "[v][b]amix=inputs=2:duration=first:normalize=0[a]")
+        autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", str(prev.resolve()),
+                         "-stream_loop", "-1", "-i", str(bgm_path.resolve()), "-filter_complex", fc,
+                         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                         "-shortest", str(final)])
+    else:
+        shutil.copy(str(prev), str(final))
+    st["bgm"] = {"code": bgm_code, "file": bgm_file, "db": bgm_db}
+    st["final"] = {"video": "edit/final.mp4"}
+    save(base, pid, st)
+    return {"video": f"/reelproj/{pid}/edit/final.mp4", "bgm": st["bgm"]}
 
 
 def delete_clip(base, pid, cid):

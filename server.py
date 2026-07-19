@@ -20,7 +20,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import autoshorts, brain, fonts, hunter, insights, pipeline, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import autoshorts, bgm as bgmlib, brain, fonts, hunter, insights, pipeline, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
@@ -4524,6 +4524,117 @@ def api_fonts_delete():
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     fonts.delete_font(BASE, (data.get("file") or "").strip())
     return jsonify(ok=True, fonts=fonts.list_fonts(BASE))
+
+
+@app.get("/bgm/<code>/<path:fn>")
+def api_bgm_file(code, fn):
+    d = BASE / "bgm" / Path(code).name
+    safe = Path(fn).name
+    if not (d / safe).exists():
+        return jsonify(ok=False, error="파일 없음"), 404
+    return send_from_directory(str(d), safe)
+
+
+@app.post("/api/bgm/list")
+def api_bgm_list():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, bgm=bgmlib.list_bgm(BASE, code))
+
+
+@app.post("/api/bgm/upload")
+def api_bgm_upload():
+    cfg = load_config()
+    code = (request.form.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    f = request.files.get("file")
+    if not f:
+        return jsonify(ok=False, error="파일이 없습니다"), 400
+    try:
+        bgmlib.save_upload(BASE, code, f.filename, f.read())
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:120]), 400
+    return jsonify(ok=True, bgm=bgmlib.list_bgm(BASE, code))
+
+
+@app.post("/api/bgm/delete")
+def api_bgm_delete():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    bgmlib.delete_bgm(BASE, code, (data.get("file") or "").strip())
+    return jsonify(ok=True, bgm=bgmlib.list_bgm(BASE, code))
+
+
+@app.post("/api/bgm/peek")
+def api_bgm_peek():
+    """다른 계정 BGM 목록 조회(불러오기용)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    other = (data.get("other_code") or "").strip()
+    if not other:
+        return jsonify(ok=False, error="상대 코드를 입력하세요"), 400
+    return jsonify(ok=True, bgm=bgmlib.list_bgm(BASE, other), other=other)
+
+
+@app.post("/api/bgm/import")
+def api_bgm_import():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    other = (data.get("other_code") or "").strip()
+    files = [str(x).strip() for x in (data.get("files") or []) if str(x).strip()]
+    if not other or not files:
+        return jsonify(ok=False, error="가져올 BGM을 고르세요"), 400
+    n = bgmlib.import_bgm(BASE, code, other, files)
+    return jsonify(ok=True, imported=n, bgm=bgmlib.list_bgm(BASE, code))
+
+
+def _run_reelproj_final(jid, cfg, pid, bgm_code, bgm_file, bgm_db):
+    job = JOBS[jid]
+
+    def log(m):
+        job["msg"] = str(m).strip()
+
+    try:
+        job.update(status="running", pct=20, msg="최종 합치는 중…")
+        res = reelproj.build_final(cfg, BASE, pid, bgm_code, bgm_file, bgm_db, log=log)
+        job["result"] = res
+        job.update(status="done", pct=100, msg="완성!")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/reelproj/final")
+def api_reelproj_final():
+    """⑦ 최종 합치기: ⑥ 컷 + 선택 BGM(-dB) → 완성 영상."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    try:
+        db = float(data.get("bgm_db", -20))
+    except Exception:
+        db = -20.0
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_reelproj_final,
+                     args=(jid, cfg, pid, (data.get("bgm_code") or "").strip(),
+                           (data.get("bgm_file") or "").strip(), db), daemon=True).start()
+    return jsonify(ok=True, job=jid)
 
 
 @app.post("/api/reelproj/subs_style")
