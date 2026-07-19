@@ -4327,6 +4327,27 @@ def api_learn_delete():
     return jsonify(ok=True, categories=scriptlearn.summary(BASE, code))
 
 
+@app.post("/api/learn/genscript")
+def api_learn_genscript():
+    """학습 프로파일 스타일로 소재 대본 3버전 생성."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    cat = (data.get("category") or "").strip()
+    topic = (data.get("topic") or "").strip()
+    if not cat or not topic:
+        return jsonify(ok=False, error="스타일 분류와 소재를 입력하세요"), 400
+    try:
+        vers = scriptlearn.generate_scripts(cfg, BASE, code, cat, topic)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:180]), 400
+    if not vers:
+        return jsonify(ok=False, error="생성 결과가 비었어요, 다시 시도해 주세요"), 502
+    return jsonify(ok=True, versions=vers)
+
+
 @app.post("/api/learn/peek")
 def api_learn_peek():
     """다른 계정의 분류 목록 미리보기(불러오기용)."""
