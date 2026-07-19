@@ -14,7 +14,7 @@ import requests
 
 from . import brain
 
-_NCP_TREND = "https://naveropenapi.apigw.ntruss.com/datalab/v1/search"
+_NCP_TREND = "https://naverapihub.apigw.ntruss.com/search-trend/v1/search"
 
 
 def _ncp_headers(cfg):
