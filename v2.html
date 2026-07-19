@@ -122,6 +122,7 @@
   .wizsep{color:var(--faint)}
   .lcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
   .catrow{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px}
+  @keyframes subpop{0%{transform:scale(.55)}12%{transform:scale(1.10)}22%{transform:scale(1)}100%{transform:scale(1)}}
   .catgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
   .scriptgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
   .scriptcard{background:var(--panel2);border:1px solid var(--line);border-radius:13px;padding:16px;display:flex;flex-direction:column;gap:11px}
@@ -897,6 +898,7 @@
             <label class="fld" style="margin-top:13px">위치</label>
             <div class="chips" id="sfPos"><span class="chip" data-al="8" onclick="subPos(8)">상단</span><span class="chip" data-al="5" onclick="subPos(5)">중앙</span><span class="chip" data-al="2" onclick="subPos(2)">하단</span></div>
             <label class="ck" style="margin-top:12px"><input type="checkbox" id="sfBold" onchange="subApply()"> <span>굵게</span></label>
+            <label class="ck" style="margin-top:8px"><input type="checkbox" id="sfPop" onchange="subApply()"> <span>🫧 뿅 튀어나오는 효과</span></label>
           </div>
           <button class="go" onclick="subSave()">💾 저장 + 다음: 컷 →</button>
         </div>
@@ -919,7 +921,7 @@
         const st=subState.style;
         $('sfFont').innerHTML=`<option value="">기본 (맑은 고딕)</option>`+subState.fonts.map(x=>`<option value="${esch(x.file)}" ${x.file===st.font_file?'selected':''}>${esch(x.name)}</option>`).join('');
         $('sfSize').value=st.size||72; $('sfPrimary').value=st.primary||'#FFFFFF'; $('sfOutline').value=st.outline||'#000000';
-        $('sfOw').value=(st.outline_w!=null?st.outline_w:5); $('sfBold').checked=st.bold!==false;
+        $('sfOw').value=(st.outline_w!=null?st.outline_w:5); $('sfBold').checked=st.bold!==false; $('sfPop').checked=!!st.pop;
         subPos(st.align||2,true);
         subFontManage(); subApply();
       });
@@ -935,8 +937,8 @@
   function subApply(){
     const file=$('sfFont').value, f=subState.fonts.find(x=>x.file===file);
     const family=f?f.family:'Malgun Gothic';
-    const size=+$('sfSize').value, primary=$('sfPrimary').value, outline=$('sfOutline').value, ow=+$('sfOw').value, bold=$('sfBold').checked, al=subState._al||2;
-    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,margin_v:al===2?320:(al===8?120:0)};
+    const size=+$('sfSize').value, primary=$('sfPrimary').value, outline=$('sfOutline').value, ow=+$('sfOw').value, bold=$('sfBold').checked, pop=$('sfPop').checked, al=subState._al||2;
+    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,pop,margin_v:al===2?320:(al===8?120:0)};
     $('sfSizeV').textContent=size+'px';
     // 미리보기
     const box=$('sfPrev'), t=$('sfPrevText'); if(!box||!t)return;
@@ -948,6 +950,8 @@
     t.style.fontWeight=bold?'800':'400';
     t.style.top=al===8?'6%':(al===5?'44%':'auto');
     t.style.bottom=al===2?'14%':'auto';
+    t.style.transformOrigin='center';
+    t.style.animation=pop?'subpop 1.6s ease-in-out infinite':'none';
   }
   function subFontUpload(input){
     const file=input.files&&input.files[0]; if(!file)return;

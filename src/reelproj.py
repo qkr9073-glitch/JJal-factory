@@ -357,7 +357,10 @@ def _fit_clip(src, cdur, need, out):
 
 
 DEFAULT_STYLE = {"family": "Malgun Gothic", "font_file": "", "size": 72, "primary": "#FFFFFF",
-                 "outline": "#000000", "outline_w": 5, "align": 2, "margin_v": 320, "bold": True}
+                 "outline": "#000000", "outline_w": 5, "align": 2, "margin_v": 320, "bold": True, "pop": False}
+
+# 자막 '뿅' 등장(스케일 바운스): 55% → 108% 오버슈트 → 100%
+_POP = r"{\fscx55\fscy55\t(0,90,\fscx108\fscy108)\t(90,170,\fscx100\fscy100)}"
 
 
 def _ass_color(hexstr, default="&H00FFFFFF"):
@@ -379,7 +382,8 @@ def _subs_ass(path, subs, style=None):
             f"{_ass_color(s['outline'],'&H00000000')},&H90000000,{-1 if s.get('bold') else 0},1,"
             f"{s['outline_w']},2,{int(s['align'])},80,80,{int(s['margin_v'])}\n\n"
             "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-    ev = [f"Dialogue: 0,{autoshorts._ass_ts(x['s'])},{autoshorts._ass_ts(x['e'])},Default,,0,0,0,,{x['t']}"
+    pop = _POP if s.get("pop") else ""
+    ev = [f"Dialogue: 0,{autoshorts._ass_ts(x['s'])},{autoshorts._ass_ts(x['e'])},Default,,0,0,0,,{pop}{x['t']}"
           for x in subs]
     Path(path).write_text(head + "\n".join(ev) + "\n", encoding="utf-8")
 
