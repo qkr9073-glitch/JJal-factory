@@ -724,7 +724,7 @@
           <div style="font-size:12.5px;font-weight:700;line-height:1.4">${esch(b.text)}</div>
           <div style="font-size:11px;color:var(--faint);margin-top:3px">${b.dur}초 · 후보 ${b.cand}/${b.cand_total}</div>
         </div>
-        <button class="btn" ${b.cand_total>1?'':'disabled'} onclick="arReroll(${b.i})" title="이 장면을 다른 화면 구간으로 교체">🔄 리롤</button>
+        ${b.cand_total>1?`<button class="btn" onclick="arReroll(${b.i})" title="이 장면을 다른 화면 구간으로 교체">🔄 리롤</button>`:`<span style="font-size:11px;color:var(--faint);white-space:nowrap">대체 없음</span>`}
       </div>`).join('');
     box.innerHTML=`
       <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px">

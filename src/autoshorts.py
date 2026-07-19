@@ -207,11 +207,26 @@ def _chunks(words):
 
 
 # ─────────────── 컷/조립 ───────────────
-def _cut(src, start, dur, out):
-    _run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
-          "-i", str(src), "-an", "-vf",
-          "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1",
-          "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", str(out)])
+_VF_916 = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
+
+
+def _cut(src, start, dur, out, src_len=None):
+    """소스에서 start부터 dur초를 잘라 9:16로. 항상 정확히 dur초를 만들어(음성과 길이 일치)
+    최종 -shortest가 음성을 자르지 않게 한다.
+    - start+dur가 소스 끝을 넘으면 start를 당겨서 소스 안에 맞춤.
+    - 비트가 소스 전체보다 길면 소스를 반복 재생해서 dur를 채움."""
+    if src_len is None:
+        src_len = _dur(src)
+    if src_len and dur >= src_len:
+        _run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "-1",
+              "-i", str(src), "-t", f"{dur:.3f}", "-an", "-vf", _VF_916, "-r", "30",
+              "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", str(out)])
+    else:
+        if src_len:
+            start = max(0.0, min(start, src_len - dur))
+        _run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
+              "-i", str(src), "-an", "-vf", _VF_916, "-r", "30",
+              "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", str(out)])
 
 
 def _thumb(video, out):
@@ -273,22 +288,32 @@ def assemble(proj, state, cfg):
     return proj / "final.mp4"
 
 
-def _beat_candidates(edl_entry, segments, cuts):
-    """primary seg_ids + alt_ids → 스냅된 시작초 후보 리스트(중복 제거)."""
-    def to_start(idx):
-        if 0 <= idx < len(segments):
-            return round(snap(float(segments[idx]["start"]), cuts), 2)
-        return None
+def _beat_candidates(edl_entry, segments, cuts, min_cands=4):
+    """primary seg_ids + alt_ids → 스냅된 시작초 후보 리스트(중복 제거).
+    후보가 min_cands 미만이면 '주 구간 주변의 다른 장면'으로 보충해 리롤 옵션을 항상 확보한다.
+    cands[0]은 항상 매칭된 주 구간(첫 생성에 쓰임)."""
     seen, cands = set(), []
-    ids = (edl_entry.get("seg_ids") or []) + (edl_entry.get("alt_ids") or [])
-    for i in ids:
-        try:
-            st = to_start(int(i))
-        except Exception:
-            st = None
-        if st is not None and st not in seen:
+
+    def add(idx):
+        if not (0 <= idx < len(segments)):
+            return
+        st = round(snap(float(segments[idx]["start"]), cuts), 2)
+        if st not in seen:
             seen.add(st)
             cands.append(st)
+
+    prim = [int(i) for i in (edl_entry.get("seg_ids") or []) if str(i).lstrip("-").isdigit()]
+    alts = [int(i) for i in (edl_entry.get("alt_ids") or []) if str(i).lstrip("-").isdigit()]
+    for i in prim:
+        add(i)
+    for i in alts:
+        add(i)
+    if len(cands) < min_cands and segments:
+        base = prim[0] if prim else 0
+        for j in sorted(range(len(segments)), key=lambda k: abs(k - base)):
+            if len(cands) >= min_cands:
+                break
+            add(j)
     return cands or [0.0]
 
 
