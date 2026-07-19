@@ -1540,7 +1540,10 @@
     if(!box)return;
     if(!d.ok){box.innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
     const list=d.items||[];
-    IEB.shownReels=list.filter(x=>x.kind==='reel').map(x=>x.shortcode);   // 전체선택 대상(현재 목록의 릴스)
+    // 전체선택 대상(릴스)을 수집 최신순으로 — 100개 초과 시 최근 100개만 선택되도록
+    IEB.shownReels=list.filter(x=>x.kind==='reel')
+      .sort((a,b)=>String(b.collected_at||'').localeCompare(String(a.collected_at||'')))
+      .map(x=>x.shortcode);
     if(!list.length){box.innerHTML='<div style="color:var(--faint)">아직 수집된 게 없어요. 짤공장 릴스 헌터 확장을 켜고 인스타를 둘러보세요.</div>';return;}
     box.innerHTML='<div class="collgrid">'+list.map(p=>{
       const cnt=p.kind==='reel'?('▶ '+(p.viewCount||0).toLocaleString()):('♥ '+(p.likeCount||0).toLocaleString());
@@ -1563,8 +1566,10 @@
   }
   function ieUpdTrCount(){const el=$('trcount');if(el)el.textContent=IEB.trSel.size;}
   function ieTrSelectAll(){
-    const reels=IEB.shownReels||[];
-    if(!reels.length){flash('현재 목록에 릴스가 없어요 (위 필터를 🎬 릴스/전체로)');return;}
+    const all=IEB.shownReels||[];
+    if(!all.length){flash('현재 목록에 릴스가 없어요 (위 필터를 🎬 릴스/전체로)');return;}
+    const reels=all.slice(0,100);   // 대본추출 한 번에 최대 100개 → 최근순 100개만 선택
+    const capped=all.length>100;
     const allOn=reels.every(sc=>IEB.trSel.has(sc));   // 이미 다 선택돼 있으면 해제 토글
     reels.forEach(sc=>{allOn?IEB.trSel.delete(sc):IEB.trSel.add(sc);});
     document.querySelectorAll('#ie_collected [data-tr]').forEach(cb=>{
@@ -1572,12 +1577,12 @@
       const w=cb.closest('.trpick'); if(w)w.classList.toggle('on',cb.checked);
     });
     ieUpdTrCount();
-    flash(allOn?'전체 해제됨':`릴스 ${reels.length}개 전체 선택됨`);
+    flash(allOn?'전체 해제됨':(capped?`최근 100개 선택됨 (전체 ${all.length}개 중, 한 번에 최대 100)`:`릴스 ${reels.length}개 전체 선택됨`));
   }
   function ieTranscriptsZip(){
     const scs=[...IEB.trSel];
     if(!scs.length){flash('먼저 릴스 썸네일의 📝를 눌러 대본 뽑을 릴스를 고르세요');return;}
-    if(scs.length>30){flash('한 번에 최대 30개까지');return;}
+    if(scs.length>100){flash('한 번에 최대 100개까지');return;}
     startJob('/api/ie/insta/transcripts',{code:code(),shortcodes:scs},`📝 릴스 대본 추출 ${scs.length}개`);
     flash(`📝 대본 ${scs.length}개 추출 시작 — 완료되면 위 작업목록에서 다운로드`);
   }

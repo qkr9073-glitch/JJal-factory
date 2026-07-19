@@ -4104,7 +4104,7 @@ def api_ie_insta_transcripts():
     coll = _collected_load()
     by_sc = {x.get("shortcode"): x for x in coll}
     sel = []
-    for sc in want[:30]:
+    for sc in want[:100]:
         it = by_sc.get(sc)
         if it and it.get("url"):
             sel.append(it)
