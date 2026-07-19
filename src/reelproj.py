@@ -121,7 +121,15 @@ def collect_clips(cfg, base, pid, urls, log=print):
     cdir.mkdir(exist_ok=True)
     total = len(urls)
     failed = []
+    skipped = 0
+    done = {(c.get("src_url", "") or "").split("?")[0] for c in st["clips"]}   # 이미 수집한 영상(쿼리 무시)
     for ui, url in enumerate(urls):
+        base_url = url.split("?")[0]
+        if base_url in done:
+            log(f"[{ui+1}/{total}] 이미 수집한 영상, 건너뜀(중복)")
+            skipped += 1
+            continue
+        done.add(base_url)
         log(f"[{ui+1}/{total}] 영상 다운로드…")
         vid = pdir(base, pid) / "_src.mp4"
         try:
@@ -177,7 +185,7 @@ def collect_clips(cfg, base, pid, urls, log=print):
             except Exception:
                 pass
         save(base, pid, st)   # 영상 하나 끝날 때마다 자동저장
-    return {"clips": clips_public(pid, st), "failed": failed}
+    return {"clips": clips_public(pid, st), "failed": failed, "skipped": skipped}
 
 
 def clips_public(pid, st):

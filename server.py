@@ -4343,8 +4343,11 @@ def _run_reelproj_collect(jid, cfg, pid, urls):
         res = reelproj.collect_clips(cfg, BASE, pid, urls, log=log)
         clips = res.get("clips", [])
         failed = res.get("failed", [])
-        job["result"] = {"pid": pid, "clips": clips, "failed": failed}
+        skipped = res.get("skipped", 0)
+        job["result"] = {"pid": pid, "clips": clips, "failed": failed, "skipped": skipped}
         msg = f"완료 — 클립 {len(clips)}개"
+        if skipped:
+            msg += f" · {skipped}개 중복 건너뜀"
         if failed:
             msg += f" · ⚠️ {len(failed)}개 영상 실패(형식 문제로 분석 불가)"
         job.update(status="done", pct=100, msg=msg)
