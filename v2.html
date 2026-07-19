@@ -681,7 +681,8 @@
     if(wiz.step==='script')return renderScriptStep(b);
     if(wiz.step==='clips')return renderClipsStep(b);
     if(wiz.step==='tts')return renderTtsStep(b);
-    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b>, <b>② 대본</b>, <b>③ 영상</b>, <b>④ 음성</b>이 완성됐어요.</div>`;
+    if(wiz.step==='edit')return renderEditStep(b);
+    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b> ~ <b>⑤ 컷</b>이 완성됐어요. 마지막 <b>⑥ BGM</b> 남았습니다.</div>`;
   }
   /* ===== ② 대본 생성 ===== */
   async function renderScriptStep(b){
@@ -863,6 +864,67 @@
       <div style="margin-top:10px;font-size:12.5px;color:var(--muted);max-height:150px;overflow:auto;line-height:1.75">${subs}</div>
     </div>`;
     scrollTopPane($('ttsOut'));
+  }
+  /* ===== ⑤ 정밀 컷 ===== */
+  function renderEditStep(b){
+    if(!wiz.pid){b.innerHTML=`<div class="panehead"><h2>⑤ 컷</h2></div><div class="lcard">먼저 <b>③ 영상</b>·<b>④ 음성</b>을 완료하세요.</div>`;return;}
+    b.innerHTML=`
+      <div class="panehead"><h2>⑤ 정밀 컷</h2><span class="n">자막 타이밍에 맞춰 태그가 어울리는 클립을 배치·컷</span></div>
+      <div class="lcard">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>✂️ 정밀 컷 생성</b>
+          <span style="font-size:12px;color:var(--muted)">내용 전환점마다 태그 맞는 클립 배치 · 짧으면 최대 2배 슬로우 · 클립 재사용 안 함</span>
+          <button class="btn primary" style="margin-left:auto" onclick="editRun()">정밀 컷 생성</button></div>
+        <div id="editJob"></div>
+      </div>
+      <div id="editOut"></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:20px"><button class="btn" onclick="wizGo('bgm')">다음: BGM →</button></div>`;
+    editLoad();
+  }
+  function editLoad(){apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok&&d.edit)editRender(d.edit);});}
+  function editRun(){
+    apiJson('/api/reelproj/edit',{code:code(),pid:wiz.pid}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      $('editJob').innerHTML=`<div id="ej-${d.job}" style="margin-top:10px;font-size:13px"><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-bottom:5px"><div style="height:100%;width:6%;background:var(--gold);transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span></div>`;
+      editPoll(d.job);
+    }).catch(e=>flash('❌ 통신 오류'));
+  }
+  async function editPoll(jid){
+    const row=$('ej-'+jid); if(!row)return;
+    const fill=row.querySelector('.jbar>div'),jm=row.querySelector('.jm');
+    let d;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}catch(e){setTimeout(()=>editPoll(jid),2500);return;}
+    if(!d.ok){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='queued')jm.textContent='🕐 대기 중…';
+    else{if(fill)fill.style.width=(d.pct||6)+'%';jm.textContent='⏳ '+(d.msg||'생성 중…');}
+    if(d.status==='error'){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';jm.textContent='✅ '+(d.msg||'완료');editRender(d.result);return;}
+    setTimeout(()=>editPoll(jid),2000);
+  }
+  function editRender(e){
+    if(!e)return; wiz._edit=e;
+    const v=e.preview+'?t='+Date.now();
+    const blocks=(e.blocks||[]).map(bl=>`
+      <div style="display:flex;gap:10px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:7px">
+        <img src="${bl.thumb}?t=${Date.now()}" style="width:46px;height:82px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#000" onerror="this.style.visibility='hidden'">
+        <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;line-height:1.4">${esch(bl.tag||'(태그 없음)')}</div>
+          <div style="font-size:11px;color:var(--faint);margin-top:3px">${bl.start}~${bl.end}s (${bl.dur}s) · 후보 ${bl.cand}/${bl.cand_total}</div></div>
+        ${bl.cand_total>1?`<button class="btn" onclick="editReroll(${bl.i})" title="이 컷을 다른 클립으로">🔄 리롤</button>`:`<span style="font-size:11px;color:var(--faint);white-space:nowrap">대체 없음</span>`}
+      </div>`).join('');
+    $('editOut').innerHTML=`<div class="lcard"><div style="display:flex;gap:14px;flex-wrap:wrap">
+        <video src="${v}" controls playsinline style="width:250px;max-width:100%;border-radius:10px;background:#000;flex-shrink:0"></video>
+        <div style="flex:1;min-width:240px"><div style="font-weight:800;margin-bottom:8px">✂️ 컷 배치 (🔄로 교체)</div>${blocks}</div>
+      </div></div>`;
+    scrollTopPane($('editOut'));
+  }
+  function editReroll(block){
+    flash(`🔄 컷 ${block+1} 교체 중…`);
+    apiJson('/api/reelproj/edit_reroll',{code:code(),pid:wiz.pid,block}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const jid=d.job;
+      (async function pp(){let j;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(pp,2000);return;}
+        if(j.status==='done'){editRender(j.result);flash('✅ 교체됨');}
+        else if(j.status==='error'){flash('❌ '+j.error);}
+        else setTimeout(pp,1500);})();
+    });
   }
 
   /* ===== ① 대본학습 + (다음:소재추천) ===== */

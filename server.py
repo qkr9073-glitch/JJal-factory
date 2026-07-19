@@ -4459,6 +4459,82 @@ def _run_reelproj_tts(jid, cfg, pid):
         job.update(status="error", error=str(e)[:220])
 
 
+@app.get("/reelproj/<pid>/edit/<path:fn>")
+def api_reelproj_edit_file(pid, fn):
+    d = BASE / "reelproj" / Path(pid).name / "edit"
+    safe = Path(fn).name
+    if not (d / safe).exists():
+        return jsonify(ok=False, error="파일 없음"), 404
+    return send_from_directory(str(d), safe)
+
+
+def _run_reelproj_edit(jid, cfg, pid):
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        mt = re.match(r"\[(\d+)/(\d+)\]", m)
+        if mt:
+            i, n = int(mt.group(1)), max(1, int(mt.group(2)))
+            job["pct"] = min(92, int(i / n * 85) + 8)
+
+    try:
+        job.update(status="running", pct=6)
+        res = reelproj.build_edit(cfg, BASE, pid, log=log)
+        job["result"] = res
+        job.update(status="done", pct=100, msg=f"완료 — 컷 {len(res.get('blocks',[]))}개")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/reelproj/edit")
+def api_reelproj_edit():
+    """⑤ 정밀 컷: 자막 타이밍에 맞춰 태그 클립 배치·컷 → 미리보기(백그라운드)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트가 없어요"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_reelproj_edit, args=(jid, cfg, pid), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+def _run_reelproj_edit_reroll(jid, cfg, pid, idx):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=25, msg=f"컷 {idx+1} 다른 클립으로 교체 중…")
+        res = reelproj.reroll_block(BASE, pid, idx)
+        job["result"] = res
+        job.update(status="done", pct=100, msg="완료")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/reelproj/edit_reroll")
+def api_reelproj_edit_reroll():
+    """정밀 컷의 특정 블록만 다른 클립으로 교체."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    try:
+        idx = int(data.get("block"))
+    except Exception:
+        return jsonify(ok=False, error="블록 번호 오류"), 400
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_reelproj_edit_reroll, args=(jid, cfg, pid, idx), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
 @app.post("/api/reelproj/tts")
 def api_reelproj_tts():
     """④ 음성: 확정 대본 → ElevenLabs TTS(무음제거) + 짧은 구절 자막(백그라운드)."""

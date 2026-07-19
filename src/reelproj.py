@@ -201,8 +201,14 @@ def state_public(base, pid):
     if t and (pdir(base, pid) / "tts" / "tts.mp3").exists():
         tts = {"dur": t.get("dur"), "n_sub": t.get("n_sub"), "subs": t.get("subs", []),
                "audio": f"/reelproj/{pid}/tts/tts.mp3"}
+    edit = None
+    if st.get("edl") and (pdir(base, pid) / "edit" / "preview.mp4").exists():
+        try:
+            edit = edit_public(base, pid, st)
+        except Exception:
+            edit = None
     return {"pid": pid, "script": st.get("script", ""), "topic": st.get("topic", ""),
-            "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts}
+            "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit}
 
 
 def build_tts(cfg, base, pid, log=print):
@@ -249,6 +255,178 @@ def build_tts(cfg, base, pid, log=print):
     save(base, pid, st)
     return {"dur": st["tts"]["dur"], "n_sub": len(subs), "subs": subs,
             "audio": f"/reelproj/{pid}/tts/tts.mp3"}
+
+
+def _gjson(cfg, prompt, maxtok=4096):
+    key = (cfg.get("gemini_api_key") or "").strip()
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    body = {"contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json", "temperature": 0.3,
+                                 "maxOutputTokens": maxtok, "thinkingConfig": {"thinkingBudget": 0}}}
+    r = requests.post(brain.GEMINI_URL.format(model=model), params={"key": key}, json=body, timeout=120)
+    if r.status_code != 200:
+        raise RuntimeError(f"Gemini 오류 {r.status_code}: {r.text[:150]}")
+    cand = r.json()["candidates"][0]
+    raw = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []))
+    return brain._parse_json(raw)
+
+
+def _match_edl(cfg, subs, total, clips):
+    """자막 타이밍에 클립 배치(내용 전환점 블록화, 태그매칭, 재사용금지)."""
+    sub_lines = "\n".join(f"[{round(s['s'],1)}~{round(s['e'],1)}s] {s['t']}" for s in subs)
+    clip_lines = "\n".join(f"{c['id']}: {c.get('tag','')} ({c.get('dur',0)}초)" for c in clips)
+    prompt = f"""아래 내레이션(자막 구간, 총 {round(total,1)}초)에 소스 클립을 배치해 컷편집 계획(EDL)을 만들어라.
+- 내용이 바뀌는 지점에서 블록으로 나눠라(꼭 한 문장=한 컷일 필요 없음). 각 블록은 [start,end]초, 0부터 {round(total,1)}까지 빈틈없이 이어서 덮어라.
+- 각 블록에 '태그가 가장 어울리는' 클립 하나를 배정. **한 클립은 한 블록에만(재사용 금지).**
+- 각 블록에 대체 후보 alt_ids(1~3개, 태그 비슷한 순)도 제시.
+[내레이션 자막]
+{sub_lines}
+[클립들 (id: 태그 (길이초))]
+{clip_lines}
+반드시 JSON만: {{"edl":[{{"start":0,"end":3.2,"clip_id":"..","alt_ids":["..",".."]}}, ...]}}"""
+    edl = _gjson(cfg, prompt).get("edl", [])
+    ids = [c["id"] for c in clips]
+    idset = set(ids)
+    out = []
+    for e in edl:
+        cid = str(e.get("clip_id", "")).strip()
+        try:
+            s = float(e.get("start", 0))
+            en = float(e.get("end", 0))
+        except Exception:
+            continue
+        if cid not in idset:
+            continue
+        alt = [str(a) for a in (e.get("alt_ids") or []) if str(a) in idset and str(a) != cid]
+        out.append({"start": s, "end": en, "clip_id": cid, "alt_ids": alt})
+    out.sort(key=lambda x: x["start"])
+    if not out:   # 폴백: 클립을 순서대로 균등 배치
+        n = len(clips)
+        step = total / max(1, n)
+        out = [{"start": round(i * step, 2), "end": round((i + 1) * step, 2),
+                "clip_id": clips[i]["id"], "alt_ids": []} for i in range(n)]
+    # 연속 커버리지 강제(0..total)
+    for i, e in enumerate(out):
+        e["start"] = 0.0 if i == 0 else out[i - 1]["end"]
+    out[-1]["end"] = round(total, 2)
+    out = [e for e in out if e["end"] - e["start"] > 0.05]
+    # 재사용 금지(중복이면 대체/미사용 클립으로 교체) + 리롤 후보 구성
+    used = set()
+    for e in out:
+        if e["clip_id"] in used:
+            repl = next((a for a in e["alt_ids"] if a not in used), None) \
+                or next((cid for cid in ids if cid not in used), None)
+            if repl:
+                e["clip_id"] = repl
+        used.add(e["clip_id"])
+        cands = [e["clip_id"]] + [a for a in e["alt_ids"] if a != e["clip_id"]]
+        for cid in ids:   # 나머지 클립도 리롤 후보로(부족하지 않게)
+            if cid not in cands:
+                cands.append(cid)
+        e["cands"] = cands[:6]
+        e["used"] = 0
+    return out
+
+
+_VF916 = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
+
+
+def _fit_clip(src, cdur, need, out):
+    """클립을 정확히 need초로: 길면 트림, 짧으면 최대 2배 슬로우, 그래도 짧으면 2배+반복."""
+    FF = autoshorts.FFMPEG
+    tail = ["-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-an", str(out)]
+    if cdur >= need + 0.05:
+        autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                         "-t", f"{need:.3f}", "-vf", _VF916] + tail)
+    else:
+        factor = max(1.0, need / max(0.2, cdur))
+        if factor <= 2.0:
+            autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                             "-vf", f"setpts={factor:.4f}*PTS,{_VF916}", "-t", f"{need:.3f}"] + tail)
+        else:
+            autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "-1", "-i", str(src),
+                             "-vf", f"setpts=2.0*PTS,{_VF916}", "-t", f"{need:.3f}"] + tail)
+
+
+_ASS_HEAD = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
+             "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, "
+             "Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV\n"
+             "Style: Default,Malgun Gothic,72,&H00FFFFFF,&H00000000,&H90000000,-1,1,5,2,2,80,80,320\n\n"
+             "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+
+
+def _subs_ass(path, subs):
+    ev = [f"Dialogue: 0,{autoshorts._ass_ts(s['s'])},{autoshorts._ass_ts(s['e'])},Default,,0,0,0,,{s['t']}"
+          for s in subs]
+    Path(path).write_text(_ASS_HEAD + "\n".join(ev) + "\n", encoding="utf-8")
+
+
+def _assemble_edit(base, pid, st, only_idx=None):
+    """EDL대로 각 블록 클립을 need초로 맞춰 컷 → 이어붙이고 음성+자막 미리보기."""
+    FF = autoshorts.FFMPEG
+    edir = pdir(base, pid) / "edit"
+    edir.mkdir(exist_ok=True)
+    byid = {c["id"]: c for c in st["clips"]}
+    edl = st["edl"]
+    for i, e in enumerate(edl):
+        if only_idx is not None and i != only_idx:
+            continue
+        c = byid.get(e["cands"][e["used"]]) or byid.get(e["clip_id"])
+        need = e["end"] - e["start"]
+        _fit_clip(edir.parent / "clips" / c["file"], c.get("dur", need), need, edir / f"s{i}.mp4")
+    (edir / "_list.txt").write_text("".join(f"file 's{i}.mp4'\n" for i in range(len(edl))), encoding="utf-8")
+    _run = autoshorts._run
+    _run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+          "-i", "_list.txt", "-c", "copy", "video.mp4"], cwd=str(edir))
+    _subs_ass(edir / "sub.ass", st["tts"]["subs"])
+    # cwd=edir 이므로 상위 tts 폴더는 ../tts 로 참조(절대/상대 base 모두 안전)
+    _run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", "video.mp4", "-i", "../tts/tts.mp3",
+          "-vf", "ass=sub.ass", "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
+          "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", "preview.mp4"], cwd=str(edir))
+
+
+def build_edit(cfg, base, pid, log=print):
+    st = load(base, pid)
+    tts = st.get("tts")
+    if not tts or not (pdir(base, pid) / "tts" / "tts.mp3").exists():
+        raise RuntimeError("먼저 ④ 음성을 생성하세요")
+    if not st.get("clips"):
+        raise RuntimeError("클립이 없습니다 (③ 영상수집)")
+    log("[1/3] 대본↔클립 매칭…")
+    st["edl"] = _match_edl(cfg, tts["subs"], tts["dur"], st["clips"])
+    log("[2/3] 컷 맞춤(트림·슬로우)…")
+    log("[3/3] 미리보기 합성(음성+자막)…")
+    _assemble_edit(base, pid, st)
+    st["edit"] = {"preview": "edit/preview.mp4"}
+    save(base, pid, st)
+    return edit_public(base, pid, st)
+
+
+def reroll_block(base, pid, idx):
+    st = load(base, pid)
+    edl = st.get("edl") or []
+    if not (0 <= idx < len(edl)):
+        raise RuntimeError("잘못된 블록")
+    e = edl[idx]
+    if len(e.get("cands", [])) <= 1:
+        raise RuntimeError("대체 클립이 없어요")
+    e["used"] = (e["used"] + 1) % len(e["cands"])
+    e["clip_id"] = e["cands"][e["used"]]
+    _assemble_edit(base, pid, st, only_idx=idx)
+    save(base, pid, st)
+    return edit_public(base, pid, st)
+
+
+def edit_public(base, pid, st):
+    byid = {c["id"]: c for c in st["clips"]}
+    blocks = []
+    for i, e in enumerate(st.get("edl", [])):
+        c = byid.get(e["cands"][e["used"]]) or byid.get(e["clip_id"]) or {}
+        blocks.append({"i": i, "start": round(e["start"], 1), "end": round(e["end"], 1),
+                       "dur": round(e["end"] - e["start"], 1), "tag": c.get("tag", ""),
+                       "thumb": f"/reelproj/{pid}/clips/{c.get('thumb','')}",
+                       "cand": e["used"] + 1, "cand_total": len(e.get("cands", []))})
+    return {"preview": f"/reelproj/{pid}/edit/preview.mp4", "blocks": blocks}
 
 
 def delete_clip(base, pid, cid):
