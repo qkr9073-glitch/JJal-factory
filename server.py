@@ -4395,6 +4395,19 @@ def api_reelproj_clips():
     return jsonify(ok=True, clips=reelproj.clips_public(pid, reelproj.load(BASE, pid)))
 
 
+@app.post("/api/reelproj/state")
+def api_reelproj_state():
+    """프로젝트 전체 상태(대본·클립·음성)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    return jsonify(ok=True, **reelproj.state_public(BASE, pid))
+
+
 @app.post("/api/reelproj/clip_delete")
 def api_reelproj_clip_delete():
     data = request.get_json(silent=True) or {}
@@ -4415,6 +4428,51 @@ def api_reelproj_file(pid, fn):
     if not (d / safe).exists():
         return jsonify(ok=False, error="파일 없음"), 404
     return send_from_directory(str(d), safe)
+
+
+@app.get("/reelproj/<pid>/tts/<path:fn>")
+def api_reelproj_tts_file(pid, fn):
+    d = BASE / "reelproj" / Path(pid).name / "tts"
+    safe = Path(fn).name
+    if not (d / safe).exists():
+        return jsonify(ok=False, error="파일 없음"), 404
+    return send_from_directory(str(d), safe)
+
+
+def _run_reelproj_tts(jid, cfg, pid):
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        mt = re.match(r"\[(\d+)/(\d+)\]", m)
+        if mt:
+            i, n = int(mt.group(1)), max(1, int(mt.group(2)))
+            job["pct"] = min(92, int(i / n * 88) + 5)
+
+    try:
+        job.update(status="running", pct=5)
+        res = reelproj.build_tts(cfg, BASE, pid, log=log)
+        job["result"] = res
+        job.update(status="done", pct=100, msg=f"완료 — {res.get('n_sub',0)}개 자막 · {res.get('dur',0)}초")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/reelproj/tts")
+def api_reelproj_tts():
+    """④ 음성: 확정 대본 → ElevenLabs TTS(무음제거) + 짧은 구절 자막(백그라운드)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트가 없어요 (③ 영상수집부터)"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_reelproj_tts, args=(jid, cfg, pid), daemon=True).start()
+    return jsonify(ok=True, job=jid)
 
 
 @app.post("/api/learn/recommend")

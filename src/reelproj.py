@@ -194,6 +194,63 @@ def clips_public(pid, st):
              "video": f"/reelproj/{pid}/clips/{c['file']}"} for c in st.get("clips", [])]
 
 
+def state_public(base, pid):
+    st = load(base, pid)
+    t = st.get("tts")
+    tts = None
+    if t and (pdir(base, pid) / "tts" / "tts.mp3").exists():
+        tts = {"dur": t.get("dur"), "n_sub": t.get("n_sub"), "subs": t.get("subs", []),
+               "audio": f"/reelproj/{pid}/tts/tts.mp3"}
+    return {"pid": pid, "script": st.get("script", ""), "topic": st.get("topic", ""),
+            "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts}
+
+
+def build_tts(cfg, base, pid, log=print):
+    """확정 대본 → 문장별 ElevenLabs TTS(타임스탬프) → 앞뒤 무음 트림 → 이어붙여
+    '몰아치는' 음성 + 짧은 구절 자막(문장부호/2어절). state['tts'] 저장."""
+    st = load(base, pid)
+    lines = [ln.strip() for ln in str(st.get("script", "")).splitlines() if ln.strip()]
+    if not lines:
+        raise RuntimeError("확정된 대본이 없습니다 (② 대본)")
+    tdir = pdir(base, pid) / "tts"
+    tdir.mkdir(exist_ok=True)
+    for f in tdir.glob("*"):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+    FF = autoshorts.FFMPEG
+    line_files, subs, cum = [], [], 0.0
+    for i, line in enumerate(lines):
+        log(f"[{i+1}/{len(lines)}] 음성 생성·무음제거…")
+        audio, words = autoshorts.tts(cfg, line)
+        raw = tdir / f"raw{i}.mp3"
+        raw.write_bytes(audio)
+        if not words:
+            words = [{"t": line, "s": 0.0, "d": autoshorts._dur(raw)}]
+        s0 = max(0.0, float(words[0]["s"]) - 0.02)          # 앞 무음 컷
+        e1 = float(words[-1]["s"]) + float(words[-1]["d"]) + 0.04   # 뒤 살짝 여유
+        ln = tdir / f"line{i}.mp3"
+        autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{s0:.3f}",
+                         "-to", f"{e1:.3f}", "-i", str(raw), "-c:a", "libmp3lame", "-q:a", "2", str(ln)])
+        line_files.append(ln.name)
+        for ch in autoshorts._chunks(words):               # 짧은 구절 자막
+            subs.append({"s": round(cum + (ch["s"] - s0), 2), "e": round(cum + (ch["e"] - s0), 2), "t": ch["t"]})
+        cum += autoshorts._dur(ln)
+        try:
+            raw.unlink(missing_ok=True)
+        except Exception:
+            pass
+    # 문장 오디오 이어붙이기(무음 없이) → tts.mp3
+    (tdir / "_list.txt").write_text("".join(f"file '{n}'\n" for n in line_files), encoding="utf-8")
+    autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+                     "-i", "_list.txt", "-c:a", "libmp3lame", "-q:a", "2", "tts.mp3"], cwd=str(tdir))
+    st["tts"] = {"audio": "tts/tts.mp3", "dur": round(cum, 2), "subs": subs, "n_sub": len(subs)}
+    save(base, pid, st)
+    return {"dur": st["tts"]["dur"], "n_sub": len(subs), "subs": subs,
+            "audio": f"/reelproj/{pid}/tts/tts.mp3"}
+
+
 def delete_clip(base, pid, cid):
     st = load(base, pid)
     keep = []

@@ -680,7 +680,8 @@
     if(wiz.step==='learn')return renderLearnStep(b);
     if(wiz.step==='script')return renderScriptStep(b);
     if(wiz.step==='clips')return renderClipsStep(b);
-    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b>, <b>② 대본</b>, <b>③ 영상</b>이 완성됐어요.</div>`;
+    if(wiz.step==='tts')return renderTtsStep(b);
+    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b>, <b>② 대본</b>, <b>③ 영상</b>, <b>④ 음성</b>이 완성됐어요.</div>`;
   }
   /* ===== ② 대본 생성 ===== */
   async function renderScriptStep(b){
@@ -816,6 +817,53 @@
       </div>`).join('')+'</div>';
   }
   function clipDel(cid){apiJson('/api/reelproj/clip_delete',{code:code(),pid:wiz.pid,cid}).then(d=>{if(d.ok)clipRender(d.clips);});}
+  /* ===== ④ 음성 + 자막 ===== */
+  function renderTtsStep(b){
+    if(!wiz.pid){
+      b.innerHTML=`<div class="panehead"><h2>④ 음성</h2></div><div class="lcard">먼저 <b>③ 영상</b>에서 영상을 수집해 프로젝트를 만드세요. <button class="btn" onclick="wizGo('clips')" style="margin-left:8px">③ 영상으로</button></div>`;
+      return;
+    }
+    b.innerHTML=`
+      <div class="panehead"><h2>④ 음성 + 자막</h2><span class="n">확정 대본 → ElevenLabs 음성(문장 사이 무음 제거) + 짧은 구절 자막</span></div>
+      <div class="lcard">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>🎙 음성 생성</b>
+          <span style="font-size:12px;color:var(--muted)">확정 대본으로 생성 · 문장 사이 빈 구간을 잘라 몰아치게</span>
+          <button class="btn primary" style="margin-left:auto" onclick="ttsRun()">음성 생성</button></div>
+        <div id="ttsJob"></div>
+      </div>
+      <div id="ttsOut"></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:20px"><button class="btn" onclick="wizGo('edit')">다음: 컷 →</button></div>`;
+    ttsLoad();
+  }
+  function ttsLoad(){apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok&&d.tts)ttsRender(d.tts);});}
+  function ttsRun(){
+    apiJson('/api/reelproj/tts',{code:code(),pid:wiz.pid}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      $('ttsJob').innerHTML=`<div id="tj-${d.job}" style="margin-top:10px;font-size:13px"><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-bottom:5px"><div style="height:100%;width:5%;background:var(--gold);transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span></div>`;
+      ttsPoll(d.job);
+    }).catch(e=>flash('❌ 통신 오류'));
+  }
+  async function ttsPoll(jid){
+    const row=$('tj-'+jid); if(!row)return;
+    const fill=row.querySelector('.jbar>div'),jm=row.querySelector('.jm');
+    let d;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}catch(e){setTimeout(()=>ttsPoll(jid),2500);return;}
+    if(!d.ok){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='queued')jm.textContent='🕐 대기 중…';
+    else{if(fill)fill.style.width=(d.pct||5)+'%';jm.textContent='⏳ '+(d.msg||'생성 중…');}
+    if(d.status==='error'){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';jm.textContent='✅ '+(d.msg||'완료');ttsRender(d.result);return;}
+    setTimeout(()=>ttsPoll(jid),1500);
+  }
+  function ttsRender(t){
+    if(!t)return; wiz._tts=t;
+    const subs=(t.subs||[]).map(s=>`<span style="color:var(--faint)">${s.s}s</span> ${esch(s.t)}`).join('<br>');
+    $('ttsOut').innerHTML=`<div class="lcard">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>🔊 완성 음성</b><span style="color:var(--faint);font-size:12px">${t.dur}초 · 짧은 구절 자막 ${t.n_sub}개</span></div>
+      <audio src="${t.audio}?t=${Date.now()}" controls style="width:100%;margin-top:10px"></audio>
+      <div style="margin-top:10px;font-size:12.5px;color:var(--muted);max-height:150px;overflow:auto;line-height:1.75">${subs}</div>
+    </div>`;
+    scrollTopPane($('ttsOut'));
+  }
 
   /* ===== ① 대본학습 + (다음:소재추천) ===== */
   let learnState={cats:[],avail:0,peek:null};
