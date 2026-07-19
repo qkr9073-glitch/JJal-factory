@@ -20,6 +20,8 @@ from . import brain, youtube
 _BIN = Path(__file__).resolve().parent.parent / "bin"
 FFMPEG = str(_BIN / "ffmpeg.exe") if (_BIN / "ffmpeg.exe").exists() else "ffmpeg"
 FFPROBE = str(_BIN / "ffprobe.exe") if (_BIN / "ffprobe.exe").exists() else "ffprobe"
+# Windows에서 subprocess가 검은 콘솔창을 띄우지 않도록(서버는 창 없이 도는데 ffmpeg마다 창 깜빡임 방지)
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
 def _key(cfg):
@@ -28,7 +30,7 @@ def _key(cfg):
 
 def _run(cmd, cwd=None):
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", creationflags=_NO_WINDOW)
     if r.returncode != 0:
         raise RuntimeError(f"ffmpeg 실패: {(r.stderr or '')[-500:]}")
     return r
@@ -36,7 +38,8 @@ def _run(cmd, cwd=None):
 
 def _dur(path):
     r = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=duration",
-                        "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+                        "-of", "csv=p=0", str(path)], capture_output=True, text=True,
+                       creationflags=_NO_WINDOW)
     try:
         return float(r.stdout.strip())
     except Exception:
@@ -96,7 +99,8 @@ def visual_segments(cfg, video, log=print):
 def scene_cuts(video):
     r = subprocess.run([FFMPEG, "-hide_banner", "-i", str(video), "-filter:v",
                         "select='gt(scene,0.3)',showinfo", "-an", "-f", "null", "-"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       creationflags=_NO_WINDOW)
     cuts = [0.0]
     for ln in (r.stderr or "").splitlines():
         if "pts_time:" in ln:

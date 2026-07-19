@@ -451,7 +451,8 @@ def extract_frame_pool(video, out_dir, interval=0.7, target_h=1920,
     cmd = [FFMPEG, "-y", "-i", video, "-vf",
            f"fps=1/{interval},scale=-2:min(ih\\,{target_h})",
            "-q:v", "2", pat]
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       creationflags=(0x08000000 if os.name == "nt" else 0))
     raw = sorted(glob.glob(os.path.join(out_dir, "pool_*.jpg")))
     if not raw:
         raise RuntimeError(f"프레임 추출 실패: {r.stderr[-200:]}")
