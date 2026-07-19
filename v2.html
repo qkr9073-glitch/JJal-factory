@@ -673,7 +673,8 @@
     const b=$('wizbody'); if(!b)return;
     if(wiz.step==='learn')return renderLearnStep(b);
     if(wiz.step==='script')return renderScriptStep(b);
-    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b>, <b>② 대본</b>이 완성됐어요.</div>`;
+    if(wiz.step==='clips')return renderClipsStep(b);
+    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b>, <b>② 대본</b>, <b>③ 영상</b>이 완성됐어요.</div>`;
   }
   /* ===== ② 대본 생성 ===== */
   async function renderScriptStep(b){
@@ -735,6 +736,71 @@
     flash('✅ 대본 확정됨 — 다음 단계로');
     wizGo('clips');
   }
+  /* ===== ③ 영상 수집 + AI 러프컷 ===== */
+  function renderClipsStep(b){
+    if(!wiz.script){
+      b.innerHTML=`<div class="panehead"><h2>③ 영상 수집</h2></div><div class="lcard">먼저 <b>② 대본</b>에서 대본을 확정하세요. <button class="btn" onclick="wizGo('script')" style="margin-left:8px">② 대본으로</button></div>`;
+      return;
+    }
+    const boxes=Math.max(3,(wiz._urlBoxes||3));
+    b.innerHTML=`
+      <div class="panehead"><h2>③ 영상 수집 + AI 러프컷</h2><span class="n">관련 영상 URL → AI가 하이라이트를 잘라 클립 창고 생성</span></div>
+      <div class="lcard">
+        <div class="caphint" style="margin-bottom:8px">유튜브·틱톡·빌리빌리·릴스 <b>영상 링크</b>를 붙여넣으세요. 각 영상에서 소재 관련 장면을 여러 개 자동으로 잘라 태그를 답니다. (최대 10개)</div>
+        <div id="urlBoxes">${Array.from({length:boxes},(_,i)=>`<input class="in urlbox" style="margin-bottom:6px" placeholder="🔗 영상 URL ${i+1}">`).join('')}</div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn" onclick="clipAddBox()">＋ 칸 추가</button>
+          <button class="btn primary" style="margin-left:auto" onclick="clipCollect()">🎬 영상 수집·컷</button></div>
+        <div class="caphint" style="margin-top:6px;color:var(--faint)">영상당 다운로드+AI분석이라 여러 개면 몇 분 걸려요(백그라운드).</div>
+      </div>
+      <div id="clipJob"></div>
+      <div class="lcard"><div style="display:flex;justify-content:space-between;align-items:center"><b>🎞 클립 창고</b><span id="clipCount" style="color:var(--faint);font-size:12px"></span></div><div id="clipGrid" style="margin-top:10px"><div style="color:var(--faint)">아직 없음</div></div></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:20px"><button class="btn" onclick="wizGo('tts')">다음: 음성 →</button></div>`;
+    if(wiz.pid)clipLoad();
+  }
+  function clipAddBox(){
+    const wrap=$('urlBoxes'); if(!wrap)return;
+    if(wrap.children.length>=10){flash('최대 10개까지');return;}
+    const inp=document.createElement('input'); inp.className='in urlbox'; inp.style.marginBottom='6px'; inp.placeholder='🔗 영상 URL '+(wrap.children.length+1);
+    wrap.appendChild(inp); wiz._urlBoxes=wrap.children.length;
+  }
+  function clipCollect(){
+    const urls=[...document.querySelectorAll('#urlBoxes .urlbox')].map(x=>x.value.trim()).filter(Boolean);
+    if(!urls.length){flash('영상 URL을 1개 이상 넣으세요');return;}
+    const body={code:code(),urls,script:wiz.script,topic:wiz.topic||'',category:wiz.category||''};
+    if(wiz.pid)body.pid=wiz.pid;
+    apiJson('/api/reelproj/collect',body).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      wiz.pid=d.pid;
+      $('clipJob').innerHTML=`<div id="cj-${d.job}" class="lcard" style="padding:11px 13px"><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:5%;background:var(--gold);transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span></div>`;
+      clipPoll(d.job);
+    }).catch(e=>flash('❌ 통신 오류'));
+  }
+  async function clipPoll(jid){
+    const row=$('cj-'+jid); if(!row)return;
+    const fill=row.querySelector('.jbar>div'),jm=row.querySelector('.jm');
+    let d;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}catch(e){setTimeout(()=>clipPoll(jid),3000);return;}
+    if(!d.ok){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='queued')jm.textContent='🕐 대기 중…';
+    else{if(fill)fill.style.width=(d.pct||5)+'%';jm.textContent='⏳ '+(d.msg||'처리 중…');}
+    if(d.status==='error'){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';jm.textContent='✅ '+(d.msg||'완료');clipRender(d.result.clips);return;}
+    setTimeout(()=>clipPoll(jid),2000);
+  }
+  function clipLoad(){apiJson('/api/reelproj/clips',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok)clipRender(d.clips);});}
+  function clipRender(clips){
+    clips=clips||[]; wiz._clips=clips;
+    const cc=$('clipCount'); if(cc)cc.textContent=`${clips.length}개`+(clips.length&&clips.length<6?' · 컷이 적으면 URL 더 넣으세요':'');
+    const g=$('clipGrid'); if(!g)return;
+    if(!clips.length){g.innerHTML='<div style="color:var(--faint)">아직 없음 — 위에 URL 넣고 [영상 수집·컷]</div>';return;}
+    g.innerHTML='<div class="catgrid">'+clips.map(c=>`
+      <div class="catcard">
+        <div class="banner" style="height:150px;background:#000;padding:0;font-size:0"><video src="${c.video}" muted playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover" onmouseover="this.play()" onmouseout="this.pause()"></video><span class="cnt">${c.dur}s</span></div>
+        <div class="cbody"><div class="csm" style="max-height:42px">${esch(c.tag||'')}</div></div>
+        <div class="cacts"><button class="btn collmini" style="flex:1" onclick="clipDel('${c.id}')">🗑 삭제</button></div>
+      </div>`).join('')+'</div>';
+  }
+  function clipDel(cid){apiJson('/api/reelproj/clip_delete',{code:code(),pid:wiz.pid,cid}).then(d=>{if(d.ok)clipRender(d.clips);});}
 
   /* ===== ① 대본학습 + (다음:소재추천) ===== */
   let learnState={cats:[],avail:0,peek:null};

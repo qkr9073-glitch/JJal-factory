@@ -20,7 +20,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import autoshorts, brain, hunter, insights, pipeline, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import autoshorts, brain, hunter, insights, pipeline, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
@@ -4325,6 +4325,88 @@ def api_learn_delete():
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     scriptlearn.delete(BASE, code, (data.get("name") or "").strip())
     return jsonify(ok=True, categories=scriptlearn.summary(BASE, code))
+
+
+def _run_reelproj_collect(jid, cfg, pid, urls):
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        mt = re.match(r"\[(\d+)/(\d+)\]", m)
+        if mt:
+            i, n = int(mt.group(1)), max(1, int(mt.group(2)))
+            job["pct"] = min(95, int((i - 0.5) / n * 90) + 5)
+
+    try:
+        job.update(status="running", pct=5)
+        clips = reelproj.collect_clips(cfg, BASE, pid, urls, log=log)
+        job["result"] = {"pid": pid, "clips": clips}
+        job.update(status="done", pct=100, msg=f"완료 — 클립 {len(clips)}개")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/reelproj/collect")
+def api_reelproj_collect():
+    """③ 영상수집: URL들 → 프로젝트에 러프컷 클립 누적(백그라운드). 대본 확정 필요."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    urls = [str(u).strip() for u in (data.get("urls") or []) if str(u).strip()]
+    if not urls:
+        return jsonify(ok=False, error="영상 URL을 1개 이상 넣으세요"), 400
+    urls = urls[:10]
+    pid = (data.get("pid") or "").strip()
+    if pid and reelproj.exists(BASE, pid):
+        pass
+    else:
+        script = (data.get("script") or "").strip()
+        if not script:
+            return jsonify(ok=False, error="먼저 ② 대본을 확정하세요"), 400
+        pid = reelproj.new_project(BASE, code, script,
+                                   (data.get("topic") or "").strip(), (data.get("category") or "").strip())
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_reelproj_collect, args=(jid, cfg, pid, urls), daemon=True).start()
+    return jsonify(ok=True, job=jid, pid=pid)
+
+
+@app.post("/api/reelproj/clips")
+def api_reelproj_clips():
+    """프로젝트 현재 클립 목록."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=True, clips=[])
+    return jsonify(ok=True, clips=reelproj.clips_public(pid, reelproj.load(BASE, pid)))
+
+
+@app.post("/api/reelproj/clip_delete")
+def api_reelproj_clip_delete():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    cid = (data.get("cid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    return jsonify(ok=True, clips=reelproj.delete_clip(BASE, pid, cid))
+
+
+@app.get("/reelproj/<pid>/clips/<path:fn>")
+def api_reelproj_file(pid, fn):
+    d = BASE / "reelproj" / Path(pid).name / "clips"
+    safe = Path(fn).name
+    if not (d / safe).exists():
+        return jsonify(ok=False, error="파일 없음"), 404
+    return send_from_directory(str(d), safe)
 
 
 @app.post("/api/learn/recommend")
