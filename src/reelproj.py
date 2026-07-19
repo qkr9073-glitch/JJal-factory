@@ -6,6 +6,7 @@ state.json: {pid, code, script, topic, category, clips:[{id,file,thumb,tag,dur,s
 clips/ : 러프컷 클립(9:16) + 썸네일. 원본은 컷 후 삭제(용량), src_url로 재수집 가능.
 """
 import json
+import shutil
 import subprocess
 import uuid
 from datetime import datetime
@@ -208,7 +209,8 @@ def state_public(base, pid):
         except Exception:
             edit = None
     return {"pid": pid, "script": st.get("script", ""), "topic": st.get("topic", ""),
-            "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit}
+            "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit,
+            "subs_style": st.get("subs_style", DEFAULT_STYLE)}
 
 
 def build_tts(cfg, base, pid, speed=1.0, log=print):
@@ -354,17 +356,39 @@ def _fit_clip(src, cdur, need, out):
                              "-vf", f"setpts=2.0*PTS,{_VF916}", "-t", f"{need:.3f}"] + tail)
 
 
-_ASS_HEAD = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
-             "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, "
-             "Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV\n"
-             "Style: Default,Malgun Gothic,72,&H00FFFFFF,&H00000000,&H90000000,-1,1,5,2,2,80,80,320\n\n"
-             "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+DEFAULT_STYLE = {"family": "Malgun Gothic", "font_file": "", "size": 72, "primary": "#FFFFFF",
+                 "outline": "#000000", "outline_w": 5, "align": 2, "margin_v": 320, "bold": True}
 
 
-def _subs_ass(path, subs):
-    ev = [f"Dialogue: 0,{autoshorts._ass_ts(s['s'])},{autoshorts._ass_ts(s['e'])},Default,,0,0,0,,{s['t']}"
-          for s in subs]
-    Path(path).write_text(_ASS_HEAD + "\n".join(ev) + "\n", encoding="utf-8")
+def _ass_color(hexstr, default="&H00FFFFFF"):
+    h = str(hexstr or "").lstrip("#")
+    if len(h) != 6:
+        return default
+    try:
+        return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()   # #RRGGBB → &H00BBGGRR
+    except Exception:
+        return default
+
+
+def _subs_ass(path, subs, style=None):
+    s = {**DEFAULT_STYLE, **(style or {})}
+    head = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
+            "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, "
+            "Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV\n"
+            f"Style: Default,{s['family']},{int(s['size'])},{_ass_color(s['primary'])},"
+            f"{_ass_color(s['outline'],'&H00000000')},&H90000000,{-1 if s.get('bold') else 0},1,"
+            f"{s['outline_w']},2,{int(s['align'])},80,80,{int(s['margin_v'])}\n\n"
+            "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+    ev = [f"Dialogue: 0,{autoshorts._ass_ts(x['s'])},{autoshorts._ass_ts(x['e'])},Default,,0,0,0,,{x['t']}"
+          for x in subs]
+    Path(path).write_text(head + "\n".join(ev) + "\n", encoding="utf-8")
+
+
+def set_subs_style(base, pid, style):
+    st = load(base, pid)
+    st["subs_style"] = {**st.get("subs_style", DEFAULT_STYLE), **(style or {})}
+    save(base, pid, st)
+    return st["subs_style"]
 
 
 def _assemble_edit(base, pid, st, only_idx=None):
@@ -384,10 +408,22 @@ def _assemble_edit(base, pid, st, only_idx=None):
     _run = autoshorts._run
     _run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
           "-i", "_list.txt", "-c", "copy", "video.mp4"], cwd=str(edir))
-    _subs_ass(edir / "sub.ass", st["tts"]["subs"])
+    style = st.get("subs_style") or DEFAULT_STYLE
+    _subs_ass(edir / "sub.ass", st["tts"]["subs"], style)
+    # 커스텀 폰트면 edit 폴더로 복사 → fontsdir=. 로 libass가 찾게(경로 콜론 회피)
+    ff_arg = "ass=sub.ass"
+    ffile = style.get("font_file")
+    if ffile:
+        try:
+            fsrc = Path(base) / "fonts" / Path(ffile).name
+            if fsrc.exists():
+                shutil.copy(str(fsrc), str(edir / fsrc.name))
+                ff_arg = "ass=sub.ass:fontsdir=."
+        except Exception:
+            pass
     # cwd=edir 이므로 상위 tts 폴더는 ../tts 로 참조(절대/상대 base 모두 안전)
     _run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", "video.mp4", "-i", "../tts/tts.mp3",
-          "-vf", "ass=sub.ass", "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
+          "-vf", ff_arg, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
           "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", "preview.mp4"], cwd=str(edir))
 
 

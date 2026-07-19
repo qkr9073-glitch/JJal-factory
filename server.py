@@ -20,7 +20,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import autoshorts, brain, hunter, insights, pipeline, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import autoshorts, brain, fonts, hunter, insights, pipeline, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
@@ -4457,6 +4457,87 @@ def _run_reelproj_tts(jid, cfg, pid, speed):
         job.update(status="done", pct=100, msg=f"완료 — {res.get('n_sub',0)}개 자막 · {res.get('dur',0)}초")
     except Exception as e:
         job.update(status="error", error=str(e)[:220])
+
+
+DEFAULT_FONT_FOLDER = r"D:\설치 파일\font\한글\쇼츠용"
+
+
+@app.get("/fonts/<path:fn>")
+def api_fonts_file(fn):
+    d = BASE / "fonts"
+    safe = Path(fn).name
+    if not (d / safe).exists():
+        return jsonify(ok=False, error="파일 없음"), 404
+    return send_from_directory(str(d), safe)
+
+
+@app.post("/api/fonts/list")
+def api_fonts_list():
+    """자막 폰트 목록(전 계정 공유). 비어있으면 기본 폴더에서 1회 가져옴."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    lst = fonts.list_fonts(BASE)
+    if not lst:
+        try:
+            fonts.import_folder(BASE, DEFAULT_FONT_FOLDER)
+            lst = fonts.list_fonts(BASE)
+        except Exception:
+            pass
+    return jsonify(ok=True, fonts=lst)
+
+
+@app.post("/api/fonts/import")
+def api_fonts_import():
+    """기본 폰트 폴더에서 가져오기(수동)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    folder = (data.get("folder") or DEFAULT_FONT_FOLDER).strip()
+    n = fonts.import_folder(BASE, folder)
+    return jsonify(ok=True, imported=n, fonts=fonts.list_fonts(BASE))
+
+
+@app.post("/api/fonts/upload")
+def api_fonts_upload():
+    """폰트 업로드(전 계정 공유 저장)."""
+    cfg = load_config()
+    if not _check_code(cfg, request.form.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    f = request.files.get("file")
+    if not f:
+        return jsonify(ok=False, error="파일이 없습니다"), 400
+    try:
+        fonts.save_upload(BASE, f.filename, f.read())
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:120]), 400
+    return jsonify(ok=True, fonts=fonts.list_fonts(BASE))
+
+
+@app.post("/api/fonts/delete")
+def api_fonts_delete():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    fonts.delete_font(BASE, (data.get("file") or "").strip())
+    return jsonify(ok=True, fonts=fonts.list_fonts(BASE))
+
+
+@app.post("/api/reelproj/subs_style")
+def api_reelproj_subs_style():
+    """프로젝트 자막 스타일 저장(폰트/크기/색/외곽/위치)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    reelproj.set_subs_style(BASE, pid, data.get("style") or {})
+    return jsonify(ok=True)
 
 
 @app.get("/reelproj/<pid>/edit/<path:fn>")

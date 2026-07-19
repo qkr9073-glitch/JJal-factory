@@ -663,7 +663,7 @@
 
   /* ============ 릴스(자동 쇼츠 제작) - 단계별 위저드 ============ */
   let arState={token:null,fname:'',pid:null};   // v1 상태(후속 단계에서 재사용)
-  const WIZ_STEPS=[['learn','① 학습·소재'],['script','② 대본'],['clips','③ 영상'],['tts','④ 음성'],['edit','⑤ 컷'],['bgm','⑥ BGM']];
+  const WIZ_STEPS=[['learn','① 학습·소재'],['script','② 대본'],['clips','③ 영상'],['tts','④ 음성'],['subs','⑤ 자막'],['edit','⑥ 컷'],['bgm','⑦ BGM']];
   let wiz={step:'learn'};
   function wizIdx(s){return WIZ_STEPS.findIndex(x=>x[0]===s);}
   function renderAutoReel(){
@@ -681,8 +681,9 @@
     if(wiz.step==='script')return renderScriptStep(b);
     if(wiz.step==='clips')return renderClipsStep(b);
     if(wiz.step==='tts')return renderTtsStep(b);
+    if(wiz.step==='subs')return renderSubsStep(b);
     if(wiz.step==='edit')return renderEditStep(b);
-    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b> ~ <b>⑤ 컷</b>이 완성됐어요. 마지막 <b>⑥ BGM</b> 남았습니다.</div>`;
+    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금까지 <b>① 학습·소재</b> ~ <b>⑥ 컷</b>이 완성됐어요. 마지막 <b>⑦ BGM</b> 남았습니다.</div>`;
   }
   /* ===== ② 대본 생성 ===== */
   async function renderScriptStep(b){
@@ -838,7 +839,7 @@
         <div id="ttsJob"></div>
       </div>
       <div id="ttsOut"></div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:20px"><button class="btn" onclick="wizGo('edit')">다음: 컷 →</button></div>`;
+      <div style="display:flex;justify-content:flex-end;margin-bottom:20px"><button class="btn" onclick="wizGo('subs')">다음: 자막 →</button></div>`;
     ttsLoad();
   }
   function ttsLoad(){apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok&&d.tts)ttsRender(d.tts);});}
@@ -872,11 +873,116 @@
     </div>`;
     scrollTopPane($('ttsOut'));
   }
-  /* ===== ⑤ 정밀 컷 ===== */
-  function renderEditStep(b){
-    if(!wiz.pid){b.innerHTML=`<div class="panehead"><h2>⑤ 컷</h2></div><div class="lcard">먼저 <b>③ 영상</b>·<b>④ 음성</b>을 완료하세요.</div>`;return;}
+  /* ===== ⑤ 자막 스타일 ===== */
+  let subState={fonts:[],style:null};
+  function renderSubsStep(b){
+    if(!wiz.pid){b.innerHTML=`<div class="panehead"><h2>⑤ 자막</h2></div><div class="lcard">먼저 <b>③ 영상</b>·<b>④ 음성</b>을 완료하세요.</div>`;return;}
     b.innerHTML=`
-      <div class="panehead"><h2>⑤ 정밀 컷</h2><span class="n">자막 타이밍에 맞춰 태그가 어울리는 클립을 배치·컷</span></div>
+      <div class="panehead"><h2>⑤ 자막 스타일</h2><span class="n">폰트·크기·색·외곽·위치 지정 (⑥ 컷 미리보기에 반영)</span></div>
+      <div class="view" style="gap:16px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:290px">
+          <div class="lcard">
+            <label class="fld">폰트 <span style="color:var(--faint);font-weight:400">(전 계정 공유)</span></label>
+            <div style="display:flex;gap:6px"><select class="in" id="sfFont" style="flex:1" onchange="subApply()"></select>
+              <button class="btn" onclick="document.getElementById('sfUp').click()">＋업로드</button></div>
+            <input id="sfUp" type="file" accept=".ttf,.otf,.ttc" style="display:none" onchange="subFontUpload(this)">
+            <div id="sfManage" style="margin-top:7px"></div>
+            <label class="fld" style="margin-top:13px">크기 <b id="sfSizeV" style="color:var(--ink)"></b></label>
+            <input type="range" id="sfSize" min="40" max="110" step="2" oninput="subApply()" style="width:100%">
+            <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;align-items:center">
+              <label class="fld" style="margin:0">글자색 <input type="color" id="sfPrimary" onchange="subApply()" style="vertical-align:middle"></label>
+              <label class="fld" style="margin:0">외곽색 <input type="color" id="sfOutline" onchange="subApply()" style="vertical-align:middle"></label>
+              <label class="fld" style="margin:0">외곽굵기 <input type="range" id="sfOw" min="0" max="8" step="1" oninput="subApply()" style="width:90px;vertical-align:middle"></label>
+            </div>
+            <label class="fld" style="margin-top:13px">위치</label>
+            <div class="chips" id="sfPos"><span class="chip" data-al="8" onclick="subPos(8)">상단</span><span class="chip" data-al="5" onclick="subPos(5)">중앙</span><span class="chip" data-al="2" onclick="subPos(2)">하단</span></div>
+            <label class="ck" style="margin-top:12px"><input type="checkbox" id="sfBold" onchange="subApply()"> <span>굵게</span></label>
+          </div>
+          <button class="go" onclick="subSave()">💾 저장 + 다음: 컷 →</button>
+        </div>
+        <div style="flex:1;min-width:260px"><div class="lcard"><b>미리보기</b>
+          <div id="sfPrev" style="margin-top:10px;aspect-ratio:9/16;max-height:440px;margin-inline:auto;background:linear-gradient(160deg,#3a4a55,#12181d);border-radius:12px;position:relative;overflow:hidden">
+            <div id="sfPrevText" style="position:absolute;left:6%;right:6%;text-align:center;line-height:1.25;font-weight:800">자막 미리보기<br>이렇게 나와요</div>
+          </div></div></div>
+      </div>
+      <style id="sfFaces"></style>`;
+    subLoad();
+  }
+  function subLoad(){
+    Promise.all([apiJson('/api/fonts/list',{code:code()}),apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid})])
+      .then(([f,s])=>{
+        subState.fonts=(f&&f.fonts)||[];
+        subState.style=(s&&s.subs_style)||{family:'Malgun Gothic',font_file:'',size:72,primary:'#FFFFFF',outline:'#000000',outline_w:5,align:2,bold:true};
+        // @font-face 주입(미리보기용)
+        $('sfFaces').textContent=subState.fonts.map(x=>`@font-face{font-family:'${x.family}';src:url('/fonts/${encodeURIComponent(x.file)}')}`).join('');
+        // 폰트 셀렉트
+        const st=subState.style;
+        $('sfFont').innerHTML=`<option value="">기본 (맑은 고딕)</option>`+subState.fonts.map(x=>`<option value="${esch(x.file)}" ${x.file===st.font_file?'selected':''}>${esch(x.name)}</option>`).join('');
+        $('sfSize').value=st.size||72; $('sfPrimary').value=st.primary||'#FFFFFF'; $('sfOutline').value=st.outline||'#000000';
+        $('sfOw').value=(st.outline_w!=null?st.outline_w:5); $('sfBold').checked=st.bold!==false;
+        subPos(st.align||2,true);
+        subFontManage(); subApply();
+      });
+  }
+  function subFontManage(){
+    const el=$('sfManage'); if(!el)return;
+    el.innerHTML=subState.fonts.length?('<div style="font-size:11.5px;color:var(--faint)">업로드된 폰트: '+subState.fonts.map(x=>`<span style="display:inline-block;margin:2px 4px 0 0">${esch(x.name)} <a onclick="subFontDelete('${encodeURIComponent(x.file)}')" style="color:var(--danger);cursor:pointer">✕</a></span>`).join('')+'</div>'):'';
+  }
+  function subPos(al,silent){ subState._al=al;
+    [...document.querySelectorAll('#sfPos .chip')].forEach(c=>c.classList.toggle('on',+c.dataset.al===al));
+    if(!silent)subApply();
+  }
+  function subApply(){
+    const file=$('sfFont').value, f=subState.fonts.find(x=>x.file===file);
+    const family=f?f.family:'Malgun Gothic';
+    const size=+$('sfSize').value, primary=$('sfPrimary').value, outline=$('sfOutline').value, ow=+$('sfOw').value, bold=$('sfBold').checked, al=subState._al||2;
+    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,margin_v:al===2?320:(al===8?120:0)};
+    $('sfSizeV').textContent=size+'px';
+    // 미리보기
+    const box=$('sfPrev'), t=$('sfPrevText'); if(!box||!t)return;
+    const scale=(box.clientHeight||440)/1920;
+    t.style.fontFamily=`'${family}', 'Malgun Gothic', sans-serif`;
+    t.style.fontSize=Math.max(10,size*scale)+'px';
+    t.style.color=primary;
+    t.style.webkitTextStroke=(ow*scale*1.4).toFixed(1)+'px '+outline;
+    t.style.fontWeight=bold?'800':'400';
+    t.style.top=al===8?'6%':(al===5?'44%':'auto');
+    t.style.bottom=al===2?'14%':'auto';
+  }
+  function subFontUpload(input){
+    const file=input.files&&input.files[0]; if(!file)return;
+    const fd=new FormData(); fd.append('code',code()); fd.append('file',file);
+    flash('⏳ 폰트 업로드 중…');
+    fetch('/api/fonts/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      subState.fonts=d.fonts||[]; $('sfFaces').textContent=subState.fonts.map(x=>`@font-face{font-family:'${x.family}';src:url('/fonts/${encodeURIComponent(x.file)}')}`).join('');
+      const cur=$('sfFont').value; $('sfFont').innerHTML=`<option value="">기본 (맑은 고딕)</option>`+subState.fonts.map(x=>`<option value="${esch(x.file)}">${esch(x.name)}</option>`).join(''); $('sfFont').value=cur;
+      subFontManage(); flash('✅ 폰트 추가됨'); subApply();
+    }).catch(e=>flash('❌ 업로드 실패'));
+  }
+  function subFontDelete(fileEnc){
+    const file=decodeURIComponent(fileEnc);
+    if(!confirm('이 폰트를 삭제할까요? (전 계정 공유라 모두에게서 사라집니다)'))return;
+    apiJson('/api/fonts/delete',{code:code(),file}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      subState.fonts=d.fonts||[];
+      if($('sfFont').value===file)$('sfFont').value='';
+      $('sfFont').innerHTML=`<option value="">기본 (맑은 고딕)</option>`+subState.fonts.map(x=>`<option value="${esch(x.file)}" ${x.file===$('sfFont').value?'selected':''}>${esch(x.name)}</option>`).join('');
+      subFontManage(); subApply(); flash('🗑 삭제됨');
+    });
+  }
+  function subSave(){
+    apiJson('/api/reelproj/subs_style',{code:code(),pid:wiz.pid,style:subState.style}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      flash('💾 자막 스타일 저장됨'); wizGo('edit');
+    });
+  }
+
+  /* ===== ⑥ 정밀 컷 ===== */
+  function renderEditStep(b){
+    if(!wiz.pid){b.innerHTML=`<div class="panehead"><h2>⑥ 컷</h2></div><div class="lcard">먼저 <b>③ 영상</b>·<b>④ 음성</b>·<b>⑤ 자막</b>을 완료하세요.</div>`;return;}
+    b.innerHTML=`
+      <div class="panehead"><h2>⑥ 정밀 컷</h2><span class="n">자막 타이밍에 맞춰 태그가 어울리는 클립을 배치·컷 (자막 스타일 반영)</span></div>
       <div class="lcard">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>✂️ 정밀 컷 생성</b>
           <span style="font-size:12px;color:var(--muted)">내용 전환점마다 태그 맞는 클립 배치 · 짧으면 최대 2배 슬로우 · 클립 재사용 안 함</span>
