@@ -50,11 +50,26 @@ def new_project(base, code, script, topic="", category=""):
 
 
 # ─────────── AI 러프컷(하이라이트 여러 개 + 태그) ───────────
-_HL_PROMPT = """이 영상에서 '{topic}'와(과) 관련되거나 쇼츠에 쓸 만한 하이라이트 장면 구간을 여러 개 찾아라.
-- 느슨하게: 관련 있거나 인상적이면 다 포함해라. 한 영상에서 여러 개(보통 3~8개) 뽑아도 좋다.
+_HL_PROMPT = """이 영상에서 '{topic}'와(과) 관련되거나 쇼츠에 쓸 만한 하이라이트 장면 구간을 골라라.
+- 관련 있거나 인상적인 장면 위주로 한 영상에서 **최대 8개**만. 억지로 채우지 마라.
 - 각 구간은 보통 2~6초. 서로 다른 내용/장면이면 나눠라.
-- 각 구간: start, end(초, 소수허용), tag(이 장면이 무슨 내용인지 한국어 한 줄).
-반드시 JSON만: {{"clips":[{{"start":..,"end":..,"tag":".."}}, ...]}}"""
+- 각 구간: start, end(초, 소수허용), tag(무슨 장면인지 한국어로 **12자 이내** 짧게).
+반드시 JSON만: {{"clips":[{{"start":0,"end":3,"tag":".."}}, ...]}}"""
+
+
+def _parse_clips(raw):
+    """정상 JSON 우선, 잘린 경우 개별 클립 객체를 정규식으로 건져냄."""
+    try:
+        cs = brain._parse_json(raw).get("clips") or []
+        if cs:
+            return cs
+    except Exception:
+        pass
+    import re as _re
+    out = []
+    for m in _re.finditer(r'"start"\s*:\s*([\d.]+)\s*,\s*"end"\s*:\s*([\d.]+)\s*,\s*"tag"\s*:\s*"([^"]*)"', raw):
+        out.append({"start": m.group(1), "end": m.group(2), "tag": m.group(3)})
+    return out
 
 
 def highlight_segments(cfg, video, topic, log=print):
@@ -67,14 +82,14 @@ def highlight_segments(cfg, video, topic, log=print):
         {"file_data": {"mime_type": "video/mp4", "file_uri": uri}},
         {"text": _HL_PROMPT.format(topic=topic or "이 채널 주제")}]}],
         "generationConfig": {"response_mime_type": "application/json", "temperature": 0.3,
-                             "maxOutputTokens": 4096, "thinkingConfig": {"thinkingBudget": 0}}}
+                             "maxOutputTokens": 8192, "thinkingConfig": {"thinkingBudget": 0}}}
     r = requests.post(brain.GEMINI_URL.format(model=model), params={"key": key}, json=body, timeout=180)
     if r.status_code != 200:
         raise RuntimeError(f"Gemini 오류 {r.status_code}: {r.text[:150]}")
     cand = r.json()["candidates"][0]
     raw = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []))
     out = []
-    for c in (brain._parse_json(raw).get("clips") or []):
+    for c in _parse_clips(raw)[:8]:
         try:
             s = float(c.get("start", 0))
             e = float(c.get("end", 0))
