@@ -20,7 +20,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import autoshorts, brain, hunter, insights, pipeline, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import autoshorts, brain, hunter, insights, pipeline, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
@@ -4226,6 +4226,133 @@ def api_autoshorts_file(pid, fn):
     if not (d / safe_fn).exists():
         return jsonify(ok=False, error="파일 없음"), 404
     return send_from_directory(str(d), safe_fn)
+
+
+# ─────────────── 대본 학습 + 프로파일 (자동쇼츠 1단계) ───────────────
+def _learn_corpus(code):
+    """인스타 대본추출로 모인 대본 중 이 계정이 아직 학습 안 한 것들."""
+    learned = set(scriptlearn.load(BASE, code).get("learned_ids", []))
+    out = []
+    for it in _collected_load():
+        t = (it.get("transcript") or "").strip()
+        sc = it.get("shortcode") or it.get("url")
+        if t and sc and sc not in learned:
+            out.append({"id": sc, "text": t})
+    return out
+
+
+def _run_learn_job(jid, cfg, code):
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        mt = re.match(r"\[(\d)/2\]", m)
+        if mt:
+            job["pct"] = {1: 35, 2: 70}.get(int(mt.group(1)), job["pct"])
+
+    try:
+        job.update(status="running", pct=8)
+        corpus = _learn_corpus(code)
+        res = scriptlearn.learn(cfg, BASE, code, corpus, log=log)
+        job["result"] = res
+        job.update(status="done", pct=100, msg=f"완료 — {res.get('added',0)}개 학습")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:220])
+
+
+@app.post("/api/learn/summary")
+def api_learn_summary():
+    """내 프로파일 분류 목록 + 미학습 대본 수."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, categories=scriptlearn.summary(BASE, code),
+                   available=len(_learn_corpus(code)))
+
+
+@app.post("/api/learn/run")
+def api_learn_run():
+    """미학습 대본을 자동분류·누적학습(백그라운드)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    if not _learn_corpus(code):
+        return jsonify(ok=False, error="학습할 새 대본이 없어요 (인스타 탭에서 대본추출 먼저)"), 400
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+    threading.Thread(target=_run_learn_job, args=(jid, cfg, code), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/learn/profile")
+def api_learn_profile():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    p = scriptlearn.profile(BASE, code, (data.get("name") or "").strip())
+    if not p:
+        return jsonify(ok=False, error="분류를 찾을 수 없어요"), 404
+    return jsonify(ok=True, **p)
+
+
+@app.post("/api/learn/rename")
+def api_learn_rename():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    try:
+        scriptlearn.rename(BASE, code, (data.get("old") or "").strip(), (data.get("new") or "").strip())
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, categories=scriptlearn.summary(BASE, code))
+
+
+@app.post("/api/learn/delete")
+def api_learn_delete():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    scriptlearn.delete(BASE, code, (data.get("name") or "").strip())
+    return jsonify(ok=True, categories=scriptlearn.summary(BASE, code))
+
+
+@app.post("/api/learn/peek")
+def api_learn_peek():
+    """다른 계정의 분류 목록 미리보기(불러오기용)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    other = (data.get("other_code") or "").strip()
+    if not other:
+        return jsonify(ok=False, error="상대 코드를 입력하세요"), 400
+    return jsonify(ok=True, categories=scriptlearn.summary(BASE, other))
+
+
+@app.post("/api/learn/import")
+def api_learn_import():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    other = (data.get("other_code") or "").strip()
+    names = [str(x).strip() for x in (data.get("names") or []) if str(x).strip()]
+    if not other or not names:
+        return jsonify(ok=False, error="가져올 분류를 고르세요"), 400
+    n = scriptlearn.import_cats(BASE, code, other, names)
+    return jsonify(ok=True, imported=n, categories=scriptlearn.summary(BASE, code))
 
 
 @app.post("/api/ie/insta/collect")

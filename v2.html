@@ -115,6 +115,13 @@
   .collmk{width:100%;font-size:11.5px;font-weight:800;padding:7px 4px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
   .collrow{display:flex;gap:4px}
   .collmini{padding:5px 6px;font-size:12px;min-width:30px;text-align:center;line-height:1.2}
+  .wizbar{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:12px 6px 4px;font-size:12.5px}
+  .wizstep{padding:5px 11px;border-radius:20px;background:var(--panel2);color:var(--faint);border:1px solid var(--line)}
+  .wizstep.on{background:var(--gold);color:#12141a;font-weight:800;border-color:var(--gold)}
+  .wizstep.done{color:var(--muted)}
+  .wizsep{color:var(--faint)}
+  .lcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  .catrow{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px}
   .trpick{position:absolute;top:5px;left:5px;display:flex;align-items:center;gap:3px;background:rgba(10,14,20,.72);border:1.5px solid rgba(255,255,255,.35);border-radius:8px;padding:3px 6px;font-size:12px;cursor:pointer;user-select:none}
   .trpick.on{background:var(--gold);border-color:var(--gold);color:#12141a}
   .trpick input{margin:0;cursor:pointer}
@@ -640,33 +647,130 @@
   }
   function gotoTab(t){setActive(t);}
 
-  /* ============ 릴스(자동 쇼츠 제작) TAB ============ */
-  let arState={token:null,fname:'',pid:null};
+  /* ============ 릴스(자동 쇼츠 제작) - 단계별 위저드 ============ */
+  let arState={token:null,fname:'',pid:null};   // v1 상태(후속 단계에서 재사용)
+  const WIZ_STEPS=[['learn','① 학습·소재'],['script','② 대본'],['clips','③ 영상'],['tts','④ 음성'],['edit','⑤ 컷'],['bgm','⑥ BGM']];
+  let wiz={step:'learn'};
+  function wizIdx(s){return WIZ_STEPS.findIndex(x=>x[0]===s);}
   function renderAutoReel(){
     $('view').innerHTML=`
-    <div class="view">
-      <aside class="side">
-        <div class="step"><div class="sh"><span class="num">1</span><span class="st">소스 영상</span><span class="sd">링크 또는 파일</span></div>
-          <input class="in" id="arurl" placeholder="🔗 유튜브 / 틱톡 / 릴스 / 빌리빌리 URL">
-          <div style="text-align:center;color:var(--faint);font-size:12px;margin:6px 0">— 또는 —</div>
-          <div class="drop ${arState.token?'has':''}" style="padding:16px" onclick="document.getElementById('arfile').click()">
-            <div class="big">${arState.token?'✅':'🎬'}</div><div class="t1" id="arfname">${arState.token?esch(arState.fname):'영상 파일 올리기 (mp4)'}</div></div>
-          <input id="arfile" type="file" accept="video/*" style="display:none" onchange="arUpload(this)"></div>
-        <div class="step"><div class="sh"><span class="num">2</span><span class="st">대본</span><span class="sd">한 줄 = 한 장면</span></div>
-          <textarea class="in" id="arscript" style="min-height:150px" placeholder="한 줄에 한 문장(장면)씩 적으세요.&#10;예)&#10;재택 3년차가 진짜 쓰는 책상템만 모았습니다.&#10;첫째, 마우스를 노트북에 자석으로 붙이는 거.&#10;둘째, 눈높이 접이식 거치대."></textarea>
-          <div style="font-size:11px;color:var(--faint);margin-top:5px">💡 지금은 대본 직접 입력. (나중에 학습된 AI 대본생성 연결 예정)</div></div>
-        <div class="step"><div class="sh"><span class="num">3</span><span class="st">만들기</span></div>
-          <button class="go" onclick="arCreate()">🎬 자동편집 쇼츠 생성</button>
-          <div style="font-size:11px;color:var(--faint);margin-top:6px">Gemini 시각분석 → 대본매칭 → 정밀컷 → ElevenLabs 음성 → 자막 → BGM (2~4분)</div></div>
-      </aside>
-      <main class="mainpane">
-        <div id="arjobs"></div>
-        <div id="arresult"></div>
-        <div class="panehead"><h2>🎬 자동 쇼츠 제작</h2><span class="n">소스 영상 + 대본 → 자동 컷편집 완성본</span></div>
-        <div class="caphint">소스 영상에서 <b>대본에 맞는 화면 구간</b>을 AI가 골라 이어붙이고 음성·자막·BGM까지 자동으로 얹습니다. 마음에 안 드는 컷은 <b>🔄 리롤</b>로 그 장면만 교체하세요.</div>
-      </main>
+    <div class="view" style="flex-direction:column">
+      <div class="wizbar">${WIZ_STEPS.map((s,i)=>`<span class="wizstep ${s[0]===wiz.step?'on':(wizIdx(s[0])<wizIdx(wiz.step)?'done':'')}">${s[1]}</span>${i<WIZ_STEPS.length-1?'<span class="wizsep">›</span>':''}`).join('')}</div>
+      <div id="wizbody" class="mainpane" style="width:100%"></div>
     </div>`;
-    if(arState.pid){/* 이전 결과 유지 안함(간단히) */}
+    renderWizStep();
+  }
+  function renderWizStep(){
+    const b=$('wizbody'); if(!b)return;
+    if(wiz.step==='learn')return renderLearnStep(b);
+    b.innerHTML=`<div class="panehead"><h2>${WIZ_STEPS[wizIdx(wiz.step)][1]}</h2></div><div class="caphint">이 단계는 순서대로 구현 중입니다. 지금은 <b>① 학습·소재</b>가 완성됐어요.</div>`;
+  }
+
+  /* ===== ① 대본학습 + (다음:소재추천) ===== */
+  let learnState={cats:[],avail:0,peek:null};
+  function renderLearnStep(b){
+    b.innerHTML=`
+      <div class="panehead"><h2>① 대본 학습 + 소재 추천</h2><span class="n">모은 대본을 AI가 분류·학습해 스타일 프로파일을 만듭니다</span></div>
+      <div class="lcard">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <b>🎓 대본 학습</b><span id="lavail" style="color:var(--muted);font-size:13px">…</span>
+          <button class="btn primary" style="margin-left:auto" onclick="learnRun()">학습 시작</button></div>
+        <div class="caphint" style="margin-top:8px">인스타 탭에서 <b>대본 추출</b>한 대본을 자동으로 가져와 학습합니다(재업로드 X). AI가 성격별(쇼핑/유머/이슈/썰…)로 분류하고, 학습할수록 프로파일이 <b>누적</b>됩니다.</div>
+        <div id="learnjob"></div>
+      </div>
+      <div class="lcard"><b>📚 내 스타일 프로파일</b><div id="lcats" style="margin-top:10px"><div style="color:var(--faint)">불러오는 중…</div></div></div>
+      <div id="ldetail"></div>
+      <div class="lcard">
+        <b>🔗 다른 계정 프로파일 가져오기</b>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <input class="in" id="lother" placeholder="상대 접속코드" style="max-width:160px">
+          <button class="btn" onclick="learnPeek()">조회</button></div>
+        <div id="lpeek"></div>
+      </div>
+      <div class="lcard" style="opacity:.6"><b>🔥 트렌드 소재 추천</b><div class="caphint" style="margin-top:6px">다음 순서로 구현됩니다 — 학습된 분류별로 네이버 트렌드+쇼핑에서 지금 뜨는 소재를 추천합니다.</div></div>`;
+    learnRefresh();
+  }
+  async function learnRefresh(){
+    let d; try{d=await apiJson('/api/learn/summary',{code:code()});}catch(e){return;}
+    if(!d.ok){const el=$('lcats');if(el)el.innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
+    learnState.cats=d.categories||[]; learnState.avail=d.available||0;
+    const av=$('lavail'); if(av)av.textContent=learnState.avail?`· 미학습 대본 ${learnState.avail}개`:'· 새로 학습할 대본 없음';
+    paintCats();
+  }
+  function paintCats(){
+    const el=$('lcats'); if(!el)return;
+    if(!learnState.cats.length){el.innerHTML='<div style="color:var(--faint)">아직 학습된 프로파일이 없어요. 위에서 <b>[학습 시작]</b>을 누르세요.</div>';return;}
+    el.innerHTML=learnState.cats.map((c,i)=>`
+      <div class="catrow">
+        <div style="flex:1;min-width:0">
+          <div><b>${esch(c.name)}</b> <span style="color:var(--faint);font-size:12px">· 대본 ${c.count}개</span></div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.4;margin-top:2px;max-height:34px;overflow:hidden">${esch(c.summary||'(프로파일 분석 대기)')}</div></div>
+        <button class="btn collmini" onclick="learnProfile(${i})" title="프로파일 보기">👁</button>
+        <button class="btn collmini" onclick="learnRename(${i})" title="이름 변경">✎</button>
+        <button class="btn collmini" onclick="learnDelete(${i})" title="삭제·초기화">🗑</button>
+      </div>`).join('');
+  }
+  function learnRun(){
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    apiJson('/api/learn/run',{code:code()}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const box=$('learnjob'); if(box)box.innerHTML=`<div id="lj-${d.job}" style="margin-top:10px;font-size:13px"><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-bottom:5px"><div style="height:100%;width:8%;background:var(--gold);transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span></div>`;
+      learnPoll(d.job);
+    }).catch(e=>flash('❌ 통신 오류'));
+  }
+  async function learnPoll(jid){
+    const row=$('lj-'+jid); if(!row)return;
+    const fill=row.querySelector('.jbar>div'),jm=row.querySelector('.jm');
+    let d;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}catch(e){setTimeout(()=>learnPoll(jid),2500);return;}
+    if(!d.ok){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='queued')jm.textContent='🕐 대기 중…';
+    else{if(fill)fill.style.width=(d.pct||8)+'%';jm.textContent='⏳ '+(d.msg||'학습 중…');}
+    if(d.status==='error'){jm.textContent='❌ '+d.error;return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';jm.textContent='✅ '+(d.msg||'완료');learnRefresh();return;}
+    setTimeout(()=>learnPoll(jid),1500);
+  }
+  async function learnProfile(i){
+    const name=learnState.cats[i].name;
+    let d;try{d=await apiJson('/api/learn/profile',{code:code(),name});}catch(e){return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const p=d.profile||{};
+    const rows=[['구조',p.structure],['훅',p.hook],['어투',p.tone],['리듬',p.rhythm],['소재선정',p.item_selection],['길이',p.length],['요약',p.summary]];
+    $('ldetail').innerHTML=`<div class="lcard"><div style="display:flex;justify-content:space-between;align-items:center"><b>📄 ${esch(name)} 프로파일</b><button class="btn collmini" onclick="learnCloseDetail()">✕</button></div>`
+      +rows.map(r=>r[1]?`<div style="margin-top:9px"><div style="font-size:11px;color:var(--gold);font-weight:800">${r[0]}</div><div style="font-size:13px;line-height:1.55">${esch(r[1])}</div></div>`:'').join('')+'</div>';
+    scrollTopPane($('ldetail'));
+  }
+  function learnCloseDetail(){const el=$('ldetail');if(el)el.innerHTML='';}
+  function learnRename(i){
+    const name=learnState.cats[i].name;
+    const nn=prompt('새 분류 이름:',name); if(nn===null)return;
+    apiJson('/api/learn/rename',{code:code(),old:name,new:(nn||'').trim()}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      learnState.cats=d.categories||[];paintCats();flash('✏️ 이름 변경됨');});
+  }
+  function learnDelete(i){
+    const name=learnState.cats[i].name;
+    if(!confirm(`'${name}' 분류를 삭제할까요?\n(이 분류로 학습한 대본은 다시 학습 가능해집니다)`))return;
+    apiJson('/api/learn/delete',{code:code(),name}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      learnState.cats=d.categories||[];paintCats();learnRefresh();flash('🗑 삭제됨');});
+  }
+  function learnPeek(){
+    const oc=($('lother')&&$('lother').value.trim())||'';
+    if(!oc){flash('상대 코드를 입력하세요');return;}
+    apiJson('/api/learn/peek',{code:code(),other_code:oc}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      learnState.peek={code:oc,cats:d.categories||[]};
+      const el=$('lpeek');
+      if(!d.categories||!d.categories.length){el.innerHTML='<div style="color:var(--faint);margin-top:8px">그 계정엔 프로파일이 없어요</div>';return;}
+      el.innerHTML='<div style="margin-top:10px">'+d.categories.map((c,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0"><input type="checkbox" class="pk" value="${i}"> <b>${esch(c.name)}</b> <span style="color:var(--faint);font-size:12px">· ${c.count}개</span></label>`).join('')+`<button class="btn primary" style="margin-top:6px" onclick="learnImport()">＋ 내 목록으로 가져오기</button></div>`;});
+  }
+  function learnImport(){
+    if(!learnState.peek)return;
+    const names=[...document.querySelectorAll('#lpeek .pk:checked')].map(x=>learnState.peek.cats[+x.value].name);
+    if(!names.length){flash('가져올 분류를 고르세요');return;}
+    apiJson('/api/learn/import',{code:code(),other_code:learnState.peek.code,names}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      learnState.cats=d.categories||[];paintCats();$('lpeek').innerHTML='';flash(`✅ ${d.imported}개 가져옴`);});
   }
   async function arUpload(input){
     const f=input.files&&input.files[0]; if(!f)return;

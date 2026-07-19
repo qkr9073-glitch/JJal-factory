@@ -1,0 +1,197 @@
+# -*- coding: utf-8 -*-
+"""대본 학습 + 스타일 프로파일. 계정(회원코드)별 저장.
+- 인스타 대본추출로 모인 대본을 AI가 자동분류(쇼핑/유머/이슈/썰… 사용자 추가·이름변경 가능).
+- 분류별 누적학습(덮어쓰기 아니라 쌓임) → 스타일 프로파일(구조/어투/소재선정)을 재분석.
+- 분류 삭제/초기화, 다른 계정 프로파일 불러오기 지원.
+저장: BASE/profiles/<code>.json = {learned_ids:[...], categories:{name:{scripts,profile,updated}}}
+"""
+import json
+from datetime import datetime
+from pathlib import Path
+
+import requests
+
+from . import brain
+
+
+def _key(cfg):
+    return (cfg.get("gemini_api_key") or "").strip()
+
+
+def _model(cfg):
+    return cfg.get("gemini_model", "gemini-2.5-flash")
+
+
+def _dir(base):
+    d = Path(base) / "profiles"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _path(base, code):
+    return _dir(base) / f"{str(code).strip()}.json"
+
+
+def load(base, code):
+    try:
+        d = json.loads(_path(base, code).read_text(encoding="utf-8"))
+        d.setdefault("learned_ids", [])
+        d.setdefault("categories", {})
+        return d
+    except Exception:
+        return {"learned_ids": [], "categories": {}}
+
+
+def save(base, code, data):
+    _path(base, code).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _gem(cfg, prompt, maxtok=3072):
+    key = _key(cfg)
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+    body = {"contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json", "temperature": 0.3,
+                                 "maxOutputTokens": maxtok, "thinkingConfig": {"thinkingBudget": 0}}}
+    r = requests.post(brain.GEMINI_URL.format(model=_model(cfg)), params={"key": key}, json=body, timeout=120)
+    if r.status_code != 200:
+        raise RuntimeError(f"Gemini 오류 {r.status_code}: {r.text[:150]}")
+    cand = r.json()["candidates"][0]
+    raw = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []))
+    return brain._parse_json(raw)
+
+
+def classify(cfg, texts, existing):
+    """대본 여러 개 → 각 카테고리명. {지역인덱스: 카테고리}."""
+    lst = "\n".join(f"[{i}] {str(t)[:1200]}" for i, t in enumerate(texts))
+    prompt = f"""아래 여러 쇼츠 대본을 각각 성격에 맞는 카테고리로 분류하라.
+기존 카테고리: {', '.join(existing) if existing else '(없음)'} — 맞으면 그대로 재사용, 없으면 간결한 한국어 명사로 새로 지어라(예: 쇼핑, 유머, 이슈, 썰, 정보, 브이로그).
+기준: 제품·물건 소개=쇼핑 / 웃기려는=유머 / 시사·화제=이슈 / 경험담·이야기=썰 등.
+대본들:
+{lst}
+반드시 JSON만: {{"items":[{{"i":0,"category":".."}}, ...]}}"""
+    r = _gem(cfg, prompt, maxtok=2048)
+    out = {}
+    for it in r.get("items", []):
+        try:
+            out[int(it["i"])] = (str(it.get("category", "")).strip() or "기타")
+        except Exception:
+            pass
+    return out
+
+
+def analyze(cfg, category, scripts):
+    """분류 하나의 대본들 → 스타일 프로파일(새 대본 작성에 쓸 학습결과)."""
+    sample = scripts[-20:]
+    body = "\n\n---\n".join(str(s.get("text", ""))[:1500] for s in sample)
+    prompt = f"""아래는 '{category}' 성격의 쇼츠 대본 모음이다(총 {len(scripts)}개 중 표본 {len(sample)}개).
+이 스타일을 학습해 '같은 톤의 새 대본'을 쓸 때 쓸 스타일 프로파일을 뽑아라.
+{body}
+
+반드시 JSON만:
+{{"structure":"대본 전개 구조(훅→전개→반전→CTA 등 단계와 각 역할)",
+"hook":"첫 문장(훅) 패턴 특징",
+"tone":"어투/문체(반말·존댓말, 톤, 특징적 말투)",
+"rhythm":"문장 길이·리듬·호흡 특징",
+"item_selection":"어떤 소재를 어떻게 고르고 어떤 각도로 다루는지",
+"length":"대체적 길이(문장 수/초 느낌)",
+"summary":"이 스타일을 한 문단으로 요약"}}"""
+    return _gem(cfg, prompt, maxtok=3072)
+
+
+def learn(cfg, base, code, corpus, log=print):
+    """corpus: [{'id':.., 'text':..}]. 자동분류→분류별 누적→영향받은 분류 재분석→저장."""
+    data = load(base, code)
+    cats = data["categories"]
+    learned = set(data["learned_ids"])
+    corpus = [c for c in corpus if c.get("id") and c.get("text") and c["id"] not in learned][:80]
+    if not corpus:
+        return {"added": 0, "affected": [], "categories": summary(base, code)}
+
+    log(f"[1/2] 대본 {len(corpus)}개 AI 자동분류...")
+    cls = {}
+    CH = 25
+    for off in range(0, len(corpus), CH):
+        part = corpus[off:off + CH]
+        r = classify(cfg, [c["text"] for c in part], list(cats.keys()))
+        for k, v in r.items():
+            cls[off + k] = v
+
+    affected = set()
+    for i, c in enumerate(corpus):
+        cat = cls.get(i, "기타")
+        entry = cats.setdefault(cat, {"scripts": [], "profile": {}, "updated": ""})
+        entry["scripts"].append({"text": c["text"], "src": c["id"],
+                                 "at": datetime.now().isoformat(timespec="seconds")})
+        learned.add(c["id"])
+        affected.add(cat)
+
+    log(f"[2/2] 분류 {len(affected)}개 스타일 프로파일 갱신...")
+    for cat in affected:
+        try:
+            cats[cat]["profile"] = analyze(cfg, cat, cats[cat]["scripts"])
+            cats[cat]["updated"] = datetime.now().isoformat(timespec="seconds")
+        except Exception as e:
+            log(f"   {cat} 분석 실패(원본 유지): {str(e)[:60]}")
+
+    data["learned_ids"] = list(learned)
+    save(base, code, data)
+    return {"added": len(corpus), "affected": sorted(affected), "categories": summary(base, code)}
+
+
+def summary(base, code):
+    data = load(base, code)
+    out = []
+    for name, c in (data.get("categories") or {}).items():
+        prof = c.get("profile") or {}
+        out.append({"name": name, "count": len(c.get("scripts", [])),
+                    "summary": prof.get("summary", ""), "updated": c.get("updated", "")})
+    out.sort(key=lambda x: -x["count"])
+    return out
+
+
+def profile(base, code, name):
+    c = (load(base, code).get("categories") or {}).get(name)
+    if not c:
+        return None
+    return {"name": name, "count": len(c.get("scripts", [])), "profile": c.get("profile", {})}
+
+
+def rename(base, code, old, new):
+    new = str(new).strip()
+    data = load(base, code)
+    cats = data["categories"]
+    if old not in cats:
+        raise RuntimeError("없는 분류입니다")
+    if not new:
+        raise RuntimeError("새 이름을 입력하세요")
+    if new in cats and new != old:
+        raise RuntimeError("이미 있는 이름입니다")
+    cats[new] = cats.pop(old)
+    save(base, code, data)
+
+
+def delete(base, code, name):
+    """분류 삭제 + 그 분류가 학습했던 대본을 learned에서 빼서 재학습 가능하게(초기화)."""
+    data = load(base, code)
+    cats = data["categories"]
+    srcs = {s.get("src") for s in cats.get(name, {}).get("scripts", [])}
+    data["learned_ids"] = [x for x in data["learned_ids"] if x not in srcs]
+    cats.pop(name, None)
+    save(base, code, data)
+
+
+def import_cats(base, my_code, other_code, names):
+    """다른 계정의 분류 프로파일을 내 목록으로 복사(불러오기)."""
+    src = load(base, other_code)
+    dst = load(base, my_code)
+    scats = src.get("categories", {})
+    dcats = dst["categories"]
+    n = 0
+    for nm in names:
+        if nm in scats:
+            key = nm if nm not in dcats else f"{nm} (가져옴)"
+            dcats[key] = json.loads(json.dumps(scats[nm]))
+            n += 1
+    save(base, my_code, dst)
+    return n
