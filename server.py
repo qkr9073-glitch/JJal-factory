@@ -4327,6 +4327,24 @@ def api_learn_delete():
     return jsonify(ok=True, categories=scriptlearn.summary(BASE, code))
 
 
+@app.post("/api/learn/recommend")
+def api_learn_recommend():
+    """학습 분류 스타일에 맞는 트렌드 소재 추천(AI 후보 + 네이버 상승도)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    cat = (data.get("category") or "").strip()
+    if not cat:
+        return jsonify(ok=False, error="스타일 분류를 고르세요"), 400
+    try:
+        res = scriptlearn.recommend(cfg, BASE, code, cat)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:180]), 400
+    return jsonify(ok=True, **res)
+
+
 @app.post("/api/learn/genscript")
 def api_learn_genscript():
     """학습 프로파일 스타일로 소재 대본 3버전 생성."""

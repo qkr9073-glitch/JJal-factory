@@ -691,6 +691,9 @@
       </div>
       <div id="gsOut">${cats.length?'':'<div class="caphint">먼저 <b>① 학습·소재</b>에서 대본을 학습하세요(스타일이 있어야 생성 가능).</div>'}</div>
       <div id="gsEdit"></div>`;
+    if(wiz._pendingCat && $('gsCat')){[...$('gsCat').options].some(o=>{if(o.value===wiz._pendingCat){$('gsCat').value=wiz._pendingCat;return true;}});}
+    if(wiz._pendingTopic && $('gsTopic')){$('gsTopic').value=wiz._pendingTopic;}
+    wiz._pendingTopic=null; wiz._pendingCat=null;
     if(wiz.script){$('gsEdit').innerHTML=gsEditHtml(wiz.script);}
   }
   function gsGen(){
@@ -754,7 +757,14 @@
           <button class="btn" onclick="learnPeek()">조회</button></div>
         <div id="lpeek"></div>
       </div>
-      <div class="lcard" style="opacity:.6"><b>🔥 트렌드 소재 추천</b><div class="caphint" style="margin-top:6px">다음 순서로 구현됩니다 — 학습된 분류별로 네이버 트렌드+쇼핑에서 지금 뜨는 소재를 추천합니다.</div></div>`;
+      <div class="lcard">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <b>🔥 트렌드 소재 추천</b>
+          <select class="in" id="recCat" style="max-width:170px"></select>
+          <button class="btn primary" onclick="recRun()">추천받기</button></div>
+        <div class="caphint" style="margin-top:8px">학습된 스타일에 맞는(관련도) 소재를 뽑고 네이버 검색어트렌드로 <b>지금 뜨는 순</b> 정렬. 각 소재의 <b>이 소재로 대본</b>을 누르면 ② 단계로 넘어갑니다.</div>
+        <div id="recOut"></div>
+      </div>`;
     learnRefresh();
   }
   async function learnRefresh(){
@@ -763,6 +773,31 @@
     learnState.cats=d.categories||[]; learnState.avail=d.available||0;
     const av=$('lavail'); if(av)av.textContent=learnState.avail?`· 미학습 대본 ${learnState.avail}개`:'· 새로 학습할 대본 없음';
     paintCats();
+    const rc=$('recCat'); if(rc)rc.innerHTML=learnState.cats.map(c=>`<option>${esch(c.name)}</option>`).join('');
+  }
+  function recRun(){
+    const cat=($('recCat')&&$('recCat').value)||'';
+    if(!cat){flash('학습된 스타일이 없어요 (① 학습 먼저)');return;}
+    $('recOut').innerHTML='<div class="caphint" style="margin-top:10px">🔎 소재 뽑는 중… (5~15초)</div>';
+    apiJson('/api/learn/recommend',{code:code(),category:cat}).then(d=>{
+      if(!d.ok){$('recOut').innerHTML='<div style="color:var(--danger);margin-top:8px">❌ '+esch(d.error)+'</div>';return;}
+      recRender(d,cat);
+    }).catch(e=>{$('recOut').innerHTML='<div style="color:var(--danger)">❌ 통신 오류</div>';});
+  }
+  function recRender(d,cat){
+    const items=d.items||[];
+    const note=d.trend?'<span style="color:var(--gold)">🔥 네이버 트렌드 상승순</span>':'<span style="color:var(--faint)">관련도순 (네이버 API 구독하면 트렌드순 정렬)</span>';
+    $('recOut').innerHTML=`<div style="margin:10px 0 8px;font-size:12px">${note}</div>`+
+      '<div class="catgrid">'+items.map(it=>`
+        <div class="catcard"><div class="cbody">
+          <div class="cnm">${esch(it.keyword)}</div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:3px">${it.rise!=null?(it.rise>0?('🔥 상승 +'+it.rise):('추세 '+it.rise)):'트렌드 미연동'}</div>
+          <a href="${esch(it.shop)}" target="_blank" style="font-size:12px;color:var(--gold);margin-top:5px;display:inline-block">🛒 네이버쇼핑 보기</a>
+        </div><div class="cacts"><button class="btn primary" style="flex:1" onclick="recPick('${encodeURIComponent(it.keyword)}','${encodeURIComponent(cat)}')">✍️ 이 소재로 대본</button></div></div>`).join('')+'</div>';
+  }
+  function recPick(kwEnc,catEnc){
+    wiz._pendingTopic=decodeURIComponent(kwEnc); wiz._pendingCat=decodeURIComponent(catEnc);
+    wizGo('script');
   }
   function catEmoji(name){
     const n=String(name||'');

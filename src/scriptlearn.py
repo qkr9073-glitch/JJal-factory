@@ -6,12 +6,85 @@
 저장: BASE/profiles/<code>.json = {learned_ids:[...], categories:{name:{scripts,profile,updated}}}
 """
 import json
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 
 from . import brain
+
+_NCP_TREND = "https://naveropenapi.apigw.ntruss.com/datalab/v1/search"
+
+
+def _ncp_headers(cfg):
+    return {"X-NCP-APIGW-API-KEY-ID": (cfg.get("naver_client_id") or "").strip(),
+            "X-NCP-APIGW-API-KEY": (cfg.get("naver_client_secret") or "").strip(),
+            "Content-Type": "application/json"}
+
+
+def search_trend_rise(cfg, keywords):
+    """키워드별 최근 30일 상승도(마지막주-첫주 비율차). {kw: rise}. 미구독/오류면 {}."""
+    cid = (cfg.get("naver_client_id") or "").strip()
+    sec = (cfg.get("naver_client_secret") or "").strip()
+    if not cid or not sec or not keywords:
+        return {}
+    end = date.today()
+    start = end - timedelta(days=30)
+    H = _ncp_headers(cfg)
+    out = {}
+    for off in range(0, len(keywords), 5):
+        grp = keywords[off:off + 5]
+        body = {"startDate": start.isoformat(), "endDate": end.isoformat(), "timeUnit": "week",
+                "keywordGroups": [{"groupName": k, "keywords": [k]} for k in grp]}
+        try:
+            r = requests.post(_NCP_TREND, headers=H, json=body, timeout=15)
+            if r.status_code != 200:
+                return {}   # 미구독(210) 등 → 전체 트렌드 없음으로 처리
+            for res in r.json().get("results", []):
+                data = res.get("data", [])
+                if data:
+                    vals = [float(d.get("ratio", 0) or 0) for d in data]
+                    out[res.get("title", "")] = round(vals[-1] - vals[0], 1)
+        except Exception:
+            return {}
+    return out
+
+
+def gen_candidates(cfg, base, code, category, n=12):
+    """프로파일 스타일에 맞는(관련도) 소재 후보 키워드 n개."""
+    c = (load(base, code).get("categories") or {}).get(category)
+    if not c:
+        raise RuntimeError("학습된 분류가 아닙니다")
+    prof = c.get("profile") or {}
+    prompt = f"""'{category}' 성격의 쇼츠 채널이다. 아래 스타일 프로파일을 보고, 이 채널이 다룰 법하면서
+요즘 통할 만한 '소재(제품/아이템/주제)' 후보 {n}개를 뽑아라.
+- 이 채널의 톤·소재 성향에 맞는 것만. 너무 뻔한 것보다 시의성 있는 것 위주.
+- 각 후보는 검색 키워드 형태(1~3단어).
+[스타일 프로파일]
+{json.dumps(prof, ensure_ascii=False)}
+반드시 JSON만: {{"items":["키워드1","키워드2", ...]}}"""
+    r = _gem(cfg, prompt, maxtok=1024)
+    seen, out = set(), []
+    for x in (r.get("items") or []):
+        k = str(x).strip()
+        if k and k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out[:n]
+
+
+def recommend(cfg, base, code, category, log=print):
+    """관련도(AI 후보) + 트렌드 상승도(네이버) 하이브리드 소재 추천."""
+    cands = gen_candidates(cfg, base, code, category)
+    rise = search_trend_rise(cfg, cands)
+    items = []
+    for kw in cands:
+        items.append({"keyword": kw, "rise": rise.get(kw),
+                      "shop": f"https://search.shopping.naver.com/search/all?query={quote(kw)}"})
+    if rise:   # 트렌드 되면 상승도순(하이브리드: 이미 관련도로 거른 뒤 상승도 정렬)
+        items.sort(key=lambda x: (x["rise"] is None, -(x["rise"] or 0)))
+    return {"items": items, "trend": bool(rise)}
 
 
 def _key(cfg):
