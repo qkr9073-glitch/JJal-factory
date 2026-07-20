@@ -229,11 +229,18 @@ def generate_scripts(cfg, base, code, category, topic, n=3, tone="basic"):
     proftxt = "\n".join(f"- {k}: {v}" for k, v in prof.items() if v)
     examples = "\n\n---\n".join(str(s.get("text", ""))[:600] for s in c.get("scripts", [])[-3:])
     tone_line = _TONE.get(tone, "")
+    # 쇼핑 소재면 3번째 버전은 무조건 '실제 써본 후기(내/지인 경험담)' 톤으로 고정
+    shop_line = ""
+    if "쇼핑" in (category or ""):
+        shop_line = ("- 특히 마지막(3번째) 버전은 반드시 '내가(또는 가까운 지인이) 실제로 써본 후기'처럼 "
+                     "1인칭 체험담 톤으로 써라. 광고 같지 않게, 반신반의하다 직접 써보고 만족한 진짜 경험담 "
+                     "느낌으로 자연스럽게(예: 나도 반신반의하며 샀는데 / 언니가 추천해서 써봤더니).")
     prompt = f"""너는 '{category}' 성격의 쇼츠 대본 작가다. 아래 학습된 스타일 프로파일과 예시 대본을 충실히 따라,
 소재 '{topic}'에 대한 쇼츠 대본을 {n}가지 버전으로 써라.
 - {n}개는 서로 '훅과 구성'이 뚜렷이 달라야 한다. 단, 전체 톤·문체·구조는 이 프로파일에서 벗어나지 말 것.
 - 각 대본은 실제 내레이션할 문장만. 한 줄에 한 문장(의미 단위)으로 줄바꿈. 지시문/괄호/이모지 금지.
 {tone_line and ('- ' + tone_line)}
+{shop_line}
 
 [학습된 스타일 프로파일]
 {proftxt}
