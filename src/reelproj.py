@@ -569,20 +569,37 @@ def _mux_subs(base, pid, st):
     """edit/video.mp4(무자막) + tts + 현재 자막스타일 → preview.mp4 (재컷 없이 자막만 재합성)."""
     FF = autoshorts.FFMPEG
     edir = pdir(base, pid) / "edit"
-    style = st.get("subs_style") or DEFAULT_STYLE
-    st["subs_rendered"] = dict(style)          # 이 스타일로 preview.mp4를 구움(⑥ 반영 판별용)
-    _subs_ass(edir / "sub.ass", st["tts"]["subs"], style)
-    # 커스텀 폰트면 edit 폴더로 복사 → fontsdir=. 로 libass가 찾게(경로 콜론 회피)
+    style = dict(st.get("subs_style") or DEFAULT_STYLE)
+    # 커스텀 폰트: 폰트만 든 깨끗한 폴더로 격리(libass가 mp4까지 폰트로 스캔하지 않게) +
+    # 실제 폰트 파일에서 family를 재추출해 ASS Fontname과 확실히 일치(글꼴 반영 실패 방지)
     ff_arg = "ass=sub.ass"
     ffile = style.get("font_file")
     if ffile:
         try:
             fsrc = Path(base) / "fonts" / Path(ffile).name
             if fsrc.exists():
-                shutil.copy(str(fsrc), str(edir / fsrc.name))
-                ff_arg = "ass=sub.ass:fontsdir=."
+                fdir = edir / "_fonts"
+                shutil.rmtree(fdir, ignore_errors=True)
+                fdir.mkdir(parents=True, exist_ok=True)
+                shutil.copy(str(fsrc), str(fdir / fsrc.name))
+                try:
+                    from . import fonts as _fonts
+                    fam = _fonts.family_name(fsrc)
+                    if fam:
+                        style["family"] = fam          # 파일이 진짜 갖고 있는 family로 강제
+                except Exception:
+                    pass
+                ff_arg = "ass=sub.ass:fontsdir=_fonts"
+                # 진단용: 어떤 family/파일로 구웠는지 기록
+                try:
+                    (edir / "_font_used.txt").write_text(
+                        f"family={style.get('family')}\nfile={fsrc.name}\n", encoding="utf-8")
+                except OSError:
+                    pass
         except Exception:
             pass
+    st["subs_rendered"] = dict(style)          # 이 스타일로 preview.mp4를 구움(⑥ 반영 판별용)
+    _subs_ass(edir / "sub.ass", st["tts"]["subs"], style)
     # cwd=edir 이므로 상위 tts 폴더는 ../tts 로 참조(절대/상대 base 모두 안전)
     autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", "video.mp4", "-i", "../tts/tts.mp3",
                      "-vf", ff_arg, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
