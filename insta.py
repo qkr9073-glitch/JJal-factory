@@ -326,15 +326,17 @@ def mark_published(base_dir, pack_name, result):
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def publish_pack(cfg, base_dir, pack_dir, lead=None, account=None, force=False, log=print):
-    """완성팩 통째로 발행 (계정 자동 라우팅 + 중복 방지)"""
+def publish_pack(cfg, base_dir, pack_dir, lead=None, account=None, force=False,
+                 caption=None, log=print):
+    """완성팩 통째로 발행 (계정 자동 라우팅 + 중복 방지). caption 주면 caption.txt 대신 사용."""
     pack_dir = Path(pack_dir)
     if not force and pack_dir.name in load_published(base_dir):
         raise RuntimeError("이미 업로드된 팩입니다 (다시 올리려면 강제 재업로드)")
-    caption = ""
-    cap = pack_dir / "caption.txt"
-    if cap.exists():
-        caption = cap.read_text(encoding="utf-8")
+    if not caption:
+        caption = ""
+        cap = pack_dir / "caption.txt"
+        if cap.exists():
+            caption = cap.read_text(encoding="utf-8")
     urls = pack_image_urls(cfg, pack_dir, lead=lead)
     log(f"      이미지 {len(urls)}장 · 캡션 {len(caption)}자")
     result = publish_carousel(cfg, base_dir, urls, caption,
