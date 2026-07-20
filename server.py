@@ -2799,13 +2799,16 @@ def api_packs():
             if not show_arch and d.name in (used_dir, "_휴지통"):
                 continue
             owner = owners.get(d.name)
+            sched = d.name in sched_packs
             visible = admin_all or owner == mycode or (is_admin and not owner)
-            if not visible and d.name in sched_packs:
+            if not visible and sched:
                 # 예약 건 팩은 결과물에도 보여야 관리 가능 → 관리자 전체 + 예약 건 본인
                 if is_admin or mycode in sched_by.get(d.name, set()):
                     visible = True
             if not visible:
                 continue      # 남의 소유·비예약 팩은 숨김. (관리자는 미소유 레거시·모든 예약도 봄)
+            if len(packs) >= 60 and not sched:
+                continue      # 60개 초과분은 건너뛰되, 예약 팩은 항상 포함(잘림 방지)
             meta = {}
             try:
                 meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
@@ -2831,10 +2834,8 @@ def api_packs():
                           "lang": meta.get("lang", "ko"),
                           "video": (meta.get("video") or ""),
                           "used": len(checked), "archived": show_arch,
-                          "scheduled": d.name in sched_packs,
+                          "scheduled": sched,
                           "published": d.name in pub})
-            if len(packs) >= 60:
-                break
     return jsonify(ok=True, packs=packs, managers=mgrs, need=need,
                    used_dir=used_dir, archived=show_arch)
 
