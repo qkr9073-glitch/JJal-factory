@@ -27,6 +27,7 @@
   "host_permissions": [
     "https://www.instagram.com/*",
     "https://www.youtube.com/*",
+    "https://jjal.traffic-charger.com/*",
     "http://localhost:8777/*",
     "http://127.0.0.1:8777/*"
   ],

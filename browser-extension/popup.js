@@ -9,6 +9,7 @@ const els = {
   jsonBtn: document.getElementById("jsonBtn"),
   copyBtn: document.getElementById("copyBtn"),
   sendLocalBtn: document.getElementById("sendLocalBtn"),
+  serverUrl: document.getElementById("serverUrl"),
   modeLabel: document.getElementById("modeLabel"),
   modeHint: document.getElementById("modeHint"),
   status: document.getElementById("status"),
@@ -21,11 +22,29 @@ let pollTimer = null;
 
 init();
 
+const DEFAULT_SERVER = "https://jjal.traffic-charger.com";
+
 function init() {
   bind();
+  loadServerUrl();
   detectActiveAccount();
   refresh();
   pollTimer = setInterval(refresh, 1200);
+}
+
+function loadServerUrl() {
+  try {
+    chrome.storage.local.get(["serverUrl"], (r) => {
+      if (els.serverUrl) els.serverUrl.value = (r && r.serverUrl) || DEFAULT_SERVER;
+    });
+  } catch {
+    if (els.serverUrl) els.serverUrl.value = DEFAULT_SERVER;
+  }
+}
+
+function serverUrl() {
+  const v = (els.serverUrl && els.serverUrl.value || "").trim().replace(/\/+$/, "");
+  return v || DEFAULT_SERVER;
 }
 
 function bind() {
@@ -38,6 +57,9 @@ function bind() {
   els.jsonBtn.addEventListener("click", saveJson);
   els.copyBtn.addEventListener("click", copyUrls);
   els.sendLocalBtn.addEventListener("click", sendToLocalApp);
+  if (els.serverUrl) els.serverUrl.addEventListener("change", () => {
+    try { chrome.storage.local.set({ serverUrl: serverUrl() }); } catch {}
+  });
 }
 
 async function detectActiveAccount() {
@@ -164,7 +186,7 @@ async function sendToLocalApp() {
   const account = cleanAccountName(els.accountInput.value.trim()) || guessAccountFromItems(filtered) || "shortform";
   setStatus("짤공장으로 전송 중...");
 
-  const response = await send({ type: "SEND_TO_LOCAL_APP", items: filtered, account });
+  const response = await send({ type: "SEND_TO_LOCAL_APP", items: filtered, account, serverUrl: serverUrl() });
   if (!response || (response.error && !response.fallback)) return setStatus((response && response.error) || "응답 없음 — 확장 새로고침 후 재시도");
   if (response.fallback) return setStatus(response.error || "URL만 전달됨");
 
