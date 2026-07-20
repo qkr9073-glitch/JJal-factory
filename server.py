@@ -1936,9 +1936,27 @@ def _run_translate_job(jid, pack_name, target, cfg):
 
 
 
+def _serve_v2():
+    try:
+        return (BASE / "v2.html").read_text(encoding="utf-8")
+    except Exception as e:
+        return f"v2.html 로드 실패: {e}", 500
+
+
 @app.get("/")
 def index():
-    return INDEX_HTML
+    """v2 통합 UI가 기본(2026-07 이관). 구 UI는 /old, /card, /p 로 보존."""
+    return _serve_v2()
+
+
+@app.get("/v2")
+def v2_page():
+    return _serve_v2()          # 이관 후에도 유지(기존 /v2 북마크 호환)
+
+
+@app.get("/old")
+def index_old():
+    return INDEX_HTML           # 구 짤공장 UI(폴백 — v2 문제 시 대비)
 
 
 @app.get("/card")
@@ -1949,15 +1967,6 @@ def card_page():
 @app.get("/p")
 def packs_page():
     return PACKS_HTML
-
-
-@app.get("/v2")
-def v2_page():
-    """새 PC 가로형 UI (개발 중) — 기존 /, /card, /p 는 그대로 유지."""
-    try:
-        return (BASE / "v2.html").read_text(encoding="utf-8")
-    except Exception as e:
-        return f"v2.html 로드 실패: {e}", 500
 
 
 @app.post("/api/card/make")
