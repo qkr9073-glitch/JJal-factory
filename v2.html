@@ -22,6 +22,7 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0}
+  html,body{overflow-x:hidden}          /* 좌우 슬라이드 전환이 가로 스크롤바를 만들지 않게 */
   body{background:var(--bg); color:var(--ink); font-family:var(--font); -webkit-font-smoothing:antialiased}
   button,input,select,textarea{font-family:inherit}
   button{cursor:pointer}
@@ -554,7 +555,9 @@
     drop.addEventListener('mouseleave',close);
     drop.addEventListener('click',()=>{clearTimeout(dt);drop.classList.remove('open');});})();
   let CURTAB='jjal';
+  let _booted=false;
   function setActive(t){
+    const prev=CURTAB;
     CURTAB=t;
     try{localStorage.setItem('mftab',t);}catch(_){}   // 새로고침 시 마지막 탭 복원용
     if(STUDIO.includes(t))STUDIO_CUR=t;
@@ -562,9 +565,39 @@
     const lab=$('studioBtn').querySelector('span');
     if(lab)lab.textContent=STUDIO.includes(t)?('제작소 · '+STUDIO_LABEL[t]):'제작소';
     document.querySelectorAll('#tabs [data-t]').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
-    route(t);
+    if(!_booted||prev===t){_booted=true;route(t);return;}    // 최초 로드/같은 탭은 애니 없이
+    slideEl($('view'),()=>route(t),tabIdx(t)-tabIdx(prev));   // 탭 순서로 좌우 방향 결정
   }
   function route(t){({jjal:renderJjal,card:renderCard,autoreel:renderAutoReel,reel:renderReel,ie:renderIE,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
+
+  /* ===== 좌우 슬라이딩 전환 (탭 · 위저드 단계, 버튼만) ===== */
+  const TAB_ORDER=['jjal','card','autoreel','reel','ie','sched','result','members'];
+  const tabIdx=t=>{const i=TAB_ORDER.indexOf(t);return i<0?0:i;};
+  const reducedMotion=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let _slideActive=null;   // 진행 중 애니 {el, cancel} — 새 전환이 오면 이전 걸 즉시 종료
+  // el의 innerHTML을 renderFn으로 교체하되, dir 방향(+ 오른쪽에서 / - 왼쪽에서)으로 스르륵 슬라이드
+  function slideEl(el,renderFn,dir){
+    if(!el||reducedMotion()){renderFn();return;}
+    if(_slideActive){_slideActive.cancel();_slideActive=null;}   // 이전 전환 잔상 제거
+    const outX=dir>=0?-34:34, inX=dir>=0?34:-34;
+    let cancelled=false; const timers=[];
+    const wipe=()=>{el.style.transition='';el.style.transform='';el.style.opacity='';};
+    const cancel=()=>{cancelled=true;timers.forEach(clearTimeout);wipe();};
+    const finish=()=>{if(_slideActive&&_slideActive.el===el)_slideActive=null;wipe();};
+    _slideActive={el,cancel};
+    const swapIn=()=>{
+      if(cancelled)return;
+      renderFn();                                   // 안 보일 때 내용 교체(높이 점프 숨김)
+      el.style.transition='none'; el.style.transform='translateX('+inX+'px)'; el.style.opacity='0';
+      void el.offsetWidth;                          // reflow
+      el.style.transition='transform .22s cubic-bezier(.22,.61,.36,1), opacity .22s ease';
+      el.style.transform='translateX(0)'; el.style.opacity='1';
+      timers.push(setTimeout(()=>{if(!cancelled)finish();},260));
+    };
+    el.style.transition='transform .14s ease, opacity .14s ease';
+    el.style.transform='translateX('+outX+'px)'; el.style.opacity='0';
+    timers.push(setTimeout(swapIn,150));            // out 끝나면 교체+in
+  }
 
   /* ============ 공용: 접속코드 · API · 잡 폴링 ============ */
   const CODE=$('code');
@@ -677,7 +710,19 @@
     </div>`;
     renderWizStep();
   }
-  function wizGo(s){wiz.step=s;wizSave();renderAutoReel();}
+  function wizGo(s){
+    const dir=wizIdx(s)>=wizIdx(wiz.step)?1:-1, prev=wiz.step;
+    wiz.step=s; wizSave();
+    const bar=document.querySelector('.wizbar'), body=$('wizbody');
+    if(prev!==s && bar && body){
+      // 상단 진행바는 고정한 채 하이라이트만 갱신, 내용(wizbody)만 좌우 슬라이드
+      document.querySelectorAll('.wizbar .wizstep').forEach((el,i)=>{
+        el.classList.toggle('on',WIZ_STEPS[i]&&WIZ_STEPS[i][0]===s);
+        el.classList.toggle('done',WIZ_STEPS[i]&&wizIdx(WIZ_STEPS[i][0])<wizIdx(s));
+      });
+      slideEl(body,renderWizStep,dir);
+    } else { renderAutoReel(); }
+  }
   function wizSave(){try{localStorage.setItem('reelwiz',JSON.stringify({pid:wiz.pid||'',step:wiz.step}));}catch(_){}}
   function wizRestore(){
     let s;try{s=JSON.parse(localStorage.getItem('reelwiz')||'{}');}catch(_){return;}
