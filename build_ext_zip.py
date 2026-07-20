@@ -3,7 +3,7 @@
 다른 PC: 이 zip 풀기 → Chrome 주소창 chrome://extensions → 개발자 모드 ON →
         '압축해제된 확장 프로그램 로드' → 푼 폴더 선택. 팝업에서 '짤공장 주소'를
         https://jjal.traffic-charger.com 로 두면 됨.
-사용: python 확장ZIP만들기.py  (또는 확장ZIP만들기.cmd 더블클릭)
+사용: python build_ext_zip.py  (또는 확장ZIP만들기.cmd 더블클릭)
 """
 import io
 import sys
