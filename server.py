@@ -5177,6 +5177,78 @@ def api_reel_insta_topics():
     return jsonify(ok=True, items=out)
 
 
+# ── 추천 계정(전 계정 공유 벤치마크 목록) ──────────────────────────
+REC_ACCOUNTS_FILE = BASE / "rec_accounts.json"
+_rec_lock = threading.Lock()
+
+
+def _rec_load():
+    try:
+        d = json.loads(REC_ACCOUNTS_FILE.read_text(encoding="utf-8"))
+        return d if isinstance(d, list) else []
+    except Exception:
+        return []
+
+
+def _rec_handle(url):
+    """인스타 링크/@아이디/아이디 → 핸들(아이디)만 추출. 게시물 경로면 무시."""
+    s = (url or "").strip()
+    m = re.search(r"instagram\.com/([A-Za-z0-9._]+)", s)
+    if m:
+        h = m.group(1)
+        return "" if h.lower() in ("p", "reel", "reels", "stories", "explore", "accounts") else h
+    s = s.lstrip("@").strip("/")
+    return s if re.fullmatch(r"[A-Za-z0-9._]+", s or "") else ""
+
+
+@app.post("/api/rec_accounts/list")
+def api_rec_accounts_list():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, accounts=_rec_load(), admin=_is_admin(cfg, data.get("code")))
+
+
+@app.post("/api/rec_accounts/add")
+def api_rec_accounts_add():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    handle = _rec_handle(data.get("url") or "")
+    if not handle:
+        return jsonify(ok=False, error="인스타 계정 링크나 @아이디를 넣어주세요"), 400
+    who = _member(cfg, code) or {}
+    with _rec_lock:
+        accs = _rec_load()
+        if not any(a.get("handle", "").lower() == handle.lower() for a in accs):
+            accs.insert(0, {"handle": handle,
+                            "url": f"https://www.instagram.com/{handle}/",
+                            "added_by": who.get("name", "") or code,
+                            "added_at": datetime.now().isoformat(timespec="seconds")})
+            REC_ACCOUNTS_FILE.write_text(json.dumps(accs, ensure_ascii=False, indent=2),
+                                         encoding="utf-8")
+    return jsonify(ok=True, accounts=accs)
+
+
+@app.post("/api/rec_accounts/del")
+def api_rec_accounts_del():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="삭제는 관리자만 가능합니다"), 403
+    handle = (data.get("handle") or "").strip().lower()
+    with _rec_lock:
+        accs = [a for a in _rec_load() if a.get("handle", "").lower() != handle]
+        REC_ACCOUNTS_FILE.write_text(json.dumps(accs, ensure_ascii=False, indent=2),
+                                     encoding="utf-8")
+    return jsonify(ok=True, accounts=accs)
+
+
 @app.post("/api/learn/peek")
 def api_learn_peek():
     """다른 계정의 분류 목록 미리보기(불러오기용)."""

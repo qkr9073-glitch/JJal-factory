@@ -2234,9 +2234,61 @@
     document.querySelectorAll('#issue .chip[data-kind]').forEach(c=>c.classList.toggle('on',c.dataset.kind===k));
     ieLoadCollected();}
   /* 짤 탭 · 📸 인스타: 브라우저 수집 목록 + 소재→짤 + 대본 추출 (수입탭에서 이리로 이관) */
+  function instaSub(t){IEB.subtab=t;renderInstaCollect();}
+  /* ---- 추천 계정 (전 계정 공유 벤치마크 목록) ---- */
+  function recAccLoad(){
+    const box=$('recAccBox'); if(!box)return;
+    box.innerHTML=`<div class="lcard">
+      <div style="font-weight:800;font-size:14px;margin-bottom:8px">⭐ 추천 계정 <span style="color:var(--faint);font-weight:400;font-size:12px">— 전 계정 공유. 벤치마크할 인스타 계정을 함께 모아요</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <input class="in" id="recAccInput" placeholder="인스타 계정 링크 또는 @아이디" style="flex:1;min-width:200px" onkeydown="if(event.key==='Enter')recAccAdd()">
+        <button class="btn primary" onclick="recAccAdd()">＋ 추가</button></div>
+      <div class="caphint" style="margin-top:6px">추가는 누구나 · 삭제는 관리자만. 계정을 누르면 그 계정 <b>릴스탭이 새 탭</b>으로 열려요 → 확장으로 수집.</div>
+      <div id="recAccList" style="margin-top:12px"><div style="color:var(--faint)">불러오는 중…</div></div>
+    </div>`;
+    apiJson('/api/rec_accounts/list',{code:code()}).then(d=>{
+      if(!d.ok){const el=$('recAccList');if(el)el.innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
+      recAccRender(d.accounts||[], !!d.admin);
+    }).catch(e=>{const el=$('recAccList');if(el)el.innerHTML='<div style="color:var(--danger)">❌ 통신 오류</div>';});
+  }
+  function recAccRender(accs, admin){
+    const el=$('recAccList'); if(!el)return;
+    if(!accs.length){el.innerHTML='<div style="color:var(--faint)">아직 추천 계정이 없어요. 위에 계정 링크를 붙여 추가하세요.</div>';return;}
+    el.innerHTML='<div class="catgrid">'+accs.map(a=>`
+      <div class="catcard"><div class="cbody">
+        <div class="cnm">@${esch(a.handle)}</div>
+        <div style="font-size:11px;color:var(--faint);margin-top:3px">추가: ${esch(a.added_by||'')}</div>
+      </div><div class="cacts">
+        <button class="btn primary" style="flex:1" onclick="recAccOpen('${esch(a.handle)}')">📸 릴스탭 열기</button>
+        ${admin?`<button class="btn collmini" onclick="recAccDel('${esch(a.handle)}')" title="삭제(관리자)">🗑</button>`:''}
+      </div></div>`).join('')+'</div>';
+  }
+  function recAccAdd(){
+    const inp=$('recAccInput'); const url=(inp&&inp.value||'').trim();
+    if(!url){flash('계정 링크나 @아이디를 넣으세요');return;}
+    apiJson('/api/rec_accounts/add',{code:code(),url}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      if(inp)inp.value=''; recAccLoad(); flash('⭐ 추천 계정에 추가됐어요');
+    });
+  }
+  function recAccDel(handle){
+    if(!confirm('@'+handle+' 을(를) 추천 계정에서 뺄까요?'))return;
+    apiJson('/api/rec_accounts/del',{code:code(),handle}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      recAccLoad(); flash('🗑 삭제됨');
+    });
+  }
+  function recAccOpen(handle){
+    window.open('https://www.instagram.com/'+encodeURIComponent(handle)+'/reels/','_blank');
+  }
   function renderInstaCollect(){
     const host=$('issue'); if(!host)return;
-    host.innerHTML=`
+    IEB.subtab=IEB.subtab||'collect';
+    const tabs=`<div class="chips" style="margin-bottom:12px">
+      <span class="chip ${IEB.subtab==='collect'?'on':''}" onclick="instaSub('collect')">🧲 수집 결과</span>
+      <span class="chip ${IEB.subtab==='accounts'?'on':''}" onclick="instaSub('accounts')">⭐ 추천 계정</span></div>`;
+    if(IEB.subtab==='accounts'){ host.innerHTML=tabs+'<div id="recAccBox"></div>'; recAccLoad(); return; }
+    host.innerHTML=tabs+`
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <b style="font-size:14px">🧲 인스타 수집</b>
         <span class="chip ${IEB.kind==='all'?'on':''}" data-kind="all" onclick="ieCollKind('all')">전체</span>
