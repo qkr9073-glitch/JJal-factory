@@ -2782,13 +2782,15 @@ def api_packs():
     admin_all = bool(cfg.get("results_admin_see_all", False)) and is_admin
     mycode = (data.get("code") or "").strip()
     owners = _owners_load()
-    # 예약(대기/승인대기) 걸린 팩 이름 집합 → 결과물 카드에 '예약중' 배지
+    # 예약(대기/승인대기) 걸린 팩 → 결과물 카드에 '예약중' 배지 + 예약한 사람 기록
     sched_packs = set()
+    sched_by = {}                 # 팩이름 → 예약 건 사람 코드들
     for e in _sched_load():
         if e.get("status") in ("pending", "await"):
             pk = e.get("pack") or e.get("video_pack") or ""
             if pk:
                 sched_packs.add(pk)
+                sched_by.setdefault(pk, set()).add((e.get("by_code") or "").strip())
     root = _used_root(cfg) if show_arch else OUTPUT
     if root.exists():
         for d in sorted(root.iterdir(), key=lambda p: p.name, reverse=True):
@@ -2797,8 +2799,13 @@ def api_packs():
             if not show_arch and d.name in (used_dir, "_휴지통"):
                 continue
             owner = owners.get(d.name)
-            if not admin_all and owner != mycode and not (is_admin and not owner):
-                continue      # 남의 소유 팩은 숨김. (관리자는 소유자 미상 레거시만 추가로 봄)
+            visible = admin_all or owner == mycode or (is_admin and not owner)
+            if not visible and d.name in sched_packs:
+                # 예약 건 팩은 결과물에도 보여야 관리 가능 → 관리자 전체 + 예약 건 본인
+                if is_admin or mycode in sched_by.get(d.name, set()):
+                    visible = True
+            if not visible:
+                continue      # 남의 소유·비예약 팩은 숨김. (관리자는 미소유 레거시·모든 예약도 봄)
             meta = {}
             try:
                 meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
