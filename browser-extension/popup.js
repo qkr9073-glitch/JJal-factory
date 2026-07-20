@@ -165,10 +165,11 @@ async function sendToLocalApp() {
   setStatus("짤공장으로 전송 중...");
 
   const response = await send({ type: "SEND_TO_LOCAL_APP", items: filtered, account });
-  if (response.error && !response.fallback) return setStatus(response.error);
+  if (!response || (response.error && !response.fallback)) return setStatus((response && response.error) || "응답 없음 — 확장 새로고침 후 재시도");
   if (response.fallback) return setStatus(response.error || "URL만 전달됨");
 
-  setStatus(`짤공장으로 보냄 ${response.count || filtered.length}개`);
+  const sent = response.count || filtered.length;
+  setStatus(response.total ? `✅ 짤공장으로 보냄 ${sent}개 (창고 누적 ${response.total})` : `✅ 짤공장으로 보냄 ${sent}개`);
 }
 
 function currentMode(url) {

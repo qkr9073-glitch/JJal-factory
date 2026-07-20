@@ -324,28 +324,37 @@ async function sendToLocalAppFromBackground(message) {
   const urls = finalItems.map((item) => item.url).filter(Boolean);
   const account = String(message.account || guessAccountFromItems(finalItems) || "shortform");
   const payloadItems = finalItems.map(compactItemForLocalApp);
+  const body = JSON.stringify({
+    influencer: account,
+    project: "Short-form Script Research",
+    urls,
+    items: payloadItems
+  });
 
-  try {
-    const response = await fetchWithTimeout("http://localhost:8777/api/ie/insta/collect", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        influencer: account,
-        project: "Short-form Script Research",
-        urls,
-        items: payloadItems
-      })
-    }, 7000);
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    // 짤공장은 이미 열려 있으므로 새 탭을 띄우지 않는다
-    return {
-      ok: true,
-      count: urls.length
-    };
-  } catch {
-    return { ok: false, count: urls.length, error: "짤공장 서버 연결 실패 — 짤공장(localhost:8777)이 켜져 있는지 확인하세요." };
+  // 서버는 0.0.0.0(IPv4) 바인딩 → 127.0.0.1 먼저(localhost가 IPv6 ::1로 풀려 실패하는 경우 회피)
+  const hosts = ["http://127.0.0.1:8777", "http://localhost:8777"];
+  let lastErr = "";
+  for (const base of hosts) {
+    try {
+      const response = await fetchWithTimeout(base + "/api/ie/insta/collect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body
+      }, 8000);
+      if (!response.ok) { lastErr = `HTTP ${response.status} (${base})`; continue; }
+      let info = {};
+      try { info = await response.json(); } catch { /* 무시 */ }
+      // 짤공장은 이미 열려 있으므로 새 탭을 띄우지 않는다
+      return { ok: true, count: urls.length, total: info.total, added: info.added };
+    } catch (e) {
+      lastErr = (e && e.message) ? e.message : String(e);
+    }
   }
+  return {
+    ok: false,
+    count: urls.length,
+    error: `짤공장 전송 실패 — 짤공장(8777)이 이 PC에서 켜져 있는지 확인하세요. (${lastErr})`
+  };
 }
 
 function compactItemForLocalApp(item) {
