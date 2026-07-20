@@ -951,11 +951,14 @@
       <style id="sfFaces"></style>`;
     subLoad();
   }
+  function styleSig(o){o=o||{};return JSON.stringify([o.family,o.font_file,o.size,o.primary,o.outline,o.outline_w,o.align,o.bold,!!o.pop,o.margin_v]);}
   function subLoad(){
     Promise.all([apiJson('/api/fonts/list',{code:code()}),apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid})])
       .then(([f,s])=>{
         subState.fonts=(f&&f.fonts)||[];
         subState.style=(s&&s.subs_style)||{family:'Malgun Gothic',font_file:'',size:72,primary:'#FFFFFF',outline:'#000000',outline_w:5,align:2,bold:true};
+        subState.hasEdit=!!(s&&s.edit);                 // ⑥ 정밀컷 미리보기가 이미 있나
+        subState._savedSig=styleSig(subState.style);    // 저장된 스타일 지문(바뀌었는지 판별)
         // @font-face 주입(미리보기용)
         $('sfFaces').textContent=subState.fonts.map(x=>`@font-face{font-family:'${x.family}';src:url('/fonts/${encodeURIComponent(x.file)}')}`).join('');
         // 폰트 셀렉트
@@ -1032,7 +1035,20 @@
   function subSave(){
     apiJson('/api/reelproj/subs_style',{code:code(),pid:wiz.pid,style:subState.style}).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
-      flash('💾 자막 스타일 저장됨'); wizGo('edit');
+      // 이미 만든 정밀컷이 있고 스타일이 바뀌었으면 → 자동으로 새 자막 재입힘(⑥에서 바로 반영)
+      if(subState.hasEdit && styleSig(subState.style)!==subState._savedSig){
+        flash('💾 저장됨 · 🔤 컷에 새 자막 입히는 중…');
+        apiJson('/api/reelproj/restyle',{code:code(),pid:wiz.pid}).then(r=>{
+          if(!r.ok){flash('❌ '+r.error); wizGo('edit'); return;}
+          const jid=r.job;
+          (async function pp(){let j;try{const rr=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);j=await rr.json();}catch(e){setTimeout(pp,2000);return;}
+            if(j.status==='done'){flash('✅ 자막 반영됨'); wizGo('edit');}
+            else if(j.status==='error'){flash('❌ '+j.error); wizGo('edit');}
+            else setTimeout(pp,1500);})();
+        });
+      } else {
+        flash('💾 자막 스타일 저장됨'); wizGo('edit');
+      }
     });
   }
 
