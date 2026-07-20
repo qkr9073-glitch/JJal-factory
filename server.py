@@ -2756,8 +2756,11 @@ def api_packs():
     need = int(cfg.get("usage_threshold", 2) or 2)
     used_dir = cfg.get("used_dir") or "_사용완료"
     show_arch = bool(data.get("archived"))
-    # 일반 회원은 본인이 만든 팩만, 관리자는 전체
+    # 결과물은 계정별(내 것만) — 관리자도 기본은 본인 것만 본다(단, 소유자 미상 레거시 팩은
+    # 관리자에게만 보임 — 사장님이 옛 팩을 잃지 않게). 관리자 전체보기는 config
+    # "results_admin_see_all": true 로 켤 수 있음.
     is_admin = _is_admin(cfg, data.get("code"))
+    admin_all = bool(cfg.get("results_admin_see_all", False)) and is_admin
     mycode = (data.get("code") or "").strip()
     owners = _owners_load()
     root = _used_root(cfg) if show_arch else OUTPUT
@@ -2767,8 +2770,9 @@ def api_packs():
                 continue
             if not show_arch and d.name in (used_dir, "_휴지통"):
                 continue
-            if not is_admin and owners.get(d.name) != mycode:
-                continue      # 내 팩이 아니면(소유자 미상 레거시 포함) 일반 회원엔 숨김
+            owner = owners.get(d.name)
+            if not admin_all and owner != mycode and not (is_admin and not owner):
+                continue      # 남의 소유 팩은 숨김. (관리자는 소유자 미상 레거시만 추가로 봄)
             meta = {}
             try:
                 meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
