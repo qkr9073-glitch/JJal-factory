@@ -195,6 +195,37 @@ def extract_generic(url, soup):
     }
 
 
+def _page_fallback_text(soup, data):
+    """본문 글자가 거의 없을 때(사진만 있는 글) 페이지 내용으로 Gemini 작성 재료를 채운다.
+    og:description → 제목 → 페이지 본문영역 텍스트 → 댓글 순으로 모아 중복 제거."""
+    parts = []
+    if (data.get("text") or "").strip():
+        parts.append(data["text"].strip())
+    desc = _og(soup, "description")
+    if desc:
+        parts.append(desc.strip())
+    if data.get("title"):
+        parts.append(str(data["title"]).strip())
+    body = soup.select_one("article") or soup.body or soup
+    if body is not None:
+        try:
+            btxt = _clean_text(body)
+        except Exception:
+            btxt = ""
+        if btxt:
+            parts.append(btxt[:1500])
+    for c in (data.get("comments") or [])[:10]:
+        c = str(c).strip()
+        if c:
+            parts.append(c)
+    seen, out = set(), []
+    for p in parts:
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return "\n".join(out)[:1800]
+
+
 def extract(url: str) -> dict:
     url = normalize_url(url)
     host = urlparse(url).netloc
@@ -210,6 +241,9 @@ def extract(url: str) -> dict:
     else:
         soup = fetch_html(url)
         data = extract_generic(url, soup)
+    # 본문에 글자가 거의 없으면(사진 위주 글) 페이지 내용으로 대체 → 짤 캡션 재료 확보
+    if len((data.get("text") or "").strip()) < 20:
+        data["text"] = _page_fallback_text(soup, data)
     data["url"] = url
     return data
 
