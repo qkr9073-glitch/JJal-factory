@@ -1372,8 +1372,30 @@
           <button class="btn primary" onclick="recRun()">추천받기</button></div>
         <div class="caphint" style="margin-top:8px">학습된 스타일에 맞는(관련도) 소재를 뽑고 네이버 검색어트렌드로 <b>지금 뜨는 순</b> 정렬. 각 소재의 <b>이 소재로 대본</b>을 누르면 ② 단계로 넘어갑니다.</div>
         <div id="recOut"></div>
+      </div>
+      <div class="lcard">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <b>📸 인스타에서 터진 소재</b>
+          <button class="btn primary" onclick="instaTopicsRun()">불러오기</button></div>
+        <div class="caphint" style="margin-top:8px">확장으로 수집한 인스타 릴스 중 <b>조회수 1만+ 상위 10개</b>를 AI가 소재로 요약해요. '이 소재로 대본'은 위에서 고른 스타일 분류로 만들어집니다.</div>
+        <div id="instaTopicsOut"></div>
       </div>`;
     learnRefresh();
+  }
+  function instaTopicsRun(){
+    const el=$('instaTopicsOut'); if(!el)return;
+    el.innerHTML='<div class="caphint" style="margin-top:10px">📸 인기 릴스에서 소재 뽑는 중… (10~20초)</div>';
+    apiJson('/api/reel/insta_topics',{code:code()}).then(d=>{
+      if(!d.ok){el.innerHTML='<div style="color:var(--danger);margin-top:8px">❌ '+esch(d.error)+'</div>';return;}
+      const items=d.items||[], cat=($('recCat')&&$('recCat').value)||'';
+      if(!items.length){el.innerHTML='<div class="caphint" style="margin-top:10px">수집된 인기 릴스(조회수 1만+)가 없어요. 확장으로 인스타 릴스를 수집한 뒤 다시 시도하세요.</div>';return;}
+      el.innerHTML='<div class="catgrid" style="margin-top:10px">'+items.map(it=>`
+        <div class="catcard"><div class="cbody">
+          <div class="cnm">${esch(it.topic)}</div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:3px">👀 ${(it.views||0).toLocaleString()}${it.account?(' · '+esch(it.account)):''}</div>
+          ${it.url?`<a href="${esch(it.url)}" target="_blank" style="font-size:12px;color:var(--gold);margin-top:5px;display:inline-block">▶ 원본 릴스</a>`:''}
+        </div><div class="cacts"><button class="btn primary" style="flex:1" onclick="recPick('${encodeURIComponent(it.topic)}','${encodeURIComponent(cat)}')">✍️ 이 소재로 대본</button></div></div>`).join('')+'</div>';
+    }).catch(e=>{el.innerHTML='<div style="color:var(--danger)">❌ 통신 오류</div>';});
   }
   async function learnRefresh(){
     let d; try{d=await apiJson('/api/learn/summary',{code:code()});}catch(e){return;}

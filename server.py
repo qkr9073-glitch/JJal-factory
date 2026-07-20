@@ -5137,6 +5137,46 @@ def api_learn_genscript():
     return jsonify(ok=True, versions=vers)
 
 
+@app.post("/api/reel/insta_topics")
+def api_reel_insta_topics():
+    """확장으로 수집한 인스타 릴스 중 조회수 1만+ 상위 10개 → AI가 소재(주제)로 요약.
+    릴스 ① '인스타에서 터진 소재' 섹션용."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    items = _collected_load()
+    reels = [it for it in items if it.get("kind") == "reel"
+             and int(it.get("viewCount", 0) or 0) >= 10000]
+    reels.sort(key=lambda x: int(x.get("viewCount", 0) or 0), reverse=True)
+    reels = reels[:10]
+    if not reels:
+        return jsonify(ok=True, items=[])
+    lines = []
+    for i, r in enumerate(reels):
+        cap = str(r.get("caption") or "").replace("\n", " ")[:200]
+        lines.append(f"{i}. (조회수 {int(r.get('viewCount', 0) or 0)}) {cap or '(캡션 없음)'}")
+    prompt = ("다음은 인스타에서 조회수가 잘 터진 릴스들의 캡션이다. 각 릴스가 '어떤 소재/주제'를 다루는지 "
+              "한국어로 짧게(12자 내외) 요약해라. 광고문구·해시태그 말고 소재 핵심만.\n"
+              + "\n".join(lines)
+              + '\n반드시 JSON만: {"topics":[{"i":0,"topic":"소재"}]}')
+    tmap = {}
+    try:
+        rj = reelproj._gjson(cfg, prompt, maxtok=1024)
+        for t in (rj.get("topics") or []):
+            tmap[int(t.get("i", -1))] = str(t.get("topic", "")).strip()
+    except Exception:
+        pass
+    out = []
+    for i, r in enumerate(reels):
+        topic = tmap.get(i) or (str(r.get("caption") or "")[:18].strip()) or "소재"
+        out.append({"topic": topic,
+                    "views": int(r.get("viewCount", 0) or 0),
+                    "account": r.get("channel") or r.get("account") or "",
+                    "url": r.get("url", "")})
+    return jsonify(ok=True, items=out)
+
+
 @app.post("/api/learn/peek")
 def api_learn_peek():
     """다른 계정의 분류 목록 미리보기(불러오기용)."""
