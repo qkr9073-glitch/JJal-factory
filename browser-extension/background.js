@@ -5,6 +5,7 @@ const DEBUGGER_VERSION = "1.3";
 let watchingTabId = null;
 let attached = false;
 let items = [];
+let igScanTimer = null;   // 인스타: 화면(DOM)에 보이는 게시물 주기 스캔(스크롤하며 전부 수집)
 
 chrome.runtime.onInstalled.addListener(loadItems);
 chrome.runtime.onStartup.addListener(loadItems);
@@ -32,6 +33,7 @@ chrome.debugger.onDetach.addListener((source) => {
   if (source.tabId === watchingTabId) {
     attached = false;
     watchingTabId = null;
+    stopIgDomScan();
   }
 });
 
@@ -90,6 +92,8 @@ async function startWatch() {
   } else if (attached) {
     await chrome.tabs.reload(tab.id);
     reloaded = true;
+    // 인스타: 화면에 보이는 게시물을 스크롤하는 동안 계속 DOM 스캔(API 인터셉트와 합쳐짐)
+    startIgDomScan(tab.id);
   } else {
     watchingTabId = null;
     return { ...(await getState()), error: "디버거를 연결할 수 없습니다. 열려 있는 개발자도구(F12)나 다른 디버깅 확장프로그램을 끄고 다시 시도하세요." };
@@ -106,6 +110,7 @@ async function startWatch() {
 }
 
 async function stopWatch() {
+  stopIgDomScan();
   if (attached && watchingTabId != null) {
     await detachDebugger(watchingTabId);
   }
@@ -165,6 +170,63 @@ function parseBody(bodyText, sourceUrl) {
   });
 
   addFoundItems(found);
+}
+
+function startIgDomScan(tabId) {
+  stopIgDomScan();
+  // 새로고침 직후엔 콘텐츠가 없으니 잠깐 뒤부터, 이후 3초마다 스캔
+  setTimeout(() => collectVisibleInstagramPosts(tabId), 2500);
+  igScanTimer = setInterval(() => {
+    if (watchingTabId == null) { stopIgDomScan(); return; }
+    collectVisibleInstagramPosts(watchingTabId);
+  }, 3000);
+}
+
+function stopIgDomScan() {
+  if (igScanTimer) { clearInterval(igScanTimer); igScanTimer = null; }
+}
+
+async function collectVisibleInstagramPosts(tabId) {
+  try {
+    const result = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: scrapeInstagramPostsFromPage
+    });
+    const found = result?.[0]?.result || [];
+    if (found.length) await addFoundItems(found);
+    return found.length;
+  } catch {
+    return 0;   // 새로고침 중이거나 주입 실패 — 다음 주기에 재시도
+  }
+}
+
+function scrapeInstagramPostsFromPage() {
+  // 화면(DOM)에 보이는 모든 게시물 링크(/p/, /reel/)를 수집. 조회수는 API 인터셉트가 채움.
+  const out = [];
+  const seen = new Set();
+  const anchors = Array.from(document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"], a[href*="/reels/"]'));
+  for (const a of anchors) {
+    let href = "";
+    try { href = new URL(a.getAttribute("href") || a.href, location.origin).href; } catch { continue; }
+    const m = href.match(/instagram\.com\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
+    if (!m) continue;
+    const shortcode = m[1];
+    if (seen.has(shortcode)) continue;
+    seen.add(shortcode);
+    const isReel = /\/(reel|reels)\//.test(href);
+    let thumb = "";
+    const img = a.querySelector("img");
+    if (img) thumb = img.getAttribute("src") || "";
+    out.push({
+      platform: "instagram",
+      kind: isReel ? "reel" : "image",
+      url: isReel ? `https://www.instagram.com/reel/${shortcode}/` : `https://www.instagram.com/p/${shortcode}/`,
+      shortcode, title: "", channel: "",
+      viewCount: 0, likeCount: 0, commentCount: 0, takenAt: "",
+      caption: "", imageUrls: [], thumbUrl: thumb
+    });
+  }
+  return out;
 }
 
 async function collectVisibleYoutubeShorts(tabId) {
@@ -308,6 +370,13 @@ async function addFoundItems(found) {
       viewCount: (item.viewCount || 0) > 0 ? item.viewCount : (previous.viewCount || 0),
       likeCount: (item.likeCount || 0) > 0 ? item.likeCount : (previous.likeCount || 0),
       commentCount: (item.commentCount || 0) > 0 ? item.commentCount : (previous.commentCount || 0),
+      // 구체 종류(reel/carousel) 우선 — DOM 스캔의 일반 'image'가 API 분류를 덮어쓰지 않게
+      kind: (item.kind && item.kind !== "image") ? item.kind
+            : ((previous.kind && previous.kind !== "image") ? previous.kind : (item.kind || previous.kind || "")),
+      // 썸네일/캡션/이미지: 기존에 있으면 유지(빈 값으로 덮지 않음)
+      thumbUrl: item.thumbUrl || previous.thumbUrl || "",
+      caption: item.caption || previous.caption || "",
+      imageUrls: (item.imageUrls && item.imageUrls.length) ? item.imageUrls : (previous.imageUrls || []),
       scrapedAt: new Date().toISOString()
     });
   }
