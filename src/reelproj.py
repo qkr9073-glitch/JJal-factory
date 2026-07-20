@@ -598,6 +598,8 @@ def _mux_subs(base, pid, st):
                     pass
         except Exception:
             pass
+    # 재추출한 family를 subs_style에도 반영(옛 프로젝트의 stale 무한루프 방지: rendered==style 유지)
+    st["subs_style"] = style
     st["subs_rendered"] = dict(style)          # 이 스타일로 preview.mp4를 구움(⑥ 반영 판별용)
     _subs_ass(edir / "sub.ass", st["tts"]["subs"], style)
     # cwd=edir 이므로 상위 tts 폴더는 ../tts 로 참조(절대/상대 base 모두 안전)
