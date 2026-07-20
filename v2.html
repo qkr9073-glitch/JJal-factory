@@ -1095,8 +1095,8 @@
       </div>`).join('');
     $('editOut').innerHTML=`<div class="lcard">
         <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-          <div style="flex:0 0 auto;margin:0 auto"><video src="${v}" controls playsinline style="width:min(320px,82vw);border-radius:14px;background:#000;display:block"></video></div>
-          <div style="flex:1;min-width:280px">
+          <div style="flex:1 1 46%;min-width:300px;max-width:50%;text-align:center"><video src="${v}" controls playsinline style="width:100%;max-height:82vh;border-radius:14px;background:#000;display:block;margin:0 auto"></video></div>
+          <div style="flex:1 1 46%;min-width:300px">
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
               <div style="font-weight:800">✂️ 컷 배치 <span style="font-weight:400;color:var(--faint);font-size:12px">(위→아래 순서 · 블러 · 🔄 교체)</span></div>
               <button class="btn" style="margin-left:auto" onclick="editRestyle()" title="정밀컷은 그대로, 자막 폰트·스타일만 다시 입힘(빠름)">🔤 자막 다시 입히기</button></div>
