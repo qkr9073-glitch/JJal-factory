@@ -1699,6 +1699,17 @@ def _owner_set(pack_name, code):
                                encoding="utf-8")
 
 
+def _job_set_owner(job):
+    """잡 결과 팩에 소유자(잡 생성 시 code)를 기록 — 클라이언트 폴링에 의존하지 않음.
+    (인기글/자동 등 어떤 경로로 만들어도 결과물이 계정별로 확실히 뜨게)"""
+    try:
+        pk = (job.get("result") or {}).get("pack")
+        if pk and job.get("code"):
+            _owner_set(pk, job["code"])
+    except Exception:
+        pass
+
+
 def _members_load(cfg=None):
     """회원코드→{name,role} 사전. 파일 없으면 config의 access_code를 관리자 1명으로 시드."""
     try:
@@ -1780,6 +1791,7 @@ def _run_job(jid, url, cfg, stats, template=None, clean=None, guide=""):
         result = pipeline.build_from_url(url, cfg, BASE, log=log, stats=stats,
                                          template=template, clean=clean, guide=guide)
         job["result"] = _pack_payload(result)
+        _job_set_owner(job)          # 서버가 만든 즉시 소유자 기록(폴링 의존 X)
         job["pct"] = 100
         job["status"] = "done"
     except Exception as e:
@@ -1804,6 +1816,7 @@ def _run_youtube_job(jid, url, cfg, blur=True):
     try:
         result = youtube.build_from_youtube(url, cfg, BASE, log=log, blur=blur)
         job["result"] = _pack_payload(result)
+        _job_set_owner(job)
         job["pct"] = 100
         job["status"] = "done"
     except Exception as e:
@@ -1830,6 +1843,7 @@ def _run_images_job(jid, image_paths, caption, localize, cfg, template=None, cle
                                             localize=localize, caption=caption,
                                             template=template, clean=clean, guide=guide)
         job["result"] = _pack_payload(result)
+        _job_set_owner(job)
         job["pct"] = 100
         job["status"] = "done"
     except Exception as e:
@@ -1883,6 +1897,7 @@ def _run_card_job(jid, topic, n_items, keyword, cfg, mode="normal", context=None
             "keyword": result["meta"]["keyword"],
             "title": result["meta"]["title"],
         }
+        _job_set_owner(job)          # 카드뉴스도 계정별 소유자 기록
         if auto_upload:   # 자동업로드 토글 켠 건만 — 생성 직후 바로 공개 게시
             try:
                 log("[업로드] 📤 인스타 자동 게시 중...")
@@ -2022,7 +2037,8 @@ def api_card_make():
         JOBS.pop(k, None)
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
-                 "result": None, "error": None, "ts": now}
+                 "result": None, "error": None, "ts": now,
+                 "code": (data.get("code") or "").strip()}
     JOBQ.put((jid, _run_card_job,
               (jid, topic, n_items, (data.get("keyword") or "").strip(),
                cfg, mode, context, None, "", auto_upload,
@@ -2070,7 +2086,8 @@ def api_card_localize():
         JOBS.pop(k, None)
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
-                 "result": None, "error": None, "ts": now}
+                 "result": None, "error": None, "ts": now,
+                 "code": (data.get("code") or "").strip()}
     JOBQ.put((jid, _run_card_job,
               (jid, "", n_items, (data.get("keyword") or "").strip(),
                cfg, "localize", None, paths, caption)))
@@ -2409,7 +2426,8 @@ def api_make():
     guide = (data.get("guide") or "").strip()[:500]
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
-                 "result": None, "error": None, "ts": now}
+                 "result": None, "error": None, "ts": now,
+                 "code": (data.get("code") or "").strip()}   # 소유자 기록용
     _pending_add(jid, url)
     JOBQ.put((jid, _run_job, (jid, url, cfg, stats, template, _clean(data), guide)))
     return jsonify(ok=True, job=jid)
@@ -2431,7 +2449,8 @@ def api_youtube_make():
         JOBS.pop(k, None)
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
-                 "result": None, "error": None, "ts": now}
+                 "result": None, "error": None, "ts": now,
+                 "code": (data.get("code") or "").strip()}
     JOBQ.put((jid, _run_youtube_job, (jid, url, cfg, blur)))
     return jsonify(ok=True, job=jid)
 
