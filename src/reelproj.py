@@ -6,6 +6,7 @@ state.json: {pid, code, script, topic, category, clips:[{id,file,thumb,tag,dur,s
 clips/ : 러프컷 클립(9:16) + 썸네일. 원본은 컷 후 삭제(용량), src_url로 재수집 가능.
 """
 import json
+import re
 import shutil
 import subprocess
 import uuid
@@ -447,6 +448,25 @@ def _ass_color(hexstr, default="&H00FFFFFF"):
         return default
 
 
+def _ass_text(t):
+    """자막 텍스트 방어: ASS 오버라이드로 오인될 문자 제거 + 공백/줄바꿈 정리.
+    (특정 자막에서 위치가 순간 깨지는 문제 방지 — 스타일 태그 오염·불규칙 줄바꿈 차단)"""
+    t = str(t or "")
+    t = t.replace("\\", "＼").replace("{", "(").replace("}", ")")   # 오버라이드/이스케이프 문자 무력화
+    t = re.sub(r"\s+", " ", t).strip()                              # 줄바꿈·중복공백 → 단일 공백(한 줄 고정)
+    return t
+
+
+# 자막 스타일 지문(렌더된 스타일과 현재 스타일이 다른지 판별 — v2.html styleSig와 동일 순서)
+_SIG_KEYS = ("family", "font_file", "size", "primary", "outline", "outline_w", "align", "bold", "pop", "margin_v")
+
+
+def _subs_sig(s):
+    s = s or {}
+    return [s.get("family"), s.get("font_file"), s.get("size"), s.get("primary"), s.get("outline"),
+            s.get("outline_w"), s.get("align"), s.get("bold"), bool(s.get("pop")), s.get("margin_v")]
+
+
 def _subs_ass(path, subs, style=None):
     s = {**DEFAULT_STYLE, **(style or {})}
     head = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
@@ -457,8 +477,15 @@ def _subs_ass(path, subs, style=None):
             f"{s['outline_w']},2,{int(s['align'])},80,80,{int(s['margin_v'])}\n\n"
             "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
     pop = _POP if s.get("pop") else ""
-    ev = [f"Dialogue: 0,{autoshorts._ass_ts(x['s'])},{autoshorts._ass_ts(x['e'])},Default,,0,0,0,,{pop}{x['t']}"
-          for x in subs]
+    # 시간 겹침 제거: 겹치면 두 자막이 동시에 떠 위치가 순간 어긋나 보임 → 앞 자막 끝을 다음 시작 직전으로
+    items = sorted(({"s": float(x["s"]), "e": float(x["e"]), "t": x["t"]} for x in subs),
+                   key=lambda x: x["s"])
+    for i in range(len(items) - 1):
+        nxt = items[i + 1]["s"]
+        if items[i]["e"] > nxt - 0.03:
+            items[i]["e"] = max(items[i]["s"] + 0.1, nxt - 0.03)
+    ev = [f"Dialogue: 0,{autoshorts._ass_ts(x['s'])},{autoshorts._ass_ts(x['e'])},Default,,0,0,0,,{pop}{_ass_text(x['t'])}"
+          for x in items if _ass_text(x['t'])]
     Path(path).write_text(head + "\n".join(ev) + "\n", encoding="utf-8")
 
 
@@ -513,6 +540,7 @@ def set_block_blur(base, pid, idx, blur):
     edl[idx]["blur"] = blur or None
     _assemble_edit(base, pid, st, only_idx=idx)
     save(base, pid, st)
+    _sync_final(base, pid)          # BGM 완성본이 있으면 자동 재합치기(⑦ 다시 안 눌러도 반영)
     return edit_public(base, pid, st)
 
 
@@ -542,6 +570,7 @@ def _mux_subs(base, pid, st):
     FF = autoshorts.FFMPEG
     edir = pdir(base, pid) / "edit"
     style = st.get("subs_style") or DEFAULT_STYLE
+    st["subs_rendered"] = dict(style)          # 이 스타일로 preview.mp4를 구움(⑥ 반영 판별용)
     _subs_ass(edir / "sub.ass", st["tts"]["subs"], style)
     # 커스텀 폰트면 edit 폴더로 복사 → fontsdir=. 로 libass가 찾게(경로 콜론 회피)
     ff_arg = "ass=sub.ass"
@@ -566,9 +595,8 @@ def restyle_subs(base, pid):
     if not (pdir(base, pid) / "edit" / "video.mp4").exists():
         raise RuntimeError("먼저 ⑥ 정밀 컷을 생성하세요")
     _mux_subs(base, pid, st)
-    st.pop("final", None)          # 자막 바뀌었으니 이전 완성본 무효
-    st.pop("bgm", None)
     save(base, pid, st)
+    _sync_final(base, pid)          # 자막 바뀌면 BGM 완성본도 자동 재합치기(무효화 대신 갱신)
     return edit_public(base, pid, st)
 
 
@@ -599,9 +627,26 @@ def reroll_block(base, pid, idx):
         raise RuntimeError("대체 클립이 없어요")
     e["used"] = (e["used"] + 1) % len(e["cands"])
     e["clip_id"] = e["cands"][e["used"]]
+    e.pop("blur", None)             # 새 클립엔 이전 블러 영역이 안 맞음 → 초기화
     _assemble_edit(base, pid, st, only_idx=idx)
     save(base, pid, st)
+    _sync_final(base, pid)          # 완성본 있으면 자동 재합치기
     return edit_public(base, pid, st)
+
+
+def _sync_final(base, pid):
+    """⑥ 편집(블러·리롤·자막)이 바뀐 뒤, 이미 만든 ⑦ 완성본(final.mp4)이 있으면
+    저장된 BGM 설정으로 자동 재합치기 → '최종 합치기' 다시 안 눌러도 결과물에 반영."""
+    st = load(base, pid)
+    if not st.get("final"):
+        return
+    if not (pdir(base, pid) / "edit" / "preview.mp4").exists():
+        return
+    b = st.get("bgm") or {}
+    try:
+        build_final(None, base, pid, b.get("code", ""), b.get("file", ""), b.get("db", -20.0))
+    except Exception:
+        pass
 
 
 def edit_public(base, pid, st):
@@ -614,7 +659,10 @@ def edit_public(base, pid, st):
                        "thumb": f"/reelproj/{pid}/clips/{c.get('thumb','')}",
                        "cand": e["used"] + 1, "cand_total": len(e.get("cands", [])),
                        "blur": bool(e.get("blur"))})
-    return {"preview": f"/reelproj/{pid}/edit/preview.mp4", "blocks": blocks}
+    # 렌더된 자막 스타일과 현재 스타일이 다르면 stale=True (⑥ 진입 시 자동 재입힘 트리거)
+    rendered = st.get("subs_rendered")
+    stale = bool(rendered) and _subs_sig(st.get("subs_style") or {}) != _subs_sig(rendered)
+    return {"preview": f"/reelproj/{pid}/edit/preview.mp4", "blocks": blocks, "subs_stale": stale}
 
 
 def build_final(cfg, base, pid, bgm_code="", bgm_file="", bgm_db=-20.0, log=print):

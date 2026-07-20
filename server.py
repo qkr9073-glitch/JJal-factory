@@ -3480,14 +3480,57 @@ def _run_insta_job(jid, pack_dir, lead, force, cfg, account=None):
             job["pct"] = {1: 25, 2: 60, 3: 85}.get(int(step.group(1)), job["pct"])
 
     try:
-        result = insta.publish_pack(cfg, BASE, pack_dir, lead=lead, force=force,
-                                    account=account, log=log)
+        if _is_reel_pack(pack_dir):        # 자동쇼츠 릴스 팩 → 영상 릴스로 발행(커버=선택 대표컷)
+            video_url, cover_url, caption = _reel_pack_urls(cfg, pack_dir, lead=lead)
+            result = insta.publish_reel(cfg, BASE, video_url, caption,
+                                        account=account, cover_url=cover_url, log=log)
+            insta.mark_published(BASE, pack_dir.name, result)
+        else:
+            result = insta.publish_pack(cfg, BASE, pack_dir, lead=lead, force=force,
+                                        account=account, log=log)
         job["result"] = {"insta": True, "permalink": result.get("permalink", "")}
         job["pct"] = 100
         job["status"] = "done"
     except Exception as e:
         job["error"] = str(e)
         job["status"] = "error"
+
+
+def _is_reel_pack(pack_dir):
+    """릴스(세로영상) 완성팩인지 — video.mp4 존재 + meta type reel."""
+    pack_dir = Path(pack_dir)
+    if not (pack_dir / "video.mp4").exists():
+        return False
+    try:
+        meta = json.loads((pack_dir / "meta.json").read_text(encoding="utf-8"))
+        return meta.get("type") == "reel" or meta.get("template") == "reel"
+    except Exception:
+        return True          # video.mp4 있고 meta 없으면 릴스로 간주
+
+
+def _reel_pack_urls(cfg, pack_dir, lead=None):
+    """릴스 팩 → (영상 공개URL, 커버 공개URL|None, 캡션). 커버는 lead > meta.cover > 없음."""
+    pack_dir = Path(pack_dir)
+    public = (cfg.get("public_base_url") or "https://jjal.traffic-charger.com").rstrip("/")
+    from urllib.parse import quote
+    rel = quote(pack_dir.name)
+    vname = "video.mp4"
+    cover = ""
+    caption = ""
+    try:
+        meta = json.loads((pack_dir / "meta.json").read_text(encoding="utf-8"))
+        vname = meta.get("video") or "video.mp4"
+        cover = meta.get("cover") or ""
+    except Exception:
+        pass
+    if lead and re.fullmatch(r"thumb\d*\.jpg", lead) and (pack_dir / lead).exists():
+        cover = lead                     # 모달에서 고른 대표컷 우선
+    cap_f = pack_dir / "caption.txt"
+    if cap_f.exists():
+        caption = cap_f.read_text(encoding="utf-8")
+    video_url = f"{public}/packs/{rel}/{quote(vname)}"
+    cover_url = f"{public}/packs/{rel}/{quote(cover)}" if cover and (pack_dir / cover).exists() else None
+    return video_url, cover_url, caption
 
 
 @app.post("/api/insta/publish")
@@ -3606,7 +3649,19 @@ def _scheduler_loop():
                 cfg = load_config()
                 for e in due:
                     try:
-                        if e.get("type") == "reel":          # 릴스 예약: 영상 URL로 발행
+                        if e.get("type") == "reel" and e.get("video_pack"):
+                            # 릴스 완성팩 예약: 팩의 video.mp4를 릴스로 발행(커버=선택 대표컷)
+                            pack_dir = OUTPUT / e["video_pack"]
+                            if not (pack_dir / "video.mp4").exists():
+                                raise RuntimeError("예약 팩 영상 없음(삭제됨?)")
+                            video_url, cover_url, caption = _reel_pack_urls(
+                                cfg, pack_dir, lead=e.get("lead") or None)
+                            r = insta.publish_reel(cfg, BASE, video_url,
+                                                   caption or e.get("caption") or "",
+                                                   account=e.get("account") or None,
+                                                   cover_url=cover_url)
+                            insta.mark_published(BASE, pack_dir.name, r)
+                        elif e.get("type") == "reel":        # 릴스 예약(대량): _videos 영상 URL로 발행
                             vn = e.get("video") or ""
                             vpath = OUTPUT / "_videos" / vn
                             if not vn or not vpath.exists():
@@ -3659,9 +3714,10 @@ def api_schedule_add():
         return jsonify(ok=False, error="예약 시간은 현재보다 미래여야 합니다"), 400
     who = _member(cfg, data.get("code")) or {}
     admin = who.get("role") == "admin"
+    lead = (data.get("lead") or "").strip()
     entry = {"id": uuid.uuid4().hex[:10], "pack": pack,
              "account": (data.get("account") or "").strip(),
-             "lead": (data.get("lead") or "").strip(),
+             "lead": lead,
              "ts": ts, "when": (data.get("when") or "").strip(),
              "title": (data.get("title") or pack).strip(),
              # 관리자 예약은 바로 확정(pending), 일반 회원은 승인 대기(await)
@@ -3670,6 +3726,9 @@ def api_schedule_add():
              "by_name": who.get("name", ""),
              "by_role": who.get("role", "user"),
              "created": datetime.now().isoformat(timespec="seconds")}
+    if _is_reel_pack(OUTPUT / pack):     # 릴스 완성팩 예약 → 영상 릴스로 발행하도록 표시
+        entry["type"] = "reel"
+        entry["video_pack"] = pack       # _videos 복사본이 아니라 팩의 video.mp4를 사용
     items = _sched_load()
     items.append(entry)
     _sched_save(items)
@@ -3691,11 +3750,22 @@ def api_schedule_list():
         items = [e for e in items if e.get("by_code") == mycode]
     for e in items:
         if e.get("type") == "reel":                 # 릴스 예약: 영상 미리보기
-            vn = e.get("video") or ""
-            e["video"] = (f"/packs/_videos/{vn}"
-                          if vn and (OUTPUT / "_videos" / vn).exists() else "")
             e["images"] = []
-            e["thumb"] = ""
+            if e.get("video_pack"):                 # 릴스 완성팩 예약
+                pk = e["video_pack"]; pd = OUTPUT / pk
+                e["video"] = f"/packs/{pk}/video.mp4" if (pd / "video.mp4").exists() else ""
+                e["thumb"] = f"/packs/{pk}/thumb.jpg" if (pd / "thumb.jpg").exists() else ""
+                try:
+                    cap_f = pd / "caption.txt"
+                    if cap_f.exists() and not e.get("caption"):
+                        e["caption"] = cap_f.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+            else:
+                vn = e.get("video") or ""
+                e["video"] = (f"/packs/_videos/{vn}"
+                              if vn and (OUTPUT / "_videos" / vn).exists() else "")
+                e["thumb"] = ""
             continue
         pd = OUTPUT / e.get("pack", "")
         e["thumb"] = f"/packs/{e['pack']}/thumb.jpg" if (pd / "thumb.jpg").exists() else ""

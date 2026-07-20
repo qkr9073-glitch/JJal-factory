@@ -951,14 +951,17 @@
       <style id="sfFaces"></style>`;
     subLoad();
   }
-  function styleSig(o){o=o||{};return JSON.stringify([o.family,o.font_file,o.size,o.primary,o.outline,o.outline_w,o.align,o.bold,!!o.pop,o.margin_v]);}
+  let _subsSaveT=null;
+  function subAutosave(){                 // ⑤ 스타일 변경 시 자동 저장(디바운스) — 서버에 항상 최신 반영
+    if(!wiz||!wiz.pid)return;
+    clearTimeout(_subsSaveT);
+    _subsSaveT=setTimeout(()=>{apiJson('/api/reelproj/subs_style',{code:code(),pid:wiz.pid,style:subState.style}).catch(()=>{});},600);
+  }
   function subLoad(){
     Promise.all([apiJson('/api/fonts/list',{code:code()}),apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid})])
       .then(([f,s])=>{
         subState.fonts=(f&&f.fonts)||[];
         subState.style=(s&&s.subs_style)||{family:'Malgun Gothic',font_file:'',size:72,primary:'#FFFFFF',outline:'#000000',outline_w:5,align:2,bold:true};
-        subState.hasEdit=!!(s&&s.edit);                 // ⑥ 정밀컷 미리보기가 이미 있나
-        subState._savedSig=styleSig(subState.style);    // 저장된 스타일 지문(바뀌었는지 판별)
         // @font-face 주입(미리보기용)
         $('sfFaces').textContent=subState.fonts.map(x=>`@font-face{font-family:'${x.family}';src:url('/fonts/${encodeURIComponent(x.file)}')}`).join('');
         // 폰트 셀렉트
@@ -1001,6 +1004,7 @@
     };
     paint();
     requestAnimationFrame(paint);   // 레이아웃 확정 후 재측정(초기 clientHeight 0 방지)
+    subAutosave();                  // 바꾼 스타일 자동 저장(⑥ 생성/재입힘이 항상 최신 반영)
     if(file){
       const url=`/fonts/${encodeURIComponent(file)}`;
       if(window.FontFace&&!subState._loaded[family]){
@@ -1033,22 +1037,11 @@
     });
   }
   function subSave(){
+    clearTimeout(_subsSaveT);
     apiJson('/api/reelproj/subs_style',{code:code(),pid:wiz.pid,style:subState.style}).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
-      // 이미 만든 정밀컷이 있고 스타일이 바뀌었으면 → 자동으로 새 자막 재입힘(⑥에서 바로 반영)
-      if(subState.hasEdit && styleSig(subState.style)!==subState._savedSig){
-        flash('💾 저장됨 · 🔤 컷에 새 자막 입히는 중…');
-        apiJson('/api/reelproj/restyle',{code:code(),pid:wiz.pid}).then(r=>{
-          if(!r.ok){flash('❌ '+r.error); wizGo('edit'); return;}
-          const jid=r.job;
-          (async function pp(){let j;try{const rr=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);j=await rr.json();}catch(e){setTimeout(pp,2000);return;}
-            if(j.status==='done'){flash('✅ 자막 반영됨'); wizGo('edit');}
-            else if(j.status==='error'){flash('❌ '+j.error); wizGo('edit');}
-            else setTimeout(pp,1500);})();
-        });
-      } else {
-        flash('💾 자막 스타일 저장됨'); wizGo('edit');
-      }
+      // ⑥ 진입 시 이미 만든 컷이 있고 자막이 바뀌었으면(subs_stale) editRender가 자동 재입힘
+      flash('💾 자막 스타일 저장됨'); wizGo('edit');
     });
   }
 
@@ -1091,31 +1084,39 @@
     const v=e.preview+'?t='+Date.now();
     const blocks=(e.blocks||[]).map(bl=>`
       <div style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;gap:9px;align-items:center">
+        <div style="flex-shrink:0;width:22px;text-align:center;font-weight:800;color:var(--faint);font-size:13px">${bl.i+1}</div>
         <img src="${bl.thumb}?t=${Date.now()}" style="width:44px;height:78px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#000" onerror="this.style.visibility='hidden'">
         <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;line-height:1.35;overflow:hidden;text-overflow:ellipsis">${esch(bl.tag||'(태그 없음)')}</div>
-          <div style="font-size:11px;color:var(--faint);margin-top:3px">컷 ${bl.i+1} · ${bl.start}~${bl.end}s (${bl.dur}s) · 후보 ${bl.cand}/${bl.cand_total}</div>
+          <div style="font-size:11px;color:var(--faint);margin-top:3px">${bl.start}~${bl.end}s (${bl.dur}s) · 후보 ${bl.cand}/${bl.cand_total}</div>
           <div style="display:flex;gap:5px;margin-top:6px">
-            <button class="btn collmini" onclick="blurOpen(${bl.i})" title="이 컷 블러/모자이크">${bl.blur?'🌫✓':'🌫'}</button>
+            <button class="btn collmini" onclick="blurOpen(${bl.i})" title="이 컷 블러/모자이크" style="${bl.blur?'color:var(--gold);border-color:var(--gold)':''}">${bl.blur?'🟦 블러 ✓':'블러'}</button>
             ${bl.cand_total>1?`<button class="btn collmini" onclick="editReroll(${bl.i})" title="이 컷을 다른 클립으로">🔄 교체</button>`:''}
           </div></div>
       </div>`).join('');
     $('editOut').innerHTML=`<div class="lcard">
-        <div style="text-align:center"><video src="${v}" controls playsinline style="width:min(430px,88vw);border-radius:14px;background:#000"></video></div>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 8px">
-          <div style="font-weight:800">✂️ 컷 배치 <span style="font-weight:400;color:var(--faint);font-size:12px">(🌫 블러 · 🔄 교체)</span></div>
-          <button class="btn" style="margin-left:auto" onclick="editRestyle()" title="정밀컷은 그대로, 자막 폰트·스타일만 다시 입힘(빠름)">🔤 자막 다시 입히기</button></div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px">${blocks}</div>
+        <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+          <div style="flex:0 0 auto;margin:0 auto"><video src="${v}" controls playsinline style="width:min(320px,82vw);border-radius:14px;background:#000;display:block"></video></div>
+          <div style="flex:1;min-width:280px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+              <div style="font-weight:800">✂️ 컷 배치 <span style="font-weight:400;color:var(--faint);font-size:12px">(위→아래 순서 · 블러 · 🔄 교체)</span></div>
+              <button class="btn" style="margin-left:auto" onclick="editRestyle()" title="정밀컷은 그대로, 자막 폰트·스타일만 다시 입힘(빠름)">🔤 자막 다시 입히기</button></div>
+            <div style="display:flex;flex-direction:column;gap:8px">${blocks}</div>
+          </div>
+        </div>
       </div>`;
     scrollTopPane($('editOut'));
+    // ⑤에서 자막을 바꾼 채 들어오면(subs_stale) 자동으로 다시 입혀 ⑥ 미리보기에 반영
+    if(e.subs_stale && !wiz._restyling){ editRestyle(); }
   }
   function editRestyle(){
+    wiz._restyling=true;
     flash('🔤 자막 다시 입히는 중…');
     apiJson('/api/reelproj/restyle',{code:code(),pid:wiz.pid}).then(d=>{
-      if(!d.ok){flash('❌ '+d.error);return;}
+      if(!d.ok){wiz._restyling=false;flash('❌ '+d.error);return;}
       const jid=d.job;
       (async function pp(){let j;try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(pp,2000);return;}
-        if(j.status==='done'){editRender(j.result);flash('✅ 자막 다시 입혔어요');}
-        else if(j.status==='error'){flash('❌ '+j.error);}
+        if(j.status==='done'){wiz._restyling=false;editRender(j.result);flash('✅ 자막 다시 입혔어요');}
+        else if(j.status==='error'){wiz._restyling=false;flash('❌ '+j.error);}
         else setTimeout(pp,1500);})();
     });
   }
@@ -1272,15 +1273,28 @@
   }
   function bgmRenderFinal(v){
     const url=v+'?t='+Date.now();
-    $('bgFinal').innerHTML=`<div class="lcard"><div style="font-weight:800;margin-bottom:8px">🎉 완성 쇼츠</div>
-      <video src="${url}" controls playsinline style="width:min(375px,86vw);max-width:100%;border-radius:12px;background:#000"></video>
-      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="${url}" download="shorts.mp4" style="text-decoration:none">⬇ 다운로드</a><button class="btn" onclick="bgmToResults()">📦 결과물로 보내기</button></div></div>`;
+    $('bgFinal').innerHTML=`<div class="lcard"><div style="font-weight:800;margin-bottom:8px;text-align:center">🎉 완성 쇼츠</div>
+      <div style="text-align:center"><video src="${url}" controls playsinline style="width:min(375px,86vw);max-width:100%;border-radius:12px;background:#000;display:inline-block"></video></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><a class="btn primary" href="${url}" download="shorts.mp4" style="text-decoration:none">⬇ 다운로드</a><button class="btn" onclick="bgmToResults()">📦 결과물로 보내기</button></div></div>`;
     scrollTopPane($('bgFinal'));
   }
+  function centerPop(html){                 // 화면 정중앙 팝업(완료 안내 등)
+    const o=document.createElement('div'); o.className='cpop';
+    o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+    o.onclick=e=>{if(e.target===o)o.remove();};
+    o.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;max-width:400px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)">${html}</div>`;
+    document.body.appendChild(o); return o;
+  }
   function bgmToResults(){
+    flash('📦 결과물로 보내는 중…');
     apiJson('/api/reelproj/to_results',{code:code(),pid:wiz.pid}).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
-      flash('📦 결과물 탭으로 보냈어요!');
+      centerPop(`<div style="font-size:42px;margin-bottom:8px">📦</div>
+        <div style="font-weight:800;font-size:18px;margin-bottom:6px">결과물 탭으로 보냈어요!</div>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:18px;line-height:1.5">상단 <b>결과물</b> 탭에서 대표컷 선택·인스타 업로드·예약을 할 수 있어요.</div>
+        <div style="display:flex;gap:8px;justify-content:center">
+          <button class="btn primary" onclick="this.closest('.cpop').remove();gotoTab('result')">📦 결과물 보기</button>
+          <button class="btn" onclick="this.closest('.cpop').remove()">닫기</button></div>`);
     });
   }
 
@@ -2572,7 +2586,7 @@
     const cands=(d.reel_thumbs&&d.reel_thumbs.length)?d.reel_thumbs:(d.thumbs||[]).filter(x=>x!=='thumb.jpg');
     const cover=d.cover||'';
     const ov=document.createElement('div'); ov.id='reelOv';
-    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:45;display:flex;align-items:center;justify-content:center;padding:16px';
     ov.onclick=e=>{if(e.target===ov)closeReelModal();};
     ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;max-width:960px;width:100%;max-height:94vh;overflow:auto;display:flex;gap:18px;flex-wrap:wrap">
       <div style="flex:0 0 auto;text-align:center">
@@ -2596,13 +2610,40 @@
             <button class="btn" onclick="reelRegenCap()" title="대본으로 캡션 새로 생성">✨ 캡션 새로생성</button>
             <button class="btn" onclick="reelSaveCap()">💾 캡션 저장</button></div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px">
-          <a class="btn primary" href="${base}/${d.video||'video.mp4'}" download="${esch(d.name)}.mp4" style="text-decoration:none">⬇ 영상 다운로드</a>
-          <button class="btn" onclick="reelDelete()" style="margin-left:auto">🗑 삭제</button></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--faint)">올릴 계정
+            <select id="rpAcct" class="in" style="width:auto;padding:7px 9px">${(typeof ACCTS!=='undefined'?ACCTS:[]).map(a=>`<option value="${a}">@${a}</option>`).join('')}</select></label>
+          <button class="btn primary" id="rpUp" onclick="togglePop(event,'reelpack')" style="margin-left:auto">📤 업로드</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a class="btn" href="${base}/${d.video||'video.mp4'}" download="${esch(d.name)}.mp4" style="text-decoration:none">⬇ 영상 다운로드</a>
+          <button class="btn" onclick="reelDelete()" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">🗑 삭제</button></div>
       </div></div>`;
     document.body.appendChild(ov);
+    const ra=$('rpAcct'); if(ra){const a0=(typeof acctOf==='function')?acctOf(d):''; if(a0)ra.value=a0;}
   }
   function closeReelModal(){const o=$('reelOv');if(o)o.remove();PKR=null;}
+  async function reelPackUploadNow(){       // 릴스 완성팩 → 지금 인스타 릴스로 게시(커버=선택 대표컷)
+    if(!PKR)return;
+    const acct=activeAccount();
+    if(!confirm('지금 @'+acct+' 에 릴스로 게시할까요?\n(인스타 영상 처리에 수십초~몇 분 걸려요)'))return;
+    try{ await apiJson('/api/caption/save',{code:code(),pack:PKR.name,caption:($('reelCap')&&$('reelCap').value)||''}); }catch(e){}
+    flash('📤 릴스 업로드 요청 중…');
+    let d; try{d=await apiJson('/api/insta/publish',{code:code(),pack:PKR.name,lead:PKR.cover||'',account:acct});}catch(e){flash('통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    if(d.job)pollReelUpload(d.job); else flash('요청됨');
+  }
+  async function pollReelUpload(jid){
+    try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);const d=await r.json();
+      if(!d.ok){flash('❌ '+d.error);return;}
+      if(d.status==='error'){flash('❌ 업로드 실패: '+d.error);return;}
+      if(d.status==='done'){closeReelModal();loadPacks();
+        centerPop(`<div style="font-size:42px">✅</div><div style="font-weight:800;font-size:18px;margin:8px 0">릴스 업로드 완료!</div>`+
+          (d.result&&d.result.permalink?`<a class="btn primary" href="${d.result.permalink}" target="_blank" style="text-decoration:none;margin-right:6px">인스타에서 보기</a>`:'')+
+          `<button class="btn" onclick="this.closest('.cpop').remove()">닫기</button>`);
+        return;}
+      flash('📤 '+(d.msg||'업로드 중…'));setTimeout(()=>pollReelUpload(jid),1800);
+    }catch(e){setTimeout(()=>pollReelUpload(jid),2500);}
+  }
   function reelSetCover(fn){
     if(!PKR)return;
     apiJson('/api/pack/reelcover',{code:code(),pack:PKR.name,cover:fn}).then(d=>{
@@ -2795,8 +2836,14 @@
   /* ---- upload popover (실제) ---- */
   let popCtx='result';
   function togglePop(e,ctx){e.stopPropagation(); if(ctx)popCtx=ctx; $('pop').classList.toggle('open'); backToMenu();}
-  function activeCaption(){return popCtx==='reel'?(($('rcap')&&$('rcap').value)||''):(($('capta')&&$('capta').value)||'');}
-  function activeAccount(){return popCtx==='reel'?(($('racctSel')&&$('racctSel').value)||'sowho77'):(($('macct2')&&$('macct2').value)||'sowho77');}
+  function activeCaption(){
+    if(popCtx==='reel')return ($('rcap')&&$('rcap').value)||'';
+    if(popCtx==='reelpack')return ($('reelCap')&&$('reelCap').value)||'';
+    return ($('capta')&&$('capta').value)||'';}
+  function activeAccount(){
+    if(popCtx==='reel')return ($('racctSel')&&$('racctSel').value)||'sowho77';
+    if(popCtx==='reelpack')return ($('rpAcct')&&$('rpAcct').value)||'sowho77';
+    return ($('macct2')&&$('macct2').value)||'sowho77';}
   function refreshScap(){if($('scap')){const c=activeCaption().trim();$('scap').textContent=c||'(본문 캡션 없음)';}}
   function syncSchedAcct(){if($('sched')&&$('sched').classList.contains('open')){if($('sacctShow'))$('sacctShow').textContent='@'+activeAccount();refreshScap();}}
   function closePop(){$('pop').classList.remove('open');}
@@ -2806,6 +2853,7 @@
     if(!isAdmin()){flash('⛔ 즉시 업로드는 관리자만 가능합니다. 예약을 이용하세요');openSchedule();return;}
     closePop();
     if(popCtx==='reel'){ reelUploadNow(); return; }
+    if(popCtx==='reelpack'){ reelPackUploadNow(); return; }
     if(!PK)return;
     const acct=activeAccount();
     if(!confirm('지금 @'+acct+' 에 게시할까요?'))return;
@@ -2873,6 +2921,18 @@
       let d; try{d=await apiJson('/api/schedule/reschedule',{code:code(),id:RESCHED.id,ts:ts0,when:schedStr()});}catch(e){flash('통신 오류');return;}
       if(!d.ok){flash('❌ '+d.error);return;}
       flash('🕒 예약 시간 변경됨 — '+schedStr()); RESCHED=null; popCtx='result'; loadSched(); return;
+    }
+    if(popCtx==='reelpack'){
+      if(!PKR){flash('팩을 먼저 여세요');return;}
+      if(ts0<=Math.floor(Date.now()/1000)+60){flash('⛔ 예약 시간은 현재보다 미래여야 합니다');return;}
+      const acct=activeAccount();
+      try{ await apiJson('/api/caption/save',{code:code(),pack:PKR.name,caption:($('reelCap')&&$('reelCap').value)||''}); }catch(e){}
+      let d; try{d=await apiJson('/api/schedule/add',{code:code(),pack:PKR.name,account:acct,lead:PKR.cover||'',ts:ts0,when:schedStr(),title:PKR.title});}catch(e){flash('통신 오류');return;}
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const rst=d.status==='await'?'승인 대기 등록됨 (관리자 승인 후 게시)':'예약 완료';
+      closeReelModal();
+      flash('🗓 릴스 '+rst+' — '+schedStr()+' @'+acct+' · 예약·승인 탭에서 확인');
+      return;
     }
     if(popCtx==='reel'){
       if(!RVIDEO&&!RSTAGED){flash('먼저 영상을 선택하세요');return;}

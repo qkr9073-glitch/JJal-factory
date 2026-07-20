@@ -213,7 +213,7 @@ def publish_carousel(cfg, base_dir, image_urls, caption, pack_dir=None,
 
 
 def publish_reel(cfg, base_dir, video_url, caption, account=None,
-                 share_to_feed=True, log=print):
+                 share_to_feed=True, cover_url=None, log=print):
     """영상 URL + 캡션 → 인스타 릴스(Reels) 발행. 반환: {media_id, permalink, account}.
     릴스는 '팩'이 아니라서 스토리 전용 격리 없이, 지정한 계정으로 바로 보낸다."""
     accs = _accounts(cfg)
@@ -231,10 +231,13 @@ def publish_reel(cfg, base_dir, video_url, caption, account=None,
     caption = (caption or "")[:2150]
     base = _base(cfg)
     log("[1/3] 릴스 컨테이너 생성...")
-    cid = _post(f"{base}/{uid}/media",
-                {"media_type": "REELS", "video_url": video_url, "caption": caption,
-                 "share_to_feed": "true" if share_to_feed else "false",
-                 "access_token": token}, "릴스 컨테이너")
+    params = {"media_type": "REELS", "video_url": video_url, "caption": caption,
+              "share_to_feed": "true" if share_to_feed else "false",
+              "access_token": token}
+    if cover_url:                       # 선택한 대표컷을 릴스 커버(썸네일)로 지정
+        params["cover_url"] = cover_url
+        log(f"      커버 지정: {cover_url}")
+    cid = _post(f"{base}/{uid}/media", params, "릴스 컨테이너")
     log("[2/3] 인스타가 영상 처리 중... (수십 초~몇 분, 기다려주세요)")
     _wait_ready(cfg, cid, token, log, timeout=360)   # 영상은 처리 시간이 길다
     log("[3/3] 릴스 발행 중...")
