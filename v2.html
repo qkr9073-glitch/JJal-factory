@@ -282,6 +282,7 @@
   .mchip.jp{background:color-mix(in srgb,var(--jp) 82%,#000);color:#fff;margin-left:auto}
   .mchip.up{background:color-mix(in srgb,var(--insta) 82%,#000);color:#fff;margin-left:auto}
   .mchip.no{background:color-mix(in srgb,var(--pend) 80%,#000);color:#1a1400;margin-left:auto}
+  .mchip.sched{background:color-mix(in srgb,var(--gold) 85%,#000);color:#1a1400;margin-left:auto}
   .dots{position:absolute;bottom:8px;left:0;right:0;display:flex;gap:5px;justify-content:center;opacity:0;transition:.2s}
   .card:hover .dots{opacity:1}
   .dots i{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.42)}
@@ -674,7 +675,7 @@
     setTimeout(()=>pollJob(jid),1300);
   }
   function renderResultJ(d,row){
-    if(d&&d.zip){   // 대본 ZIP 작업 결과
+    if(d&&d.zip&&!d.pack){   // 대본 ZIP 작업 결과(팩이 아님) — 짤/카드 팩은 pack 키가 있음
       if(row){row.querySelector('.jm').innerHTML=`✅ 대본 ${d.ok}/${d.count}개 추출 완료 — <a href="${esch(d.zip)}" style="color:var(--gold);font-weight:800">⬇ ZIP 다운로드</a>`;}
       return;
     }
@@ -1578,7 +1579,7 @@
     <div class="view">
       <aside class="side">
         <div class="step"><div class="sh"><span class="num">1</span><span class="st">소재 넣기</span><span class="sd">링크 붙여넣기</span></div>
-          <input class="in" id="jurl" placeholder="커뮤니티 링크 또는 🎬 유튜브 쇼츠 URL"></div>
+          <input class="in" id="jurl" placeholder="커뮤니티 링크 또는 🎬 유튜브 쇼츠 URL" oninput="onJurl()"></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">옵션</span><span class="sd">비워도 됨</span></div>
           <label class="fld">🎨 템플릿</label>
           <div class="tpl" id="jtpl">${TPLS.map((t,i)=>`<div class="t ${i===jState.tpl?'on':''}" data-i="${i}"><div class="pv" style="background:${grad(i*3+2)}"><img src="/memeprev/${t[2]}" alt="${esch(t[1])}" loading="lazy" onerror="this.remove()"></div><div class="nm">${t[1]}</div></div>`).join('')}</div>
@@ -1586,7 +1587,7 @@
           <select class="in" id="jclean"><option value="none">그대로 두기 (0원)</option><option value="bar">하단/상단 바로 가리기</option><option value="ai">AI로 완전 제거 (장당 55원)</option></select>
           <label class="fld" style="margin-top:13px">🧭 방향 힌트 (선택)</label>
           <input class="in" id="jguide" placeholder="예: 댓글 반응 위주로, 반전 강조">
-          <label class="ck" style="margin-top:11px"><input type="checkbox" id="jblur" checked> <span>🌫 <b>유튜브 자막 블러</b> <span style="color:var(--faint);font-weight:400">— 뒷장 자막 가리기. 자막 위치가 불규칙한 해외 쇼츠는 끄세요</span></span></label></div>
+          <div id="jblurRow" style="display:none"><label class="ck" style="margin-top:11px"><input type="checkbox" id="jblur" checked> <span>🌫 <b>유튜브 자막 블러</b> <span style="color:var(--faint);font-weight:400">— 뒷장 자막 가리기. 자막 위치가 불규칙한 해외 쇼츠는 끄세요</span></span></label></div></div>
         <div class="step"><div class="sh"><span class="num">3</span><span class="st">만들기</span></div>
           <button class="go" onclick="makeJjal()">완성팩 만들기</button></div>
       </aside>
@@ -1668,11 +1669,16 @@
       :{code:code(),url,template:TPLS[jState.tpl][2],clean:($('jclean')&&$('jclean').value)||'none',guide:(($('jguide')&&$('jguide').value)||'').trim()};
     startJob(yt?'/api/youtube/make':'/api/make',body,(yt?'🎬 ':'')+(label||url.slice(0,40)));
   }
-  function makeJjal(){const u=($('jurl')&&$('jurl').value.trim())||'';makeUrl(u,u.replace(/^https?:\/\//,'').slice(0,40));if($('jurl'))$('jurl').value='';}
+  function makeJjal(){const u=($('jurl')&&$('jurl').value.trim())||'';makeUrl(u,u.replace(/^https?:\/\//,'').slice(0,40));if($('jurl'))$('jurl').value='';onJurl();}
+  function onJurl(){   // 유튜브 URL일 때만 자막블러 토글 노출(커뮤니티 짤엔 혼동 방지로 숨김)
+    const u=($('jurl')&&$('jurl').value||'').trim();
+    const row=$('jblurRow'); if(row)row.style.display=/youtube\.com|youtu\.be/i.test(u)?'':'none';
+  }
   // 이슈 목록에서 고른 소재 URL을 '소재 넣기' 칸에 넣어줌(옵션 고르고 만들 수 있게)
   function fillSource(url){
     if($('jurl')){$('jurl').value=url; try{$('jurl').scrollIntoView({behavior:'smooth',block:'center'});}catch(_){}$('jurl').focus();}
-    flash('📎 소재에 넣었어요 — 템플릿·블러 옵션 고르고 [완성팩 만들기]');
+    onJurl();
+    flash('📎 소재에 넣었어요 — 옵션 고르고 [완성팩 만들기]');
   }
 
   /* ---- 인기 쇼츠 브라우징 ---- */
@@ -2557,7 +2563,7 @@
     g.innerHTML='';
     list.forEach(p=>{
       const base=packBase(p.name);
-      const stat=p.published?'<span class="mchip up">📤 업로드완료</span>':'<span class="mchip no">🆕 미업로드</span>';
+      const stat=p.published?'<span class="mchip up">📤 업로드완료</span>':(p.scheduled?'<span class="mchip sched">🕒 예약중</span>':'<span class="mchip no">🆕 미업로드</span>');
       const jp=isJp(p)?'<span class="mchip jp">🇯🇵</span>':'';
       const card=document.createElement('div'); card.className='card'; card.tabIndex=0;
       if(pkind(p)==='reel'){                 // 자동쇼츠(세로영상): 잘림없이(contain) + 호버 재생

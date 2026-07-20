@@ -2782,6 +2782,13 @@ def api_packs():
     admin_all = bool(cfg.get("results_admin_see_all", False)) and is_admin
     mycode = (data.get("code") or "").strip()
     owners = _owners_load()
+    # 예약(대기/승인대기) 걸린 팩 이름 집합 → 결과물 카드에 '예약중' 배지
+    sched_packs = set()
+    for e in _sched_load():
+        if e.get("status") in ("pending", "await"):
+            pk = e.get("pack") or e.get("video_pack") or ""
+            if pk:
+                sched_packs.add(pk)
     root = _used_root(cfg) if show_arch else OUTPUT
     if root.exists():
         for d in sorted(root.iterdir(), key=lambda p: p.name, reverse=True):
@@ -2817,6 +2824,7 @@ def api_packs():
                           "lang": meta.get("lang", "ko"),
                           "video": (meta.get("video") or ""),
                           "used": len(checked), "archived": show_arch,
+                          "scheduled": d.name in sched_packs,
                           "published": d.name in pub})
             if len(packs) >= 60:
                 break
