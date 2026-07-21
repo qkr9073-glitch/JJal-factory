@@ -4062,11 +4062,31 @@ def api_admin_ig_add():
     name = (data.get("name") or "").strip().lstrip("@")
     if not name:
         return jsonify(ok=False, error="계정 이름(핸들)을 입력하세요"), 400
+    uid = (data.get("user_id") or "").strip()
+    token = (data.get("access_token") or "").strip()
+    # user_id 자동 보정: 비었거나 인스타 ID 형식(15~20자리 숫자)이 아니면 토큰으로 조회
+    # (전화번호 등 잘못 입력하는 사고가 잦아 서버가 진짜 ID를 받아온다)
+    note = ""
+    if token and not re.fullmatch(r"\d{15,20}", uid):
+        try:
+            import requests
+            r = requests.get(f"{(cfg.get('ig_api_base') or 'https://graph.instagram.com')}/{insta.API_VER}/me",
+                             params={"fields": "user_id,username", "access_token": token}, timeout=20)
+            j = r.json() if r.status_code == 200 else {}
+            got = str(j.get("user_id") or j.get("id") or "").strip()
+            if got:
+                uid = got
+                note = f"user_id 자동 조회됨({j.get('username','')})"
+            else:
+                return jsonify(ok=False, error=(
+                    "토큰으로 user_id를 못 받았어요. 토큰이 만료·잘못됐는지 확인하세요. "
+                    f"({str(j)[:120]})")), 400
+        except Exception as e:
+            return jsonify(ok=False, error=f"user_id 조회 실패: {str(e)[:120]}"), 400
     extra = _ig_extra_load()
-    extra[name] = {"user_id": (data.get("user_id") or "").strip(),
-                   "access_token": (data.get("access_token") or "").strip()}
+    extra[name] = {"user_id": uid, "access_token": token}
     _ig_extra_save(extra)
-    return jsonify(ok=True)
+    return jsonify(ok=True, user_id=uid, note=note)
 
 
 @app.post("/api/admin/ig/remove")

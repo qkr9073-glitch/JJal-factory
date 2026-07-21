@@ -3262,9 +3262,10 @@
       +'<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:14px;display:flex;flex-direction:column;gap:8px">'
       +'<b style="font-size:13px">＋ 계정 추가</b>'
       +'<input id="ig_name" class="in" placeholder="계정 핸들 (예: sowho77)">'
-      +'<input id="ig_uid" class="in" placeholder="IG user_id (비즈니스 계정 ID)">'
-      +'<input id="ig_tok" class="in" placeholder="access_token">'
-      +'<button class="btn primary" onclick="addIgAccount()">저장</button></div>';
+      +'<input id="ig_uid" class="in" placeholder="IG user_id — 비워두면 토큰으로 자동 조회 (전화번호 아님!)">'
+      +'<input id="ig_tok" class="in" placeholder="access_token (IGAA...)">'
+      +'<button class="btn primary" onclick="addIgAccount()">저장</button>'
+      +'<div class="caphint">user_id는 <b>17자리 숫자</b>예요. 모르면 <b>비워두고 토큰만</b> 넣으면 서버가 자동으로 받아옵니다.</div></div>';
     let d; try{d=await apiJson('/api/admin/ig/list',{code:code()});}catch(e){d={ok:false,error:'통신 오류'};}
     const lb=$('iglist'); if(!lb)return;
     if(!d.ok){lb.innerHTML='<span style="color:var(--danger)">❌ '+esch(d.error)+'</span>';return;}
@@ -3282,7 +3283,7 @@
     if(!name){flash('계정 핸들을 입력하세요');return;}
     const r=await apiJson('/api/admin/ig/add',{code:code(),name,user_id:($('ig_uid')&&$('ig_uid').value.trim())||'',access_token:($('ig_tok')&&$('ig_tok').value.trim())||''});
     if(!r.ok){flash('❌ '+r.error);return;}
-    flash('✅ 계정 저장됨'); loadIgAccounts(); loadAccounts();
+    flash(r.note?('✅ 계정 저장됨 — '+r.note):'✅ 계정 저장됨'); loadIgAccounts(); loadAccounts();
   }
   /* ---- 회원별 유튜브 API 키 ---- */
   async function loadYtKeys(){
