@@ -1953,7 +1953,13 @@ def _run_translate_job(jid, pack_name, target, cfg):
 
 def _serve_v2():
     try:
-        return (BASE / "v2.html").read_text(encoding="utf-8")
+        html = (BASE / "v2.html").read_text(encoding="utf-8")
+        # v2.html은 자주 바뀌므로 브라우저 캐시 금지 → 새로고침만 해도 최신 UI 반영
+        resp = app.make_response(html)
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
     except Exception as e:
         return f"v2.html 로드 실패: {e}", 500
 
