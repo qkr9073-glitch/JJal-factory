@@ -282,7 +282,7 @@
   .mchip.jp{background:color-mix(in srgb,var(--jp) 82%,#000);color:#fff;margin-left:auto}
   .mchip.up{background:color-mix(in srgb,var(--insta) 82%,#000);color:#fff;margin-left:auto}
   .mchip.no{background:color-mix(in srgb,var(--pend) 80%,#000);color:#1a1400;margin-left:auto}
-  .mchip.sched{background:color-mix(in srgb,var(--gold) 85%,#000);color:#1a1400;margin-left:auto}
+  .mchip.resv{background:color-mix(in srgb,var(--gold) 85%,#000);color:#1a1400;margin-left:auto}
   .dots{position:absolute;bottom:8px;left:0;right:0;display:flex;gap:5px;justify-content:center;opacity:0;transition:.2s}
   .card:hover .dots{opacity:1}
   .dots i{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.42)}
@@ -2637,7 +2637,7 @@
     g.innerHTML='';
     list.forEach(p=>{
       const base=packBase(p.name);
-      const stat=p.published?'<span class="mchip up">📤 업로드완료</span>':(p.scheduled?'<span class="mchip sched">🕒 예약중</span>':'<span class="mchip no">🆕 미업로드</span>');
+      const stat=p.published?'<span class="mchip up">📤 업로드완료</span>':(p.scheduled?'<span class="mchip resv">🕒 예약중</span>':'<span class="mchip no">🆕 미업로드</span>');
       const jp=isJp(p)?'<span class="mchip jp">🇯🇵</span>':'';
       const card=document.createElement('div'); card.className='card'; card.tabIndex=0;
       if(pkind(p)==='reel'){                 // 자동쇼츠(세로영상): 잘림없이(contain) + 호버 재생
