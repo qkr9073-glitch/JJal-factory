@@ -2728,6 +2728,20 @@
               ${fn===cover?'<div style="position:absolute;bottom:0;left:0;right:0;background:var(--gold);color:#04120c;font-size:10px;font-weight:800;text-align:center;padding:2px">✅ 대표</div>':''}
             </div>`).join('')||'<div class="caphint">대표컷 후보 없음</div>'}</div>
         </div>
+        <div style="border-top:1px solid var(--line);padding-top:10px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">✨ 커스텀 썸네일 만들기 <span style="color:var(--faint);font-weight:400;font-size:11.5px">— 위에서 고른 컷 위에 문구를 얹어 커버로</span></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+            <button class="btn" onclick="coverAI()">🤖 문구 자동생성</button>
+            <select class="in" id="cvFont" style="width:auto;padding:6px 8px;font-size:12px"><option value="">기본(굵은체)</option></select>
+            <label style="font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:3px">1줄<input type="color" id="cvC1" value="#FFFFFF" style="width:28px;height:24px;padding:0;border:0;background:none"></label>
+            <label style="font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:3px">2줄<input type="color" id="cvC2" value="#FFE24A" style="width:28px;height:24px;padding:0;border:0;background:none"></label>
+            <select class="in" id="cvPos" style="width:auto;padding:6px 8px;font-size:12px"><option value="center">가운데</option><option value="top">위쪽</option><option value="bottom">아래쪽</option></select>
+          </div>
+          <div id="cvCands" style="margin-bottom:6px"></div>
+          <input class="in" id="cvL1" placeholder="1줄 — 상황·궁금증 (예: 얼음 넣을 수 있는)" style="margin-bottom:5px">
+          <input class="in" id="cvL2" placeholder="2줄 — 핵심·반전 (예: 손선풍기?!)">
+          <button class="btn primary" style="margin-top:7px;width:100%" onclick="coverMake()">🖼 썸네일 만들어 대표컷으로 지정</button>
+        </div>
         <div style="display:flex;flex-direction:column;flex:1">
           <div style="font-weight:700;font-size:13px;margin-bottom:6px">📝 캡션 (대본 기반 CTA 자동생성 · 수정 가능)</div>
           <textarea id="reelCap" style="flex:1;min-height:150px;width:100%;resize:vertical;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);padding:10px;font:inherit;line-height:1.5">${esch(d.caption||'')}</textarea>
@@ -2745,8 +2759,50 @@
       </div></div>`;
     document.body.appendChild(ov);
     const ra=$('rpAcct'); if(ra){const a0=(typeof acctOf==='function')?acctOf(d):''; if(a0)ra.value=a0;}
+    coverFontsLoad();
   }
   function closeReelModal(){const o=$('reelOv');if(o)o.remove();PKR=null;}
+  /* ---- 릴스 커스텀 커버(썸네일) 만들기 ---- */
+  function coverFontsLoad(){
+    const sel=$('cvFont'); if(!sel)return;
+    apiJson('/api/fonts/list',{code:code()}).then(d=>{
+      if(!d||!d.fonts)return;
+      sel.innerHTML='<option value="">기본(굵은체)</option>'+d.fonts.map(f=>`<option value="${esch(f.file)}">${esch(f.name)}</option>`).join('');
+    }).catch(()=>{});
+  }
+  function coverAI(){
+    if(!PKR)return;
+    const box=$('cvCands'); if(box)box.innerHTML='<div class="caphint">🤖 대본 보고 문구 뽑는 중…</div>';
+    apiJson('/api/pack/covertext',{code:code(),pack:PKR.name}).then(d=>{
+      if(!d.ok){if(box)box.innerHTML='<div style="color:var(--danger);font-size:12px">❌ '+esch(d.error)+'</div>';return;}
+      const cs=d.cands||[];
+      if(box)box.innerHTML=cs.map((c,i)=>`<div class="chip" style="display:block;margin-bottom:4px;cursor:pointer;text-align:left;white-space:normal" onclick="coverPick(${i})"><b>${esch(c.line1)}</b><br>${esch(c.line2)}</div>`).join('');
+      window._cvCands=cs;
+      if(cs[0])coverPick(0);
+    }).catch(e=>{if(box)box.innerHTML='<div style="color:var(--danger)">통신 오류</div>';});
+  }
+  function coverPick(i){
+    const c=(window._cvCands||[])[i]; if(!c)return;
+    if($('cvL1'))$('cvL1').value=c.line1||''; if($('cvL2'))$('cvL2').value=c.line2||'';
+  }
+  function coverMake(){
+    if(!PKR)return;
+    const l1=($('cvL1')&&$('cvL1').value||'').trim(), l2=($('cvL2')&&$('cvL2').value||'').trim();
+    if(!l1&&!l2){flash('문구를 입력하거나 자동생성하세요');return;}
+    flash('🖼 썸네일 만드는 중…');
+    // 바탕은 항상 '원본 프레임'(이미 문구가 얹힌 커버 위에 또 얹지 않도록)
+    const base=(PKR.cover&&/^thumb\d*\.jpg$/.test(PKR.cover))?PKR.cover:'thumb2.jpg';
+    apiJson('/api/pack/covermake',{code:code(),pack:PKR.name,
+      base:base, line1:l1, line2:l2,
+      font:($('cvFont')&&$('cvFont').value)||'',
+      color1:($('cvC1')&&$('cvC1').value)||'#FFFFFF',
+      color2:($('cvC2')&&$('cvC2').value)||'#FFE24A',
+      pos:($('cvPos')&&$('cvPos').value)||'center'}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      flash('✅ 커버 생성 — 대표컷으로 지정됨'); loadPacks();
+      openReelModal(PKR.name);   // 새 커버로 모달 갱신
+    }).catch(e=>flash('❌ 통신 오류'));
+  }
   async function reelPackUploadNow(){       // 릴스 완성팩 → 지금 인스타 릴스로 게시(커버=선택 대표컷)
     if(!PKR)return;
     const acct=activeAccount();

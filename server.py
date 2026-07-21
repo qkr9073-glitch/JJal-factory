@@ -20,7 +20,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import autoshorts, bgm as bgmlib, brain, fonts, hunter, insights, pipeline, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import autoshorts, bgm as bgmlib, brain, fonts, hunter, insights, pipeline, reelcover, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
@@ -3012,6 +3012,82 @@ def api_pack_reelcover():
     return jsonify(ok=True, cover=fn)
 
 
+@app.post("/api/pack/covertext")
+def api_pack_covertext():
+    """릴스 커버 문구(2줄) 자동 생성 — 대본 기반, 후보 3세트."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    pd = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not pd.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    try:
+        meta = json.loads((pd / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        meta = {}
+    script, title = str(meta.get("script") or ""), str(meta.get("title") or "")
+    if not script and not title:
+        return jsonify(ok=False, error="대본 정보가 없어요(옛 릴스는 직접 입력)"), 400
+    prompt = ("아래 쇼츠 대본으로 인스타 릴스 '커버 썸네일' 문구를 만들어라.\n"
+              "- 2줄 구성: 1줄은 상황·궁금증을 던지고, 2줄이 핵심(정답·반전)이다.\n"
+              "- 각 줄 12자 내외로 짧고 굵게. 이모지·따옴표·마침표 금지.\n"
+              f"[소재] {title}\n[대본]\n{script[:1200]}\n"
+              '반드시 JSON만: {"cands":[{"line1":"..","line2":".."}]} (서로 다른 3세트)')
+    try:
+        r = reelproj._gjson(cfg, prompt, maxtok=1024)
+        cands = [{"line1": str(c.get("line1", "")).strip()[:20],
+                  "line2": str(c.get("line2", "")).strip()[:20]}
+                 for c in (r.get("cands") or [])][:3]
+    except Exception as e:
+        return jsonify(ok=False, error=f"문구 생성 실패: {str(e)[:120]}"), 502
+    if not cands:
+        return jsonify(ok=False, error="문구가 비었어요, 다시 시도하세요"), 502
+    return jsonify(ok=True, cands=cands)
+
+
+@app.post("/api/pack/covermake")
+def api_pack_covermake():
+    """무자막 프레임 + 2줄 문구 → 커스텀 커버 렌더 후 대표컷으로 지정(인스타 cover_url로 사용)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    pd = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not pd.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    basename = Path((data.get("base") or "thumb2.jpg").strip()).name
+    if not re.fullmatch(r"thumb\d*\.jpg", basename):
+        basename = "thumb2.jpg"      # 이미 문구가 얹힌 커버를 바탕으로 쓰지 않게(이중 오버레이 방지)
+    src = pd / basename
+    if not src.exists():
+        cands = sorted(pd.glob("thumb[0-9].jpg")) or sorted(pd.glob("thumb*.jpg"))
+        if not cands:
+            return jsonify(ok=False, error="바탕 프레임이 없어요"), 400
+        src = cands[0]
+    out = pd / "cover_made.jpg"
+    try:
+        reelcover.render(str(src), data.get("line1", ""), data.get("line2", ""), str(out),
+                         font_file=(data.get("font") or "") or None,
+                         color1=data.get("color1") or "#FFFFFF",
+                         color2=data.get("color2") or "#FFE24A",
+                         pos=(data.get("pos") or "center"),
+                         size=int(data.get("size") or 104))
+    except Exception as e:
+        return jsonify(ok=False, error=f"커버 생성 실패: {str(e)[:140]}"), 500
+    try:   # 대표컷(cover)으로 지정 + 목록 썸네일도 교체
+        mf = pd / "meta.json"
+        meta = json.loads(mf.read_text(encoding="utf-8")) if mf.exists() else {}
+        meta["cover"] = out.name
+        mf.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        shutil.copy(str(out), str(pd / "thumb.jpg"))
+    except Exception:
+        pass
+    return jsonify(ok=True, cover=out.name)
+
+
 # ── 사용완료 체크 → 보관함 이동 시스템 ─────────────────────────
 USAGE_F = BASE / "usage.json"
 _USAGE_LOCK = threading.Lock()
@@ -4656,13 +4732,18 @@ def api_reelproj_to_results():
         dur = float((pr.stdout or "0").strip() or 0)
     except Exception:
         dur = 0.0
+    # 커버용 프레임은 '무자막' 영상(edit/video.mp4)에서 뽑는다 — 커버에 우리 문구를 얹을 때
+    # 기존 자막이 겹쳐 지저분해지는 걸 방지. 없으면 최종본에서 폴백.
+    frame_src = BASE / "reelproj" / pid / "edit" / "video.mp4"
+    if not frame_src.exists():
+        frame_src = final
     reel_thumbs = []
     for i, frac in enumerate((0.2, 0.5, 0.8), 1):
         ss = max(0.1, dur * frac) if dur > 0 else (0.5 * i)
         tn = f"thumb{i}.jpg"
         try:
             autoshorts._run([ff, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{ss:.2f}",
-                             "-i", str(final), "-frames:v", "1", "-vf", "scale=720:-2", str(pack / tn)])
+                             "-i", str(frame_src), "-frames:v", "1", "-vf", "scale=720:-2", str(pack / tn)])
             if (pack / tn).exists():
                 reel_thumbs.append(tn)
         except Exception:
