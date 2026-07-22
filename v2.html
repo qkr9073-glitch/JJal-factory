@@ -3392,7 +3392,12 @@
       +(imgs.length>1?`<button class="smnav l" onclick="sSlide(-1)">‹</button><button class="smnav r" onclick="sSlide(1)">›</button><span class="smcount">${SIDX+1}/${imgs.length}</span>`:'');
   }
   function sSlide(d){const imgs=sImgs(SITEM);if(!imgs.length)return;SIDX=(SIDX+d+imgs.length)%imgs.length;paintSPrev();}
-  function closeSModal(){$('sScrim').classList.remove('open');SITEM=null;}
+  function closeSModal(){
+    // 모달 닫아도 영상 소리가 계속 나던 문제: 미리보기 영상 정지 + 비움
+    document.querySelectorAll('#smPrev video, #smPrev audio').forEach(v=>{try{v.pause();v.src='';}catch(_){}});
+    const pv=$('smPrev'); if(pv)pv.innerHTML='';
+    $('sScrim').classList.remove('open');SITEM=null;
+  }
   function calMonthHTML(items){
     const {y,m}=SVIEW.ym;
     const first=new Date(y,m,1), start=first.getDay(), days=new Date(y,m+1,0).getDate();
