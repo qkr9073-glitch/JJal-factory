@@ -171,9 +171,15 @@ def collect_clips(cfg, base, pid, urls, log=print):
     total = len(urls)
     failed = []
     skipped = 0
+    st.setdefault("src_urls", [])          # 첨부한 영상 링크 기록(프로젝트에 영구 보존)
+    known = {u.get("url", "").split("?")[0] for u in st["src_urls"]}
     done = {(c.get("src_url", "") or "").split("?")[0] for c in st["clips"]}   # 이미 수집한 영상(쿼리 무시)
     for ui, url in enumerate(urls):
         base_url = url.split("?")[0]
+        if base_url not in known:
+            st["src_urls"].append({"url": url, "status": "…",
+                                   "at": datetime.now().isoformat(timespec="seconds")})
+            known.add(base_url)
         if base_url in done:
             log(f"[{ui+1}/{total}] 이미 수집한 영상, 건너뜀(중복)")
             skipped += 1
@@ -234,6 +240,18 @@ def collect_clips(cfg, base, pid, urls, log=print):
             except Exception:
                 pass
         save(base, pid, st)   # 영상 하나 끝날 때마다 자동저장
+    fail_base = {u.split("?")[0] for u in failed}
+    clip_counts = {}
+    for c in st["clips"]:
+        k = (c.get("src_url", "") or "").split("?")[0]
+        clip_counts[k] = clip_counts.get(k, 0) + 1
+    for u in st["src_urls"]:
+        k = u.get("url", "").split("?")[0]
+        if k in fail_base:
+            u["status"] = "실패"
+        elif clip_counts.get(k):
+            u["status"] = f"클립 {clip_counts[k]}개"
+    save(base, pid, st)
     return {"clips": clips_public(pid, st), "failed": failed, "skipped": skipped}
 
 
@@ -262,6 +280,7 @@ def state_public(base, pid):
     return {"pid": pid, "script": st.get("script", ""), "topic": st.get("topic", ""),
             "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit,
             "subs_style": st.get("subs_style", DEFAULT_STYLE), "wm": st.get("wm") or {},
+            "src_urls": st.get("src_urls") or [],
             "final": final, "bgm": st.get("bgm")}
 
 
