@@ -3053,7 +3053,9 @@ def api_cover_preset():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     acct = (data.get("account") or "").strip().lstrip("@")
-    return jsonify(ok=True, preset=_cover_presets_load().get(acct) or {})
+    derived = (_published_pack_traits().get(acct) or {}).get("cover_style") or {}
+    preset = {**(_cover_presets_load().get(acct) or {}), **derived}
+    return jsonify(ok=True, preset=preset)
 
 
 @app.post("/api/cover/preset_learn")
@@ -3236,10 +3238,11 @@ def api_pack_covermake():
     acct = (data.get("account") or "").strip().lstrip("@")
     if acct:
         _cover_preset_save(acct, style)      # 이 계정의 썸네일 스타일 자동 학습(실사용 축적)
-    try:   # 대표컷(cover)으로 지정 + 목록 썸네일도 교체
+    try:   # 대표컷(cover)으로 지정 + 목록 썸네일도 교체 + 커버 스타일 보존(채널 기록용)
         mf = pd / "meta.json"
         meta = json.loads(mf.read_text(encoding="utf-8")) if mf.exists() else {}
         meta["cover"] = out.name
+        meta["cover_style"] = style
         mf.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         shutil.copy(str(out), str(pd / "thumb.jpg"))
     except Exception:
@@ -5739,21 +5742,30 @@ def _voice_usage_save(account, voice_id):
 
 
 def _published_pack_traits():
-    """업로드 완료된 팩들에서 계정별 (보이스, 자막스타일) 도출 — 최신 업로드 우선.
-    실제 발행된 영상의 데이터만 근거로 삼는다(설정 시점 기록은 오염 가능해서 안 씀)."""
+    """계정별 (보이스·자막·BGM·커버) 스타일 도출 — 근거는 '업로드 완료' + '예약된' 팩.
+    실제 나갔거나 나가기로 확정된 영상의 데이터만 쓴다(설정 시점 기록은 오염 가능)."""
     pub = insta.load_published(BASE)
-    rows = []
+    sources = []
     for name, rec in pub.items():
-        if not isinstance(rec, dict) or not rec.get("account"):
-            continue
+        if isinstance(rec, dict) and rec.get("account"):
+            sources.append((name, rec["account"], rec.get("time", "")))
+    for e in _sched_load():          # 예약(대기·승인대기)된 팩도 스타일 기준으로 인정
+        if e.get("status") in ("pending", "await"):
+            pk = e.get("pack") or e.get("video_pack") or ""
+            if pk and e.get("account"):
+                sources.append((pk, e["account"], e.get("created", "")))
+    rows = []
+    for name, account, when in sources:
         d = OUTPUT / name
         try:
             meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
         except Exception:
             continue
+        rec = {"account": account, "time": when}
         voice = str(meta.get("voice") or "")
         subs = meta.get("subs_style") or {}
         bgm = meta.get("bgm") or {}
+        cover_style = meta.get("cover_style") or {}
         if (not voice or not subs) and meta.get("script"):
             # 구팩 소급: 같은 대본의 릴스 프로젝트에서 설정을 끌어옴(메타 저장 이전 팩 대응)
             key_script = str(meta["script"]).strip()
@@ -5767,8 +5779,9 @@ def _published_pack_traits():
                     subs = subs or (pst.get("subs_style") or {})
                     bgm = bgm or (pst.get("bgm") or {})
                     break
-        rows.append({"account": rec["account"], "time": rec.get("time", ""),
-                     "voice": voice, "subs_style": subs, "bgm": bgm})
+        rows.append({"account": account, "time": when,
+                     "voice": voice, "subs_style": subs, "bgm": bgm,
+                     "cover_style": cover_style})
     rows.sort(key=lambda x: x.get("time", ""), reverse=True)
     latest = {}
     for r in rows:                 # 계정별 최신 1건
