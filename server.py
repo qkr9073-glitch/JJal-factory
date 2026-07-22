@@ -4468,7 +4468,8 @@ def _run_transcripts_job(jid, cfg, sel):
                 # 대본만 뽑으면 되므로 저화질(480p)로 — 다운로드·Gemini 업로드 몇 배 빠름
                 youtube.download_video(url, str(vid), max_height=480,
                                        cookies=youtube._reel_cookies(cfg))
-                res = youtube.transcribe_reel_text(cfg, str(vid))
+                res = youtube.transcribe_reel_text(cfg, str(vid),
+                                                    log=lambda m: job.__setitem__("msg", str(m).strip()[:120]))
                 text, lang, summary = res.get("transcript", ""), res.get("lang", ""), res.get("summary", "")
                 if text:
                     ok += 1

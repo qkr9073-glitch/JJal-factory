@@ -191,7 +191,7 @@ def _gemini_upload_video(key, video_path, log=print):
             break
         if r.status_code in (429, 503) and attempt < 4:
             wait = 20 * (attempt + 1)
-            log(f"      Gemini 한도({r.status_code}) — {wait}초 대기 후 재시도 {attempt+2}/5")
+            log(f"      Gemini 한도({r.status_code}) - {wait}초 대기 후 재시도 {attempt+2}/5")
             time.sleep(wait)
             continue
         raise RuntimeError(f"영상 업로드 시작 실패 ({r.status_code})")
