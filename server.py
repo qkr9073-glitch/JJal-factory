@@ -3848,11 +3848,6 @@ def _run_insta_job(jid, pack_dir, lead, force, cfg, account=None):
             result = insta.publish_reel(cfg, BASE, video_url, caption,
                                         account=account, cover_url=cover_url, log=log)
             insta.mark_published(BASE, pack_dir.name, result)
-            try:
-                _m = json.loads((pack_dir / "meta.json").read_text(encoding="utf-8"))
-                _voice_usage_save(result.get("account", ""), _m.get("voice", ""))
-            except Exception:
-                pass
         else:
             result = insta.publish_pack(cfg, BASE, pack_dir, lead=lead, force=force,
                                         account=account, log=log)
@@ -4010,11 +4005,6 @@ def _sched_publish_entry(cfg, e):
                                    account=e.get("account") or None,
                                    cover_url=cover_url)
             insta.mark_published(BASE, pack_dir.name, r)
-            try:
-                _m = json.loads((pack_dir / "meta.json").read_text(encoding="utf-8"))
-                _voice_usage_save(r.get("account", ""), _m.get("voice", ""))
-            except Exception:
-                pass
             _auto_comment_pack(cfg, pack_dir, r)
         elif e.get("type") == "reel":        # 릴스 예약(대량): _videos 영상 URL로 발행
             vn = e.get("video") or ""
@@ -5153,6 +5143,7 @@ def api_reelproj_to_results():
     (pack / "caption.txt").write_text(caption, encoding="utf-8")
     meta = {"title": title, "created": _dt.now().isoformat(timespec="seconds"),
             "voice": (st.get("tts") or {}).get("voice", ""),
+            "subs_style": st.get("subs_style") or {},
             "source": "autoshort", "type": "reel", "template": "reel", "video": "video.mp4",
             "reel_thumbs": reel_thumbs, "cover": cover, "script": str(st.get("script", "")),
             "site": "자동 쇼츠", "lang": "ko"}
@@ -5513,21 +5504,12 @@ def api_reelproj_subs_style():
         return jsonify(ok=False, error="프로젝트 없음"), 404
     if data.get("style"):
         reelproj.set_subs_style(BASE, pid, data.get("style") or {})
-        try:
-            _st = reelproj.load(BASE, pid)
-            _acct = ((_st.get("wm") or {}).get("account") or "").strip()
-            if _acct:
-                _subs_style_usage_save(_acct, _st.get("subs_style") or {})
-        except Exception:
-            pass
     if "wm" in data:      # 워터마크 설정(계정명·[광고] 표시) — {account:"", ad:bool}
         st = reelproj.load(BASE, pid)
         w = data.get("wm") or {}
         st["wm"] = {"account": str(w.get("account") or "").strip().lstrip("@")[:40],
                     "ad": bool(w.get("ad"))}
         reelproj.save(BASE, pid, st)
-        _voice_usage_save(st["wm"]["account"], (st.get("tts") or {}).get("voice", ""))
-        _subs_style_usage_save(st["wm"]["account"], st.get("subs_style") or {})
     return jsonify(ok=True)
 
 
@@ -5701,17 +5683,16 @@ def _subs_style_usage_save(account, style):
 
 @app.post("/api/reelproj/style_usage")
 def api_reelproj_style_usage():
-    """계정별 자막 스타일 기록 — ⑤ 자막 단계 참고·원클릭 적용용."""
+    """계정별 자막 스타일 — '업로드 완료된 팩'의 데이터에서만 도출."""
     data = request.get_json(silent=True) or {}
     cfg = load_config()
     if not _check_code(cfg, (data.get("code") or "").strip()):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
-    try:
-        d = json.loads(SUBS_STYLE_USAGE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        d = {}
-    out = [{"account": a, "style": r.get("style") or {}, "updated": r.get("updated", "")}
-           for a, r in d.items()]
+    out = []
+    for acct, r in _published_pack_traits().items():
+        if not r.get("subs_style"):
+            continue
+        out.append({"account": acct, "style": r["subs_style"], "updated": r.get("time", "")})
     out.sort(key=lambda x: x.get("updated", ""), reverse=True)
     return jsonify(ok=True, items=out)
 
@@ -5739,25 +5720,45 @@ def _voice_usage_save(account, voice_id):
         VOICE_USAGE_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _published_pack_traits():
+    """업로드 완료된 팩들에서 계정별 (보이스, 자막스타일) 도출 — 최신 업로드 우선.
+    실제 발행된 영상의 데이터만 근거로 삼는다(설정 시점 기록은 오염 가능해서 안 씀)."""
+    pub = insta.load_published(BASE)
+    rows = []
+    for name, rec in pub.items():
+        if not isinstance(rec, dict) or not rec.get("account"):
+            continue
+        d = OUTPUT / name
+        try:
+            meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        rows.append({"account": rec["account"], "time": rec.get("time", ""),
+                     "voice": str(meta.get("voice") or ""),
+                     "subs_style": meta.get("subs_style") or {}})
+    rows.sort(key=lambda x: x.get("time", ""), reverse=True)
+    latest = {}
+    for r in rows:                 # 계정별 최신 1건
+        if r["account"] not in latest:
+            latest[r["account"]] = r
+    return latest
+
+
 @app.post("/api/reelproj/voice_usage")
 def api_reelproj_voice_usage():
-    """계정별 보이스 사용 기록 — ④ 음성 단계에서 참고용으로 표시."""
+    """계정별 보이스 기록 — '업로드 완료된 팩'의 데이터에서만 도출."""
     data = request.get_json(silent=True) or {}
     cfg = load_config()
     if not _check_code(cfg, (data.get("code") or "").strip()):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
-    try:
-        d = json.loads(VOICE_USAGE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        d = {}
     names = {v["id"]: v["name"] for v in _tts_voices(cfg)}
     out = []
-    for acct, rec in d.items():
-        vid = rec.get("last", "")
-        out.append({"account": acct, "voice": vid,
-                    "name": names.get(vid, "(삭제된 보이스)"),
-                    "uses": int(rec.get("counts", {}).get(vid, 0)),
-                    "updated": rec.get("updated", "")})
+    for acct, r in _published_pack_traits().items():
+        if not r["voice"]:
+            continue
+        out.append({"account": acct, "voice": r["voice"],
+                    "name": names.get(r["voice"], "(삭제된 보이스)"),
+                    "updated": r.get("time", "")})
     out.sort(key=lambda x: x.get("updated", ""), reverse=True)
     return jsonify(ok=True, items=out)
 
