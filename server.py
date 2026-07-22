@@ -4349,8 +4349,7 @@ def _run_transcripts_job(jid, cfg, sel):
     try:
         total = len(sel)
         job.update(status="running", pct=3, msg=f"대본 {total}개 추출 준비…")
-        collected = _collected_load()
-        by_sc = {x.get("shortcode"): x for x in collected}
+        done_marks = []          # (by, shortcode, text, lang) — 끝나고 최신 파일에 반영
         txts, ok = [], 0
         for i, it in enumerate(sel, 1):
             sc = (it.get("shortcode") or f"reel{i}")
@@ -4372,18 +4371,24 @@ def _run_transcripts_job(jid, cfg, sel):
                     vid.unlink(missing_ok=True)
                 except Exception:
                     pass
-            tgt = by_sc.get(it.get("shortcode"))
-            if tgt is not None and text:
-                tgt["transcript"] = text
-                tgt["transcript_lang"] = lang
+            if text:
+                done_marks.append(((it.get("by") or ""), it.get("shortcode"), text, lang))
             views = it.get("viewCount") or 0
             head = (f"# 릴스 대본  {sc}\nURL: {url}\n조회수: {views}\n언어: {lang or '미상'}"
                     f"\n요지: {summary or '-'}\n\n" + ("=" * 30) + "\n\n")
             fn = f"{i:02d}_{_tr_views(views)}_{_tr_safe(sc)}.txt"
             (work / fn).write_text(head + (text or f"(대본 없음/추출 실패: {err})") + "\n", encoding="utf-8")
             txts.append(work / fn)
-        if any(by_sc.values()):
-            _collected_save(collected)
+        if done_marks:           # 잡 도중 수집이 추가돼도 덮어쓰지 않게, 최신 파일에 표시만 병합
+            with _collect_lock:
+                cur = _collected_load()
+                idx = {((x.get("by") or ""), x.get("shortcode")): x for x in cur}
+                for b, sc2, text, lang in done_marks:
+                    tgt = idx.get((b, sc2))
+                    if tgt is not None:
+                        tgt["transcript"] = text
+                        tgt["transcript_lang"] = lang
+                _collected_save(cur)
         combined = work / "_합본_대본.txt"
         combined.write_text(
             f"# 릴스 대본 합본 · {total}개 · {datetime.now():%Y-%m-%d %H:%M}\n"
