@@ -5751,10 +5751,24 @@ def _published_pack_traits():
             meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
         except Exception:
             continue
+        voice = str(meta.get("voice") or "")
+        subs = meta.get("subs_style") or {}
+        bgm = meta.get("bgm") or {}
+        if (not voice or not subs) and meta.get("script"):
+            # 구팩 소급: 같은 대본의 릴스 프로젝트에서 설정을 끌어옴(메타 저장 이전 팩 대응)
+            key_script = str(meta["script"]).strip()
+            for sj in (BASE / "reelproj").glob("*/state.json"):
+                try:
+                    pst = json.loads(sj.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if str(pst.get("script", "")).strip() == key_script:
+                    voice = voice or str((pst.get("tts") or {}).get("voice") or "")
+                    subs = subs or (pst.get("subs_style") or {})
+                    bgm = bgm or (pst.get("bgm") or {})
+                    break
         rows.append({"account": rec["account"], "time": rec.get("time", ""),
-                     "voice": str(meta.get("voice") or ""),
-                     "subs_style": meta.get("subs_style") or {},
-                     "bgm": meta.get("bgm") or {}})
+                     "voice": voice, "subs_style": subs, "bgm": bgm})
     rows.sort(key=lambda x: x.get("time", ""), reverse=True)
     latest = {}
     for r in rows:                 # 계정별 최신 1건
