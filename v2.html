@@ -2827,6 +2827,7 @@
           <div style="font-weight:700;font-size:13px;margin-bottom:6px">✨ 커스텀 썸네일 만들기 <span style="color:var(--faint);font-weight:400;font-size:11.5px">— 위에서 고른 컷 위에 문구를 얹어 커버로</span></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
             <button class="btn" onclick="coverAI()">🤖 문구 자동생성</button>
+            <button class="btn" onclick="coverLearn()" title="이 계정으로 업로드된 썸네일들을 분석해 색·위치 프리셋 학습">📊 스타일 학습</button>
             <select class="in" id="cvFont" style="width:auto;padding:6px 8px;font-size:12px"><option value="">기본(굵은체)</option></select>
             <label style="font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:3px">1줄<input type="color" id="cvC1" value="#FFFFFF" style="width:28px;height:24px;padding:0;border:0;background:none"></label>
             <label style="font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:3px">2줄<input type="color" id="cvC2" value="#FFE24A" style="width:28px;height:24px;padding:0;border:0;background:none"></label>
@@ -2846,7 +2847,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--faint)">올릴 계정
-            <select id="rpAcct" class="in" style="width:auto;padding:7px 9px" onchange="syncSchedAcct()">${(typeof ACCTS!=='undefined'?ACCTS:[]).map(a=>`<option value="${a}">@${a}</option>`).join('')}</select></label>
+            <select id="rpAcct" class="in" style="width:auto;padding:7px 9px" onchange="syncSchedAcct();coverPresetApply()">${(typeof ACCTS!=='undefined'?ACCTS:[]).map(a=>`<option value="${a}">@${a}</option>`).join('')}</select></label>
           <button class="btn primary" id="rpUp" onclick="togglePop(event,'reelpack')" style="margin-left:auto">📤 업로드</button></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <a class="btn" href="${base}/${d.video||'video.mp4'}" download="${esch(d.name)}.mp4" style="text-decoration:none">⬇ 영상 다운로드</a>
@@ -2858,11 +2859,32 @@
   }
   function closeReelModal(){const o=$('reelOv');if(o)o.remove();PKR=null;}
   /* ---- 릴스 커스텀 커버(썸네일) 만들기 ---- */
+  function coverPresetApply(){
+    const acct=($('rpAcct')&&$('rpAcct').value)||''; if(!acct)return;
+    apiJson('/api/cover/preset',{code:code(),account:acct}).then(d=>{
+      if(!d.ok||!d.preset)return; const s=d.preset;
+      if(s.color1&&$('cvC1'))$('cvC1').value=s.color1;
+      if(s.color2&&$('cvC2'))$('cvC2').value=s.color2;
+      if(s.pos&&$('cvPos'))$('cvPos').value=s.pos;
+      if(s.font&&$('cvFont')){const o=[...$('cvFont').options].find(x=>x.value===s.font);if(o)$('cvFont').value=s.font;}
+    }).catch(()=>{});
+  }
+  function coverLearn(){
+    const acct=($('rpAcct')&&$('rpAcct').value)||'';
+    if(!acct){flash('올릴 계정을 먼저 선택하세요');return;}
+    flash('📊 @'+acct+' 업로드 썸네일 분석 중… (10~20초)');
+    apiJson('/api/cover/preset_learn',{code:code(),account:acct}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      coverPresetApply();
+      flash('✅ 스타일 학습 완료 ('+(d.analyzed||0)+'장 분석) — 색·위치에 반영됨');
+    }).catch(()=>flash('❌ 통신 오류'));
+  }
   function coverFontsLoad(){
     const sel=$('cvFont'); if(!sel)return;
     apiJson('/api/fonts/list',{code:code()}).then(d=>{
       if(!d||!d.fonts)return;
       sel.innerHTML='<option value="">기본(굵은체)</option>'+d.fonts.map(f=>`<option value="${esch(f.file)}">${esch(f.name)}</option>`).join('');
+      coverPresetApply();          // 폰트 목록 준비 후 계정 프리셋 자동 적용
     }).catch(()=>{});
   }
   function coverAI(){
@@ -2888,6 +2910,7 @@
     // 바탕은 항상 '원본 프레임'(이미 문구가 얹힌 커버 위에 또 얹지 않도록)
     const base=(PKR.cover&&/^thumb\d*\.jpg$/.test(PKR.cover))?PKR.cover:'thumb2.jpg';
     apiJson('/api/pack/covermake',{code:code(),pack:PKR.name,
+      account:($('rpAcct')&&$('rpAcct').value)||'',
       base:base, line1:l1, line2:l2,
       font:($('cvFont')&&$('cvFont').value)||'',
       color1:($('cvC1')&&$('cvC1').value)||'#FFFFFF',

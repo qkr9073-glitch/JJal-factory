@@ -3014,6 +3014,106 @@ def api_pack_reelcover():
     return jsonify(ok=True, cover=fn)
 
 
+COVER_STYLES_FILE = BASE / "cover_styles.json"
+_cover_styles_lock = threading.Lock()
+
+
+def _cover_presets_load():
+    try:
+        d = json.loads(COVER_STYLES_FILE.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _cover_preset_save(account, style):
+    with _cover_styles_lock:
+        d = _cover_presets_load()
+        cur = d.get(account) or {}
+        cur.update({k: v for k, v in style.items() if v not in ("", None)})
+        cur["uses"] = int(cur.get("uses", 0)) + 1
+        cur["updated"] = datetime.now().isoformat(timespec="seconds")
+        d[account] = cur
+        COVER_STYLES_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+@app.post("/api/cover/preset")
+def api_cover_preset():
+    """계정별 썸네일 스타일 프리셋 조회 — 모달에서 계정 고르면 자동 적용."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    acct = (data.get("account") or "").strip().lstrip("@")
+    return jsonify(ok=True, preset=_cover_presets_load().get(acct) or {})
+
+
+@app.post("/api/cover/preset_learn")
+def api_cover_preset_learn():
+    """이 계정으로 '업로드 완료'된 팩들의 썸네일을 Gemini 비전으로 분석해
+    색(1줄/2줄)·위치 스타일 프리셋을 학습/갱신."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    acct = (data.get("account") or "").strip().lstrip("@")
+    if not acct:
+        return jsonify(ok=False, error="계정을 선택하세요"), 400
+    pub = insta.load_published(BASE)
+    names = [n for n, r in pub.items() if isinstance(r, dict) and r.get("account") == acct]
+    names.sort(reverse=True)
+    imgs = []
+    for n in names[:6]:
+        d = OUTPUT / n
+        for fn in ("cover_made.jpg", "thumb.jpg"):
+            fp = d / fn
+            if fp.exists():
+                try:
+                    imgs.append(base64.b64encode(fp.read_bytes()).decode())
+                except Exception:
+                    pass
+                break
+        if len(imgs) >= 4:
+            break
+    if not imgs:
+        return jsonify(ok=False, error=f"@{acct} 로 업로드 완료된 썸네일이 아직 없어요"), 404
+    key = (cfg.get("gemini_api_key") or "").strip()
+    if not key:
+        return jsonify(ok=False, error="Gemini 키가 없습니다"), 400
+    parts = [{"inline_data": {"mime_type": "image/jpeg", "data": b}} for b in imgs]
+    parts.append({"text": (
+        "이 이미지들은 한 인스타 채널의 릴스 커버 썸네일이다. 공통 스타일을 분석해라.\n"
+        "- color1: 첫 줄 글자색(#RRGGBB), color2: 둘째 줄(강조) 글자색(#RRGGBB).\n"
+        "- pos: 문구 위치 top|center|bottom 중 하나.\n"
+        '반드시 JSON만: {"color1":"#FFFFFF","color2":"#FFE24A","pos":"center"}')})
+    import requests as _rq
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    r = _rq.post(brain.GEMINI_URL.format(model=model), params={"key": key},
+                 json={"contents": [{"parts": parts}],
+                       "generationConfig": {"response_mime_type": "application/json",
+                                            "temperature": 0.2, "maxOutputTokens": 512}},
+                 timeout=120)
+    if r.status_code != 200:
+        return jsonify(ok=False, error=f"Gemini 오류 {r.status_code}: {r.text[:120]}"), 502
+    try:
+        cand = r.json()["candidates"][0]
+        raw = "".join(x.get("text", "") for x in cand.get("content", {}).get("parts", []))
+        j = brain._parse_json(raw)
+    except Exception as e:
+        return jsonify(ok=False, error=f"분석 결과 파싱 실패: {str(e)[:80]}"), 502
+    style = {}
+    for k in ("color1", "color2"):
+        v = str(j.get(k) or "").strip()
+        if len(v) == 7 and v.startswith("#"):
+            style[k] = v
+    if str(j.get("pos") or "") in ("top", "center", "bottom"):
+        style["pos"] = str(j["pos"])
+    if not style:
+        return jsonify(ok=False, error="분석에서 스타일을 못 뽑았어요"), 502
+    _cover_preset_save(acct, style)
+    return jsonify(ok=True, preset=_cover_presets_load().get(acct) or {}, analyzed=len(imgs))
+
+
 @app.post("/api/pack/covertext")
 def api_pack_covertext():
     """릴스 커버 문구(2줄) 자동 생성 — 대본 기반, 후보 3세트."""
@@ -3070,15 +3170,21 @@ def api_pack_covermake():
             return jsonify(ok=False, error="바탕 프레임이 없어요"), 400
         src = cands[0]
     out = pd / "cover_made.jpg"
+    style = {"font": (data.get("font") or "").strip(),
+             "color1": data.get("color1") or "#FFFFFF",
+             "color2": data.get("color2") or "#FFE24A",
+             "pos": (data.get("pos") or "center"),
+             "size": int(data.get("size") or 120)}
     try:
         reelcover.render(str(src), data.get("line1", ""), data.get("line2", ""), str(out),
-                         font_file=(data.get("font") or "") or None,
-                         color1=data.get("color1") or "#FFFFFF",
-                         color2=data.get("color2") or "#FFE24A",
-                         pos=(data.get("pos") or "center"),
-                         size=int(data.get("size") or 120))
+                         font_file=style["font"] or None,
+                         color1=style["color1"], color2=style["color2"],
+                         pos=style["pos"], size=style["size"])
     except Exception as e:
         return jsonify(ok=False, error=f"커버 생성 실패: {str(e)[:140]}"), 500
+    acct = (data.get("account") or "").strip().lstrip("@")
+    if acct:
+        _cover_preset_save(acct, style)      # 이 계정의 썸네일 스타일 자동 학습(실사용 축적)
     try:   # 대표컷(cover)으로 지정 + 목록 썸네일도 교체
         mf = pd / "meta.json"
         meta = json.loads(mf.read_text(encoding="utf-8")) if mf.exists() else {}
