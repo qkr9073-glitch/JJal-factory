@@ -835,6 +835,14 @@
     const t=($('gsFinal')&&$('gsFinal').value.trim())||'';
     if(!t){flash('대본이 비었어요');return;}
     wiz.script=t; if(wiz._gs){wiz.topic=wiz._gs.topic;wiz.category=wiz._gs.cat;}
+    if(wiz.pid){   // 프로젝트가 이미 있으면 서버에도 반영(④ 음성이 새 대본을 쓰게)
+      apiJson('/api/reelproj/script_set',{code:code(),pid:wiz.pid,script:t}).then(d=>{
+        if(!d.ok){flash('❌ 서버 저장 실패: '+d.error);return;}
+        flash('✅ 대본 확정·저장됨 — ④에서 [음성 생성]을 다시 누르면 새 대본으로 만듭니다');
+        wizGo('clips');
+      });
+      return;
+    }
     flash('✅ 대본 확정됨 — 다음 단계로');
     wizGo('clips');
   }
@@ -975,13 +983,59 @@
   function ttsRender(t){
     if(!t)return; wiz._tts=t;
     if(t.speed&&$('ttsSpeed')){$('ttsSpeed').value=t.speed;const v=$('ttsSpeedV');if(v)v.textContent=(+t.speed).toFixed(2)+'x';}
-    const subs=(t.subs||[]).map(s=>`<span style="color:var(--faint)">${s.s}s</span> ${esch(s.t)}`).join('<br>');
     $('ttsOut').innerHTML=`<div class="lcard">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>🔊 완성 음성</b><span style="color:var(--faint);font-size:12px">${t.dur}초 · 짧은 구절 자막 ${t.n_sub}개</span></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>🔊 완성 음성</b><span style="color:var(--faint);font-size:12px">${t.dur}초 · 짧은 구절 자막 ${t.n_sub}개</span>
+        <button class="btn" style="margin-left:auto" onclick="ttsSubSave()">💾 끊어읽기 저장</button></div>
       <audio src="${t.audio}?t=${Date.now()}" controls style="width:100%;margin-top:10px"></audio>
-      <div style="margin-top:10px;font-size:12.5px;color:var(--muted);max-height:150px;overflow:auto;line-height:1.75">${subs}</div>
+      <div class="caphint" style="margin-top:8px">✂️ 구절(끊어읽기)을 직접 다듬을 수 있어요 — 시작/끝(초)·문구 수정, ⬆로 이전 구절과 합치기. 저장하면 ⑤·⑥ 자막에 반영됩니다.</div>
+      <div id="ttsSubRows" style="margin-top:8px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:5px"></div>
     </div>`;
+    ttsSubPaint();
     scrollTopPane($('ttsOut'));
+  }
+  function ttsSubPaint(){
+    const box=$('ttsSubRows'); if(!box||!wiz._tts)return;
+    box.innerHTML=(wiz._tts.subs||[]).map((s,i)=>`
+      <div style="display:flex;gap:5px;align-items:center">
+        <input class="in" type="number" step="0.1" min="0" value="${s.s}" data-ss="${i}" style="width:74px;padding:6px" title="시작(초)">
+        <input class="in" type="number" step="0.1" min="0" value="${s.e}" data-se="${i}" style="width:74px;padding:6px" title="끝(초)">
+        <input class="in" value="${esch(s.t)}" data-st="${i}" style="flex:1;padding:6px">
+        ${i>0?`<button class="btn collmini" onclick="ttsSubMerge(${i})" title="이전 구절과 합치기">⬆ 합침</button>`:'<span style="width:52px"></span>'}
+      </div>`).join('');
+  }
+  function ttsSubCollect(){
+    const subs=[];
+    document.querySelectorAll('[data-st]').forEach(inp=>{
+      const i=+inp.dataset.st;
+      const s=parseFloat((document.querySelector(`[data-ss="${i}"]`)||{}).value);
+      const e=parseFloat((document.querySelector(`[data-se="${i}"]`)||{}).value);
+      const t=(inp.value||'').trim();
+      if(t&&!isNaN(s)&&!isNaN(e))subs.push({s,e,t});
+    });
+    return subs;
+  }
+  function ttsSubMerge(i){
+    const subs=ttsSubCollect();
+    if(i<1||i>=subs.length)return;
+    subs[i-1]={s:subs[i-1].s, e:subs[i].e, t:(subs[i-1].t+' '+subs[i].t).trim()};
+    subs.splice(i,1);
+    wiz._tts.subs=subs; wiz._tts.n_sub=subs.length; ttsSubPaint();
+    flash('구절 합침 — 💾 끊어읽기 저장을 눌러야 반영돼요');
+  }
+  function ttsSubSave(){
+    const subs=ttsSubCollect();
+    if(!subs.length){flash('구절이 비었어요');return;}
+    apiJson('/api/reelproj/subs_edit',{code:code(),pid:wiz.pid,subs}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      wiz._tts.subs=subs; wiz._tts.n_sub=subs.length; ttsSubPaint();
+      if(d.job){
+        flash('💾 저장됨 — ⑥ 미리보기에 자막 다시 입히는 중…');
+        (async function pp(){let j;try{const r=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(pp,2000);return;}
+          if(j.status==='done')flash('✅ 끊어읽기 반영 완료 (⑥ 미리보기 갱신됨)');
+          else if(j.status==='error')flash('❌ '+j.error);
+          else setTimeout(pp,1500);})();
+      } else flash('💾 끊어읽기 저장됨 — ⑤·⑥에 반영');
+    });
   }
   /* ===== ⑤ 자막 스타일 ===== */
   let subState={fonts:[],style:null,_loaded:{}};

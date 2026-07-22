@@ -5203,6 +5203,62 @@ def api_reelproj_final():
     return jsonify(ok=True, job=jid)
 
 
+@app.post("/api/reelproj/script_set")
+def api_reelproj_script_set():
+    """② 대본 재확정 시 서버 프로젝트에도 반영(기존엔 브라우저에만 있어 ④가 옛 대본 사용)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    script = (data.get("script") or "").strip()
+    if not script:
+        return jsonify(ok=False, error="대본이 비었습니다"), 400
+    st = reelproj.load(BASE, pid)
+    st["script"] = script
+    reelproj.save(BASE, pid, st)
+    return jsonify(ok=True)
+
+
+@app.post("/api/reelproj/subs_edit")
+def api_reelproj_subs_edit():
+    """④ 끊어읽기(구절 자막) 타이밍/문구 편집 저장 → ⑤·⑥에 반영.
+    편집본(정밀컷)이 이미 있으면 자막 재합성 잡을 돌려 미리보기·완성본까지 갱신."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pid = (data.get("pid") or "").strip()
+    if not pid or not reelproj.exists(BASE, pid):
+        return jsonify(ok=False, error="프로젝트 없음"), 404
+    clean = []
+    for s in (data.get("subs") or []):
+        try:
+            s0, e0 = float(s.get("s")), float(s.get("e"))
+            txt = str(s.get("t") or "").strip()
+        except Exception:
+            continue
+        if txt and 0 <= s0 < e0:
+            clean.append({"s": round(s0, 2), "e": round(e0, 2), "t": txt[:120]})
+    if not clean:
+        return jsonify(ok=False, error="유효한 구절이 없어요"), 400
+    clean.sort(key=lambda x: x["s"])
+    st = reelproj.load(BASE, pid)
+    if not st.get("tts"):
+        return jsonify(ok=False, error="먼저 ④ 음성을 생성하세요"), 400
+    st["tts"]["subs"] = clean
+    st["tts"]["n_sub"] = len(clean)
+    reelproj.save(BASE, pid, st)
+    if (BASE / "reelproj" / pid / "edit" / "video.mp4").exists():
+        jid = uuid.uuid4().hex[:10]
+        JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
+        threading.Thread(target=_run_reelproj_restyle, args=(jid, cfg, pid), daemon=True).start()
+        return jsonify(ok=True, n=len(clean), job=jid)
+    return jsonify(ok=True, n=len(clean))
+
+
 @app.post("/api/reelproj/subs_style")
 def api_reelproj_subs_style():
     """프로젝트 자막 스타일 저장(폰트/크기/색/외곽/위치)."""
