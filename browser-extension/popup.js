@@ -9,6 +9,7 @@ const els = {
   jsonBtn: document.getElementById("jsonBtn"),
   copyBtn: document.getElementById("copyBtn"),
   sendLocalBtn: document.getElementById("sendLocalBtn"),
+  sendCookiesBtn: document.getElementById("sendCookiesBtn"),
   serverUrl: document.getElementById("serverUrl"),
   memberCode: document.getElementById("memberCode"),
   modeLabel: document.getElementById("modeLabel"),
@@ -63,6 +64,7 @@ function bind() {
   els.jsonBtn.addEventListener("click", saveJson);
   els.copyBtn.addEventListener("click", copyUrls);
   els.sendLocalBtn.addEventListener("click", sendToLocalApp);
+  if (els.sendCookiesBtn) els.sendCookiesBtn.addEventListener("click", sendIgCookies);
   if (els.serverUrl) els.serverUrl.addEventListener("change", () => {
     try { chrome.storage.local.set({ serverUrl: serverUrl() }); } catch {}
   });
@@ -186,6 +188,13 @@ async function copyUrls() {
   if (!filtered.length) return setStatus("필터에 맞는 항목 없음");
   await navigator.clipboard.writeText(filtered.map((item) => item.url).join("\n"));
   setStatus("URL 복사됨");
+}
+
+async function sendIgCookies() {
+  if (!memberCode()) return setStatus("회원코드를 먼저 입력하세요");
+  setStatus("인스타 쿠키 보내는 중...");
+  const r = await send({ type: "SEND_IG_COOKIES", serverUrl: serverUrl(), memberCode: memberCode() });
+  setStatus(r && r.ok ? "🍪 쿠키 전송됨 — 이제 대본 추출이 됩니다" : ((r && r.error) || "쿠키 전송 실패"));
 }
 
 async function sendToLocalApp() {

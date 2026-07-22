@@ -381,13 +381,17 @@ def build_from_reel(reel_url, cfg, base_dir, caption_hint="", log=print, blur=Tr
 
 # ─────────────────────────── 3) 비디오-온리 다운로드 ───────────────────────────
 def _reel_cookies(cfg):
-    """IG 릴스 다운로드용 yt-dlp 쿠키 옵션. config: ig_reel_cookies_file 또는 ig_reel_cookies_browser(chrome 등)."""
+    """IG 릴스 다운로드용 yt-dlp 쿠키 옵션. config: ig_reel_cookies_file 또는 ig_reel_cookies_browser(chrome 등).
+    폴백: 확장 '🍪 쿠키 보내기'로 업로드된 BASE/ig_cookies.txt (익명 다운로드 차단 회피)."""
     cf = (cfg.get("ig_reel_cookies_file") or "").strip()
     if cf and os.path.exists(cf):
         return {"cookiefile": cf}
     br = (cfg.get("ig_reel_cookies_browser") or "").strip()
     if br:
         return {"cookies_from_browser": br}
+    auto = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ig_cookies.txt")
+    if os.path.exists(auto):
+        return {"cookiefile": auto}
     return {}
 
 

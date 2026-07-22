@@ -5542,6 +5542,22 @@ def api_learn_import():
     return jsonify(ok=True, imported=n, categories=scriptlearn.summary(BASE, code))
 
 
+@app.post("/api/ie/insta/cookies")
+def api_ie_insta_cookies():
+    """확장 '🍪 쿠키 보내기' → 부계정 인스타 쿠키(Netscape cookies.txt)를 저장.
+    릴스 대본추출의 익명 다운로드 차단(empty media response) 회피용."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    by = (data.get("by") or "").strip()
+    if not by or not _member(cfg, by):
+        return jsonify(ok=False, error="확장 팝업의 '회원코드'를 확인하세요"), 403
+    txt = str(data.get("cookies_txt") or "")
+    if "instagram.com" not in txt or len(txt) < 100:
+        return jsonify(ok=False, error="인스타 쿠키가 비어있어요 — 인스타에 로그인된 창에서 보내주세요"), 400
+    (BASE / "ig_cookies.txt").write_text(txt, encoding="utf-8")
+    return jsonify(ok=True, saved=len(txt))
+
+
 @app.post("/api/ie/insta/collect")
 def api_ie_insta_collect():
     """확장 → 수집 항목 수신(인증 없음, 로컬 전용). shortcode 기준 dedup·조회수 최댓값 병합."""

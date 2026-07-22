@@ -44,6 +44,7 @@ async function handleMessage(message) {
   if (message.type === "CLEAR_ITEMS") return clearItems();
   if (message.type === "GET_STATE") return getState();
   if (message.type === "SEND_TO_LOCAL_APP") return sendToLocalAppFromBackground(message);
+  if (message.type === "SEND_IG_COOKIES") return sendIgCookiesToServer(message);
   return { error: "Unknown message" };
 }
 
@@ -383,6 +384,31 @@ async function addFoundItems(found) {
 
   items = [...map.values()];
   await saveItems();
+}
+
+async function sendIgCookiesToServer(message) {
+  // 로그인된(부계정) 인스타 쿠키 → Netscape cookies.txt 형식 → 짤공장 서버 저장
+  const all = await chrome.cookies.getAll({ domain: ".instagram.com" })
+    .then(a => a.length ? a : chrome.cookies.getAll({ domain: "instagram.com" }));
+  if (!all || !all.length) return { ok: false, error: "인스타 쿠키가 없어요 — 이 브라우저에서 인스타 로그인 먼저" };
+  const lines = ["# Netscape HTTP Cookie File"];
+  for (const c of all) {
+    const domain = c.domain.startsWith(".") ? c.domain : "." + c.domain;
+    lines.push([domain, "TRUE", c.path || "/", c.secure ? "TRUE" : "FALSE",
+      Math.floor(c.expirationDate || (Date.now() / 1000 + 31536000)), c.name, c.value].join("\t"));
+  }
+  const base = (message.serverUrl || "").trim().replace(/\/+$/, "") || "https://jjal.traffic-charger.com";
+  try {
+    const r = await fetchWithTimeout(base + "/api/ie/insta/cookies", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ by: String(message.memberCode || "").trim(), cookies_txt: lines.join("\n") + "\n" })
+    }, 8000);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) return { ok: false, error: (j && j.error) || ("HTTP " + r.status) };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
 }
 
 async function sendToLocalAppFromBackground(message) {
