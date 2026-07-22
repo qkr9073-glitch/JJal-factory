@@ -98,14 +98,14 @@ def render(src_image, line1, line2, out_path, font_file=None,
     # 그림자 레이어(부드럽게) → 본문(외곽선 포함) 순서로 합성
     shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     ds = ImageDraw.Draw(shadow)
-    stroke = max(6, int(size * 0.10))
+    stroke = max(4, int(size * 0.055))            # 외곽선: 과하지 않게 얇게
     yy = y
     for (t, _), f, h in zip(lines, fonts, heights):
         x = (W - d0.textlength(t, font=f)) / 2
-        ds.text((x, yy + int(size * 0.10)), t, font=f, fill=(0, 0, 0, 170),
-                stroke_width=stroke, stroke_fill=(0, 0, 0, 170))
+        ds.text((x, yy + int(size * 0.06)), t, font=f, fill=(0, 0, 0, 95),
+                stroke_width=stroke, stroke_fill=(0, 0, 0, 95))   # 그림자: 연하게
         yy += h + gap
-    shadow = shadow.filter(ImageFilter.GaussianBlur(int(size * 0.10)))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(int(size * 0.12)))
     base = Image.alpha_composite(base.convert("RGBA"), shadow)
 
     d = ImageDraw.Draw(base)
