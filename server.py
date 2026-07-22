@@ -5432,17 +5432,21 @@ def api_reel_insta_topics():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     items = _collected_mine(cfg, (data.get("code") or "").strip())
+    # 요약 재료 = 대본(추출된 것) 우선, 없으면 캡션. 둘 다 없는 릴스는 요약 불가라 제외.
     reels = [it for it in items if it.get("kind") == "reel"
-             and int(it.get("viewCount", 0) or 0) >= 10000]
+             and int(it.get("viewCount", 0) or 0) >= 10000
+             and ((it.get("transcript") or "").strip() or (it.get("caption") or "").strip())]
     reels.sort(key=lambda x: int(x.get("viewCount", 0) or 0), reverse=True)
     reels = reels[:10]
     if not reels:
-        return jsonify(ok=True, items=[])
+        return jsonify(ok=True, items=[],
+                       note="대본·캡션 있는 인기 릴스가 없어요 — 먼저 '대본 추출'을 하면 여기가 살아납니다")
     lines = []
     for i, r in enumerate(reels):
-        cap = str(r.get("caption") or "").replace("\n", " ")[:200]
-        lines.append(f"{i}. (조회수 {int(r.get('viewCount', 0) or 0)}) {cap or '(캡션 없음)'}")
-    prompt = ("다음은 인스타에서 조회수가 잘 터진 릴스들의 캡션이다. 각 릴스가 '어떤 소재/주제'를 다루는지 "
+        src = ((r.get("transcript") or "").strip() or (r.get("caption") or "").strip())
+        src = src.replace("\n", " ")[:300]
+        lines.append(f"{i}. (조회수 {int(r.get('viewCount', 0) or 0)}) {src}")
+    prompt = ("다음은 인스타에서 조회수가 잘 터진 릴스들의 대본/캡션이다. 각 릴스가 '어떤 소재/주제'를 다루는지 "
               "한국어로 짧게(12자 내외) 요약해라. 광고문구·해시태그 말고 소재 핵심만.\n"
               + "\n".join(lines)
               + '\n반드시 JSON만: {"topics":[{"i":0,"topic":"소재"}]}')
