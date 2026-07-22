@@ -7,6 +7,14 @@ import re
 import shutil
 import os
 import sys
+
+# 콘솔/로그 인코딩 안전화: cp949 환경에서 이모지·특수문자 print가 예외를 던져
+# '발행 성공 후 실패 기록' 같은 사고를 냈음(✅, — 등) — 전역으로 차단.
+for _s in ("stdout", "stderr"):
+    try:
+        getattr(sys, _s).reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 import threading
 import time
 import uuid
