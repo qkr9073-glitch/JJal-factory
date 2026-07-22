@@ -2315,8 +2315,9 @@
         <b style="font-size:14px">🧲 인스타 수집</b>
         <span class="chip ${IEB.kind==='all'?'on':''}" data-kind="all" onclick="ieCollKind('all')">전체</span>
         <span class="chip ${IEB.kind==='image'?'on':''}" data-kind="image" onclick="ieCollKind('image')">🖼 이미지</span>
-        <span class="chip ${IEB.kind==='reel'?'on':''}" data-kind="reel" onclick="ieCollKind('reel')">🎬 릴스</span>
-        <button class="btn" style="margin-left:auto" onclick="ieTrSelectAll()" title="현재 목록의 릴스 전체 선택/해제">☑ 전체선택</button>
+        <span class="chip ${IEB.kind==='reel'?'on':''}" data-kind="reel" onclick="ieCollKind('reel')">🎬 릴스</span></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn" onclick="ieTrSelectAll()" title="현재 목록의 릴스 전체 선택/해제">☑ 전체선택</button>
         <button class="btn primary" onclick="ieTranscriptsZip()" title="📝로 고른(또는 전체선택한) 릴스들의 대본을 추출">📝 대본 추출 (<span id="trcount">0</span>)</button>
         <button class="btn" onclick="ieLoadCollected()">🔄</button>
         <button class="btn" onclick="ieClearExtracted()" title="📝대본✓ 표시된(추출 끝난) 항목만 목록에서 제거">🧹 추출된 것 비우기</button>
