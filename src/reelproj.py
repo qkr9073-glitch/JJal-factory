@@ -606,38 +606,50 @@ def set_subs_style(base, pid, style):
     return st["subs_style"]
 
 
-def _apply_blur(path, bl, feather=10):
-    """클립(1080x1920)의 정규화 박스(x,y,w,h 0~1) 영역에 블러 적용(가장자리 페더). 제자리 덮어씀."""
-    try:
-        x, y, w, h = float(bl.get("x", 0)), float(bl.get("y", 0)), float(bl.get("w", 0)), float(bl.get("h", 0))
-    except Exception:
-        return
-    if w <= 0.02 or h <= 0.02:
-        return
-    x = max(0.0, min(0.98, x)); y = max(0.0, min(0.98, y))
-    w = min(w, 1 - x); h = min(h, 1 - y)
+def _apply_blur(path, blurs, feather=10):
+    """클립(1080x1920)의 정규화 박스들(x,y,w,h 0~1, 여러 개 가능)에 블러 적용(가장자리 페더).
+    제자리 덮어씀. blurs: dict 1개(구버전) 또는 list."""
+    if isinstance(blurs, dict):
+        blurs = [blurs]
     W, H = 1080, 1920
 
     def _ev(n):
         n = int(round(n)); return n - (n % 2)
-    cw, ch = max(4, _ev(w * W)), max(4, _ev(h * H))
-    cx, cy = _ev(x * W), _ev(y * H)
-    f = max(0, int(feather))
+    boxes = []
+    for bl in (blurs or []):
+        try:
+            x, y, w, h = float(bl.get("x", 0)), float(bl.get("y", 0)), float(bl.get("w", 0)), float(bl.get("h", 0))
+        except Exception:
+            continue
+        if w <= 0.02 or h <= 0.02:
+            continue
+        x = max(0.0, min(0.98, x)); y = max(0.0, min(0.98, y))
+        w = min(w, 1 - x); h = min(h, 1 - y)
+        boxes.append((_ev(x * W), _ev(y * H), max(4, _ev(w * W)), max(4, _ev(h * H))))
+    if not boxes:
+        return
+    f0 = max(0, int(feather))
+    parts = []
+    cur = "0:v"
+    for k, (cx, cy, cw, ch) in enumerate(boxes[:8]):
+        f = f0 if (f0 >= 2 and cw > 2 * f0 + 4 and ch > 2 * f0 + 4) else 0
+        parts.append(f"[{cur}]split[s{k}a][s{k}b]")
+        if f:
+            parts.append(
+                f"[s{k}a]crop={cw}:{ch}:{cx}:{cy},split[c{k}1][c{k}2];"
+                f"[c{k}1]gblur=sigma=22[fg{k}];"
+                f"[c{k}2]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill,"
+                f"drawbox=x={f}:y={f}:w=iw-{2 * f}:h=ih-{2 * f}:color=white:t=fill,"
+                f"gblur=sigma={max(1.0, f * 0.6):.1f},format=gray[m{k}];"
+                f"[fg{k}][m{k}]alphamerge[fga{k}]")
+        else:
+            parts.append(f"[s{k}a]crop={cw}:{ch}:{cx}:{cy},gblur=sigma=22[fga{k}]")
+        parts.append(f"[s{k}b][fga{k}]overlay={cx}:{cy}[v{k}]")
+        cur = f"v{k}"
+    fc = ";".join(parts)
     tmp = Path(str(path) + ".b.mp4")
-    if f >= 2 and cw > 2 * f + 4 and ch > 2 * f + 4:
-        # 크롭 스트림을 복제해 하나는 블러, 하나는 흰박스 마스크(가장자리 gblur=페더)로 → 유한 합성
-        fc = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},split[c1][c2];"
-              f"[c1]gblur=sigma=22[fg];"
-              f"[c2]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill,"
-              f"drawbox=x={f}:y={f}:w=iw-{2 * f}:h=ih-{2 * f}:color=white:t=fill,"
-              f"gblur=sigma={max(1.0, f * 0.6):.1f},format=gray[m];"
-              f"[fg][m]alphamerge[fga];"
-              f"[0:v][fga]overlay={cx}:{cy}[v]")
-    else:
-        fc = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},gblur=sigma=22[fg];"
-              f"[0:v][fg]overlay={cx}:{cy}[v]")
     autoshorts._run([autoshorts.FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(path),
-                     "-filter_complex", fc, "-map", "[v]", "-r", "30", "-c:v", "libx264", "-preset",
+                     "-filter_complex", fc, "-map", f"[{cur}]", "-r", "30", "-c:v", "libx264", "-preset",
                      "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-an", str(tmp)])
     tmp.replace(path)
 

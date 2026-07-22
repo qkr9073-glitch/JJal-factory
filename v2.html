@@ -1340,30 +1340,43 @@
   let blurState={};
   function blurOpen(i){
     const bl=((wiz._edit&&wiz._edit.blocks)||[]).find(x=>x.i===i); if(!bl)return;
-    blurState={i,box:null};
+    blurState={i,boxes:[]};
     const ov=document.createElement('div'); ov.id='blurOv';
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center';
     ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;max-height:94vh;overflow:auto">
-      <div style="font-weight:800;margin-bottom:4px;font-size:16px">🌫 컷 ${i+1} 블러 영역</div>
-      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">가릴 부분을 <b>드래그</b>해서 사각형으로 지정하세요 · 가장자리는 부드럽게(페더) 처리됩니다</div>
+      <div style="font-weight:800;margin-bottom:4px;font-size:16px">🌫 컷 ${i+1} 블러 영역 <span id="blurCnt" style="font-size:12px;color:var(--gold)"></span></div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px"><b>여러 번 드래그하면 영역이 추가</b>됩니다(최대 8개) · 가장자리는 부드럽게(페더) 처리</div>
       <div id="blurCanvas" style="position:relative;height:min(76vh,660px);aspect-ratio:9/16;max-width:92vw;background:#000;overflow:hidden;cursor:crosshair;margin:0 auto;user-select:none;border-radius:10px">
         <img src="${bl.thumb}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover;pointer-events:none" draggable="false">
-        <div id="blurRect" style="position:absolute;border:2px solid #ff4d6d;background:rgba(255,77,109,.22);box-shadow:0 0 0 9999px rgba(0,0,0,.28);display:none;pointer-events:none"></div></div>
+        <div id="blurRect" style="position:absolute;border:2px dashed #ff4d6d;background:rgba(255,77,109,.18);display:none;pointer-events:none"></div></div>
       <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap">
         <button class="btn" onclick="blurResetSel()">↺ 영역 초기화</button>
         <button class="btn" onclick="blurClear()">🚫 블러 제거</button>
         <button class="btn" onclick="blurClose()">닫기</button>
         <button class="btn primary" onclick="blurApply()">적용</button></div></div>`;
     document.body.appendChild(ov);
-    const cv=$('blurCanvas'), rect=$('blurRect'); let sx,sy,drawing=false;
-    cv.onmousedown=e=>{const r=cv.getBoundingClientRect();sx=e.clientX-r.left;sy=e.clientY-r.top;drawing=true;rect.style.display='block';rect.style.left=sx+'px';rect.style.top=sy+'px';rect.style.width='0px';rect.style.height='0px';};
-    cv.onmousemove=e=>{if(!drawing)return;const r=cv.getBoundingClientRect();const cx=Math.max(0,Math.min(r.width,e.clientX-r.left)),cy=Math.max(0,Math.min(r.height,e.clientY-r.top));const x=Math.min(sx,cx),y=Math.min(sy,cy),w=Math.abs(cx-sx),h=Math.abs(cy-sy);rect.style.left=x+'px';rect.style.top=y+'px';rect.style.width=w+'px';rect.style.height=h+'px';blurState.box={x:x/r.width,y:y/r.height,w:w/r.width,h:h/r.height};};
-    window.onmouseup=()=>{drawing=false;};
+    const cv=$('blurCanvas'), rect=$('blurRect'); let sx,sy,drawing=false,cur=null;
+    cv.onmousedown=e=>{const r=cv.getBoundingClientRect();sx=e.clientX-r.left;sy=e.clientY-r.top;drawing=true;cur=null;rect.style.display='block';rect.style.left=sx+'px';rect.style.top=sy+'px';rect.style.width='0px';rect.style.height='0px';};
+    cv.onmousemove=e=>{if(!drawing)return;const r=cv.getBoundingClientRect();const cx=Math.max(0,Math.min(r.width,e.clientX-r.left)),cy=Math.max(0,Math.min(r.height,e.clientY-r.top));const x=Math.min(sx,cx),y=Math.min(sy,cy),w=Math.abs(cx-sx),h=Math.abs(cy-sy);rect.style.left=x+'px';rect.style.top=y+'px';rect.style.width=w+'px';rect.style.height=h+'px';cur={x:x/r.width,y:y/r.height,w:w/r.width,h:h/r.height};};
+    window.onmouseup=()=>{
+      if(!drawing)return; drawing=false; rect.style.display='none';
+      if(cur&&cur.w>=0.03&&cur.h>=0.03&&blurState.boxes.length<8){
+        blurState.boxes.push(cur); blurAddRect(cur); blurCnt();
+      }
+      cur=null;
+    };
   }
+  function blurAddRect(b){
+    const cv=$('blurCanvas'); if(!cv)return;
+    const d=document.createElement('div'); d.className='blurbox';
+    d.style.cssText=`position:absolute;border:2px solid #ff4d6d;background:rgba(255,77,109,.25);pointer-events:none;left:${b.x*100}%;top:${b.y*100}%;width:${b.w*100}%;height:${b.h*100}%`;
+    cv.appendChild(d);
+  }
+  function blurCnt(){const el=$('blurCnt');if(el)el.textContent=blurState.boxes.length?('· '+blurState.boxes.length+'개 영역'):'';}
   function blurClose(){const o=$('blurOv');if(o)o.remove();window.onmouseup=null;}
-  function blurResetSel(){blurState.box=null;const r=$('blurRect');if(r)r.style.display='none';flash('영역을 지웠어요 · 다시 드래그하세요');}
+  function blurResetSel(){blurState.boxes=[];document.querySelectorAll('#blurCanvas .blurbox').forEach(x=>x.remove());blurCnt();flash('영역을 모두 지웠어요 · 다시 드래그하세요');}
   function blurClear(){blurSend(null);}
-  function blurApply(){if(!blurState.box||blurState.box.w<0.03||blurState.box.h<0.03){flash('가릴 영역을 드래그하세요');return;}blurSend(blurState.box);}
+  function blurApply(){if(!blurState.boxes.length){flash('가릴 영역을 드래그하세요 (여러 개 가능)');return;}blurSend(blurState.boxes);}
   function blurSend(box){
     const i=blurState.i; flash('🌫 적용 중… (컷 재렌더)'); blurClose();
     apiJson('/api/reelproj/block_blur',{code:code(),pid:wiz.pid,block:i,blur:box}).then(d=>{
