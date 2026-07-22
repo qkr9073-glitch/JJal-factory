@@ -4172,6 +4172,30 @@ def _ig_extra_save(d):
                                     encoding="utf-8")
 
 
+@app.post("/api/admin/config_set")
+def api_admin_config_set():
+    """(관리자) 허용된 설정 키를 원격으로 저장 — 서버 PC를 못 만질 때 키 세팅용.
+    config는 요청마다 읽으므로 재시작 불필요."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    ALLOW = {"elevenlabs_api_key", "elevenlabs_voice_id", "elevenlabs_model",
+             "ig_legacy_owner", "insta_auto_comment", "results_admin_see_all", "tts_voices"}
+    updates = data.get("set") or {}
+    if not isinstance(updates, dict) or not updates:
+        return jsonify(ok=False, error="set(dict)이 비었습니다"), 400
+    bad = [k for k in updates if k not in ALLOW]
+    if bad:
+        return jsonify(ok=False, error=f"허용되지 않은 키: {bad}"), 400
+    path = BASE / "config.json"
+    disk = json.loads(path.read_text(encoding="utf-8"))
+    for k, v in updates.items():
+        disk[k] = v
+    path.write_text(json.dumps(disk, ensure_ascii=False, indent=2), encoding="utf-8")
+    return jsonify(ok=True, saved=sorted(updates.keys()))
+
+
 @app.post("/api/admin/update_deps")
 def api_admin_update_deps():
     """(관리자) yt-dlp 업데이트 후 서버 자동 재시작(감시견이 새 모듈로 부활).
