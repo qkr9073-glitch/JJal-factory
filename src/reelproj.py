@@ -279,7 +279,8 @@ def state_public(base, pid):
         final = {"video": f"/reelproj/{pid}/edit/final.mp4"}
     return {"pid": pid, "script": st.get("script", ""), "topic": st.get("topic", ""),
             "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit,
-            "subs_style": st.get("subs_style", DEFAULT_STYLE), "wm": st.get("wm") or {},
+            "subs_style": st.get("subs_style", DEFAULT_STYLE),
+            "subs_style_set": ("subs_style" in st), "wm": st.get("wm") or {},
             "src_urls": st.get("src_urls") or [],
             "final": final, "bgm": st.get("bgm")}
 

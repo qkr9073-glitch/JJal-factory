@@ -915,6 +915,7 @@
     apiJson('/api/reelproj/collect',body).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
       wiz.pid=d.pid; wizSave(); wizAcctPush();
+      document.querySelectorAll('#urlBoxes .urlbox').forEach(x=>x.value='');
       $('clipJob').innerHTML=`<div id="cj-${d.job}" class="lcard" style="padding:11px 13px"><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:5%;background:var(--gold);transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span></div>`;
       clipPoll(d.job);
     }).catch(e=>flash('❌ 통신 오류'));
@@ -979,7 +980,10 @@
   function ttsLoad(){
     ttsVoicesLoad();
     apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{
-      if(d.ok&&d.tts){ttsRender(d.tts); if(d.tts.voice)wiz._voice=d.tts.voice; ttsVoicePaint();}
+      if(!d.ok)return;
+      if(wiz.acct&&!((d.wm||{}).account))wizAcctPush();   // ①에서 고른 채널을 서버에 확실히 반영
+      if(d.tts){ttsRender(d.tts); if(d.tts.voice)wiz._voice=d.tts.voice; ttsVoicePaint();}
+      else wiz._noTts=true;
     });
   }
   function ttsVoicesLoad(){
@@ -992,6 +996,9 @@
     apiJson('/api/reelproj/voice_usage',{code:code()}).then(d=>{
       const el=$('ttsVoiceUsage'); if(!el||!d.ok)return;
       const items=d.items||[];
+      // ①에서 고른 채널의 기록이 있고 아직 TTS를 안 만들었으면 그 보이스 자동 선택
+      const rec=wiz.acct&&items.find(u=>u.account===wiz.acct);
+      if(rec&&!(wiz._tts&&wiz._tts.voice)){wiz._voice=rec.voice;ttsVoicePaint();}
       if(!items.length){el.textContent='';return;}
       el.innerHTML='📒 계정별 기록(클릭=그 보이스 선택): '+items.map(u=>
         `<span class="chip" style="cursor:pointer" onclick="ttsVoicePick('${esch(u.voice)}')" title="${u.uses}회 사용">@${esch(u.account)} → <b>${esch(u.name)}</b></span>`).join(' ');
@@ -1110,6 +1117,18 @@
         `<span class="chip" style="cursor:pointer" onclick="subUsageApply(${i})">@${esch(u.account)}</span>`).join(' ');
     }).catch(()=>{});
   }
+  function subPaintControls(){
+    const st=subState.style||{};
+    if($('sfSize')&&st.size)$('sfSize').value=st.size;
+    if($('sfPrimary')&&st.primary)$('sfPrimary').value=st.primary;
+    if($('sfOutline')&&st.outline)$('sfOutline').value=st.outline;
+    if($('sfOw')&&st.outline_w!=null)$('sfOw').value=st.outline_w;
+    if($('sfBold'))$('sfBold').checked=st.bold!==false;
+    if($('sfPop'))$('sfPop').checked=!!st.pop;
+    if($('sfFont')&&st.font_file!=null){const o=[...$('sfFont').options].find(x=>x.value===st.font_file);$('sfFont').value=o?st.font_file:'';}
+    if(st.align)subPos(st.align,true);
+    subApply();
+  }
   function subUsageApply(i){
     const u=(subState._acctStyles||[])[i]; if(!u||!u.style)return;
     const s=u.style;
@@ -1130,6 +1149,12 @@
       .then(([f,s])=>{
         subState.fonts=(f&&f.fonts)||[];
         subState.style=(s&&s.subs_style)||{family:'Malgun Gothic',font_file:'',size:72,primary:'#FFFFFF',outline:'#000000',outline_w:5,align:2,bold:true};
+        if(s&&s.subs_style_set===false&&wiz.acct){   // 아직 이 프로젝트에서 자막을 안 만졌으면 채널 기록 자동 적용
+          apiJson('/api/reelproj/style_usage',{code:code()}).then(su=>{
+            const rec=su&&su.ok&&(su.items||[]).find(u=>u.account===wiz.acct);
+            if(rec&&rec.style){subState.style={...subState.style,...rec.style};subPaintControls();flash('📒 @'+wiz.acct+' 자막 스타일 자동 적용');}
+          }).catch(()=>{});
+        }
         // @font-face 주입(미리보기용)
         $('sfFaces').textContent=subState.fonts.map(x=>`@font-face{font-family:'${x.family}';src:url('/fonts/${encodeURIComponent(x.file)}')}`).join('');
         // 폰트 셀렉트
