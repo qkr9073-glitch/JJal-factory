@@ -1063,7 +1063,8 @@
       t.style.color=primary;
       // ASS 외곽(글자 바깥) 느낌: 획을 글자 뒤로(paint-order) + 실제 두께에 맞춤
       t.style.paintOrder='stroke fill';
-      t.style.webkitTextStroke=ow>0?((ow*scale).toFixed(2)+'px '+outline):'0';
+      // CSS stroke는 안팎 절반씩 + 글자가 안쪽을 덮어 체감 절반 → 실제(ASS, 바깥 전체) 느낌에 맞게 2배 보정
+      t.style.webkitTextStroke=ow>0?((ow*scale*2).toFixed(2)+'px '+outline):'0';
       t.style.fontWeight=bold?'800':'400';
       t.style.top=al===8?'12%':(al===5?'44%':'auto');
       t.style.bottom=al===2?'22%':'auto';
