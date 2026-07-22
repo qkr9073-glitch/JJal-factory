@@ -150,9 +150,9 @@ def match_script(cfg, beats, segments):
 
 
 # ─────────────── 5) ElevenLabs TTS (문자 타임스탬프) ───────────────
-def tts(cfg, text):
+def tts(cfg, text, voice_id=None):
     key = (cfg.get("elevenlabs_api_key") or "").strip()
-    voice = (cfg.get("elevenlabs_voice_id") or "").strip()
+    voice = (voice_id or "").strip() or (cfg.get("elevenlabs_voice_id") or "").strip()
     if not key or not voice:
         raise RuntimeError("ElevenLabs 키/보이스가 config에 없습니다")
     model = cfg.get("elevenlabs_model", "eleven_multilingual_v2")

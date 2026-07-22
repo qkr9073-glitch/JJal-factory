@@ -4846,7 +4846,7 @@ def api_reelproj_tts_file(pid, fn):
     return send_from_directory(str(d), safe)
 
 
-def _run_reelproj_tts(jid, cfg, pid, speed):
+def _run_reelproj_tts(jid, cfg, pid, speed, voice=""):
     job = JOBS[jid]
 
     def log(m):
@@ -4859,7 +4859,7 @@ def _run_reelproj_tts(jid, cfg, pid, speed):
 
     try:
         job.update(status="running", pct=5)
-        res = reelproj.build_tts(cfg, BASE, pid, speed=speed, log=log)
+        res = reelproj.build_tts(cfg, BASE, pid, speed=speed, voice=voice, log=log)
         job["result"] = res
         job.update(status="done", pct=100, msg=f"완료 — {res.get('n_sub',0)}개 자막 · {res.get('dur',0)}초")
     except Exception as e:
@@ -5192,6 +5192,35 @@ def api_reelproj_edit_reroll():
     return jsonify(ok=True, job=jid)
 
 
+def _tts_voices(cfg):
+    """④ 음성에서 고를 수 있는 TTS 보이스 목록. config "tts_voices"로 덮어쓰기 가능.
+    기본 = config 기본 보이스 + 추가 프로필 2개."""
+    custom = cfg.get("tts_voices")
+    if isinstance(custom, list) and custom:
+        out = []
+        for v in custom:
+            if isinstance(v, dict) and v.get("id"):
+                out.append({"id": str(v["id"]).strip(), "name": str(v.get("name") or "보이스")})
+        if out:
+            return out
+    base = (cfg.get("elevenlabs_voice_id") or "").strip()
+    out = []
+    if base:
+        out.append({"id": base, "name": "기본 보이스"})
+    out += [{"id": "NaQdbkW5gNZD8wfwXeTV", "name": "보이스 2"},
+            {"id": "zgDzx5jLLCqEp6Fl7Kl7", "name": "보이스 3"}]
+    return out
+
+
+@app.post("/api/reelproj/voices")
+def api_reelproj_voices():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, voices=_tts_voices(cfg))
+
+
 @app.post("/api/reelproj/tts")
 def api_reelproj_tts():
     """④ 음성: 확정 대본 → ElevenLabs TTS(무음제거) + 짧은 구절 자막(백그라운드)."""
@@ -5206,9 +5235,12 @@ def api_reelproj_tts():
         speed = float(data.get("speed", 1.0))
     except Exception:
         speed = 1.0
+    voice = (data.get("voice") or "").strip()
+    if voice and voice not in {v["id"] for v in _tts_voices(cfg)}:
+        voice = ""                       # 목록에 없는 ID는 기본 보이스로
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
-    threading.Thread(target=_run_reelproj_tts, args=(jid, cfg, pid, speed), daemon=True).start()
+    threading.Thread(target=_run_reelproj_tts, args=(jid, cfg, pid, speed, voice), daemon=True).start()
     return jsonify(ok=True, job=jid)
 
 

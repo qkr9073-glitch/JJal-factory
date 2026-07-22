@@ -264,10 +264,11 @@ def state_public(base, pid):
             "subs_style": st.get("subs_style", DEFAULT_STYLE), "final": final, "bgm": st.get("bgm")}
 
 
-def build_tts(cfg, base, pid, speed=1.0, log=print):
+def build_tts(cfg, base, pid, speed=1.0, voice="", log=print):
     """확정 대본 → 문장별 ElevenLabs TTS(타임스탬프) → 앞뒤 무음 트림 → 이어붙여
-    '몰아치는' 음성 + 짧은 구절 자막. speed로 말속도 조절(atempo, 톤 유지). state['tts'] 저장."""
+    '몰아치는' 음성 + 짧은 구절 자막. speed=말속도(atempo), voice=보이스ID(빈값=기본). state['tts'] 저장."""
     speed = max(0.6, min(1.8, float(speed or 1.0)))
+    voice = (voice or "").strip()
     st = load(base, pid)
     lines = [ln.strip() for ln in str(st.get("script", "")).splitlines() if ln.strip()]
     if not lines:
@@ -283,7 +284,7 @@ def build_tts(cfg, base, pid, speed=1.0, log=print):
     line_files, subs, cum = [], [], 0.0
     for i, line in enumerate(lines):
         log(f"[{i+1}/{len(lines)}] 음성 생성·무음제거…")
-        audio, words = autoshorts.tts(cfg, line)
+        audio, words = autoshorts.tts(cfg, line, voice_id=voice)
         raw = tdir / f"raw{i}.mp3"
         raw.write_bytes(audio)
         if not words:
@@ -307,7 +308,8 @@ def build_tts(cfg, base, pid, speed=1.0, log=print):
     (tdir / "_list.txt").write_text("".join(f"file '{n}'\n" for n in line_files), encoding="utf-8")
     autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
                      "-i", "_list.txt", "-c:a", "libmp3lame", "-q:a", "2", "tts.mp3"], cwd=str(tdir))
-    st["tts"] = {"audio": "tts/tts.mp3", "dur": round(cum, 2), "subs": subs, "n_sub": len(subs), "speed": speed}
+    st["tts"] = {"audio": "tts/tts.mp3", "dur": round(cum, 2), "subs": subs, "n_sub": len(subs),
+                 "speed": speed, "voice": voice}
     # 음성이 바뀌면 기존 정밀컷(edl/edit)은 무효 → 제거
     st.pop("edl", None)
     st.pop("edit", None)
