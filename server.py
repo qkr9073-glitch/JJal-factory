@@ -4259,6 +4259,8 @@ def api_admin_ig_add():
         return jsonify(ok=False, error="계정 이름(핸들)을 입력하세요"), 400
     uid = (data.get("user_id") or "").strip()
     token = (data.get("access_token") or "").strip()
+    if not token:      # 토큰 생략 시 저장된 토큰 재사용(user_id만 재보정하는 용도)
+        token = str((_ig_extra_load().get(name) or {}).get("access_token") or "").strip()
     # user_id 자동 보정: 비었거나 인스타 ID 형식(15~20자리 숫자)이 아니면 토큰으로 조회
     # (전화번호 등 잘못 입력하는 사고가 잦아 서버가 진짜 ID를 받아온다)
     note = ""
