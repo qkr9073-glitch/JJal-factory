@@ -1438,6 +1438,7 @@
             <label class="fld" style="margin-top:11px">BGM 볼륨 <b id="bgDbV" style="color:var(--ink)">-14 dB</b></label>
             <input type="range" id="bgDb" min="-30" max="0" step="1" value="-14" style="width:100%" oninput="var e=document.getElementById('bgDbV');if(e)e.textContent=this.value+' dB'">
             <div class="caphint" style="margin-top:4px">🔊 안 들리면 오른쪽(0 쪽)으로 올리세요. 조정 후 [완성]을 다시 누르면 재믹스 → 미리듣기.</div>
+            <div id="bgmAcctUsage" style="margin-top:8px;font-size:12px;color:var(--faint)"></div>
             <button class="go" style="margin-top:12px" onclick="bgmFinal()">🎬 완성 (합치기)</button>
             <div id="bgJob"></div>
           </div>
@@ -1455,7 +1456,30 @@
       if($('bgDb')&&sb.db!=null){$('bgDb').value=sb.db;const e=$('bgDbV');if(e)e.textContent=sb.db+' dB';}
       bgmRenderList(); bgmSelName();
       if(st&&st.final)bgmRenderFinal(st.final.video);
+      apiJson('/api/reelproj/bgm_usage',{code:code()}).then(d=>{
+        if(!d.ok)return; const items=d.items||[];
+        const rec=wiz.acct&&items.find(u=>u.account===wiz.acct);
+        // 이 프로젝트에서 아직 BGM을 안 골랐고, 채널 기록의 곡이 내 라이브러리에 있으면 자동 선택
+        if(rec&&!bgmState.sel&&bgmState.list.some(x=>x.file===rec.bgm.file)){
+          bgmState.sel=rec.bgm.file;
+          if($('bgDb')&&rec.bgm.db!=null){$('bgDb').value=rec.bgm.db;const e=$('bgDbV');if(e)e.textContent=rec.bgm.db+' dB';}
+          bgmRenderList(); bgmSelName();
+          flash('📒 @'+wiz.acct+' BGM 자동 적용: '+rec.bgm.file);
+        }
+        const el=$('bgmAcctUsage'); if(!el)return;
+        if(!items.length){el.textContent='';return;}
+        el.innerHTML='📒 계정별 기록(클릭=적용): '+items.map((u,i)=>
+          `<span class="chip" style="cursor:pointer" onclick="bgmUsageApply(${i})" title="${esch(u.bgm.file)} · ${u.bgm.db}dB">@${esch(u.account)}</span>`).join(' ');
+        bgmState._acctBgm=items;
+      }).catch(()=>{});
     });
+  }
+  function bgmUsageApply(i){
+    const u=(bgmState._acctBgm||[])[i]; if(!u)return;
+    if(!bgmState.list.some(x=>x.file===u.bgm.file)){flash('내 라이브러리에 그 곡이 없어요 — 다른 계정 BGM 가져오기로 복사하세요');return;}
+    bgmState.sel=u.bgm.file;
+    if($('bgDb')&&u.bgm.db!=null){$('bgDb').value=u.bgm.db;const e=$('bgDbV');if(e)e.textContent=u.bgm.db+' dB';}
+    bgmRenderList(); bgmSelName(); flash('📒 @'+u.account+' BGM 적용: '+u.bgm.file);
   }
   function bgmRenderList(){
     const el=$('bgList'); if(!el)return;

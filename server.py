@@ -5144,6 +5144,7 @@ def api_reelproj_to_results():
     meta = {"title": title, "created": _dt.now().isoformat(timespec="seconds"),
             "voice": (st.get("tts") or {}).get("voice", ""),
             "subs_style": st.get("subs_style") or {},
+            "bgm": st.get("bgm") or {},
             "source": "autoshort", "type": "reel", "template": "reel", "video": "video.mp4",
             "reel_thumbs": reel_thumbs, "cover": cover, "script": str(st.get("script", "")),
             "site": "자동 쇼츠", "lang": "ko"}
@@ -5681,6 +5682,23 @@ def _subs_style_usage_save(account, style):
         SUBS_STYLE_USAGE_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+@app.post("/api/reelproj/bgm_usage")
+def api_reelproj_bgm_usage():
+    """계정별 BGM 기록 — '업로드 완료된 팩'의 데이터에서만 도출."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    out = []
+    for acct, r in _published_pack_traits().items():
+        b = r.get("bgm") or {}
+        if not b.get("file"):
+            continue
+        out.append({"account": acct, "bgm": b, "updated": r.get("time", "")})
+    out.sort(key=lambda x: x.get("updated", ""), reverse=True)
+    return jsonify(ok=True, items=out)
+
+
 @app.post("/api/reelproj/style_usage")
 def api_reelproj_style_usage():
     """계정별 자막 스타일 — '업로드 완료된 팩'의 데이터에서만 도출."""
@@ -5735,7 +5753,8 @@ def _published_pack_traits():
             continue
         rows.append({"account": rec["account"], "time": rec.get("time", ""),
                      "voice": str(meta.get("voice") or ""),
-                     "subs_style": meta.get("subs_style") or {}})
+                     "subs_style": meta.get("subs_style") or {},
+                     "bgm": meta.get("bgm") or {}})
     rows.sort(key=lambda x: x.get("time", ""), reverse=True)
     latest = {}
     for r in rows:                 # 계정별 최신 1건
