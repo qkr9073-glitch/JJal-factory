@@ -70,7 +70,7 @@ def _autosize(draw, line, font_file, start, max_w):
 
 
 def render(src_image, line1, line2, out_path, font_file=None,
-           color1="#FFFFFF", color2="#FFE24A", pos="center", size=104):
+           color1="#FFFFFF", color2="#FFE24A", pos="center", size=120):
     """프레임 이미지 + 2줄 문구 → 릴스 커버 JPEG 저장. 반환: out_path"""
     base = _fit_cover(Image.open(src_image))
     lines = [(str(line1 or "").strip(), _hex(color1)),

@@ -2999,7 +2999,7 @@ def api_pack_reelcover():
         return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
     fn = Path((data.get("cover") or "").strip()).name
     src = pd / fn
-    if not fn.startswith("thumb") or not src.exists():
+    if (not fn.startswith("thumb") and fn != "cover_made.jpg") or not src.exists():
         return jsonify(ok=False, error="대표컷 후보가 아니에요"), 400
     try:
         shutil.copy(str(src), str(pd / "thumb.jpg"))
@@ -3076,7 +3076,7 @@ def api_pack_covermake():
                          color1=data.get("color1") or "#FFFFFF",
                          color2=data.get("color2") or "#FFE24A",
                          pos=(data.get("pos") or "center"),
-                         size=int(data.get("size") or 104))
+                         size=int(data.get("size") or 120))
     except Exception as e:
         return jsonify(ok=False, error=f"커버 생성 실패: {str(e)[:140]}"), 500
     try:   # 대표컷(cover)으로 지정 + 목록 썸네일도 교체

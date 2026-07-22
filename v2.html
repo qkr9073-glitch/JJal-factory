@@ -2800,10 +2800,11 @@
   async function openReelModal(name){
     let d; try{d=await apiJson('/api/pack',{code:code(),pack:name});}catch(e){flash('통신 오류');return;}
     if(!d.ok){flash('❌ '+d.error);return;}
-    const old=$('reelOv'); if(old)old.remove();   // 중복 모달 방지(id 겹침 → 옛 셀렉트 값 읽는 버그)
+    document.querySelectorAll('[id=reelOv]').forEach(x=>x.remove());   // 중복 모달 전부 제거(클릭 막힘 방지)
     PKR=d; const base=packBase(d.name), ts=Date.now();
-    const cands=(d.reel_thumbs&&d.reel_thumbs.length)?d.reel_thumbs:(d.thumbs||[]).filter(x=>x!=='thumb.jpg');
+    const cands=((d.reel_thumbs&&d.reel_thumbs.length)?d.reel_thumbs:(d.thumbs||[]).filter(x=>x!=='thumb.jpg')).slice();
     const cover=d.cover||'';
+    if(cover&&!cands.includes(cover))cands.push(cover);   // ✨ 커스텀 썸네일도 후보로 표시(미리보기 갱신)
     const ov=document.createElement('div'); ov.id='reelOv';
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:45;display:flex;align-items:center;justify-content:center;padding:16px';
     ov.onclick=e=>{if(e.target===ov)closeReelModal();};
