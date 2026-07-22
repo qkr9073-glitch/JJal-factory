@@ -265,6 +265,35 @@ def state_public(base, pid):
             "final": final, "bgm": st.get("bgm")}
 
 
+def _speech_bounds(path):
+    """오디오의 실제 말소리 시작/끝(초)을 무음 감지로 실측 — ElevenLabs 타임스탬프의
+    여유분(늘어지는 무음)을 타이트하게 자르기 위함. 실패 시 None."""
+    try:
+        r = subprocess.run([autoshorts.FFMPEG, "-hide_banner", "-i", str(path),
+                            "-af", "silencedetect=n=-38dB:d=0.05", "-f", "null", "-"],
+                           capture_output=True, text=True, creationflags=autoshorts._NO_WINDOW)
+        err = r.stderr or ""
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", err)
+        if not m:
+            return None
+        dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        starts = [float(x) for x in re.findall(r"silence_start:\s*([\d.]+)", err)]
+        ends = [float(x) for x in re.findall(r"silence_end:\s*([\d.]+)", err)]
+        s, e = 0.0, dur
+        if starts and starts[0] <= 0.05 and ends:      # 앞머리 무음
+            s = ends[0]
+        # 꼬리 무음: 마지막 무음 블록이 파일 끝(EOF)까지 이어지면 그 시작이 말소리 끝
+        if starts and (len(ends) < len(starts)
+                       or starts[-1] > (ends[-1] if ends else 0)
+                       or (ends and ends[-1] >= dur - 0.1 and starts[-1] < ends[-1])):
+            e = starts[-1]
+        if e - s < 0.15:                                # 감지 이상 → 신뢰 안 함
+            return None
+        return (s, e)
+    except Exception:
+        return None
+
+
 def build_tts(cfg, base, pid, speed=1.0, voice="", log=print):
     """확정 대본 → 문장별 ElevenLabs TTS(타임스탬프) → 앞뒤 무음 트림 → 이어붙여
     '몰아치는' 음성 + 짧은 구절 자막. speed=말속도(atempo), voice=보이스ID(빈값=기본). state['tts'] 저장."""
@@ -291,8 +320,12 @@ def build_tts(cfg, base, pid, speed=1.0, voice="", log=print):
         raw.write_bytes(audio)
         if not words:
             words = [{"t": line, "s": 0.0, "d": autoshorts._dur(raw)}]
-        s0 = max(0.0, float(words[0]["s"]) - 0.02)          # 앞 무음 컷
+        s0 = max(0.0, float(words[0]["s"]) - 0.02)          # 앞 무음 컷(타임스탬프 기준)
         e1 = float(words[-1]["s"]) + float(words[-1]["d"]) + 0.04   # 뒤 살짝 여유
+        sb = _speech_bounds(raw)                            # 실측 무음 경계로 더 타이트하게
+        if sb:
+            s0 = max(0.0, sb[0] - 0.01)
+            e1 = min(e1, sb[1] + 0.02) if e1 > sb[1] else sb[1] + 0.02
         ln = tdir / f"line{i}.mp3"
         # loudnorm: 줄마다 표준 음량으로 정규화 — ElevenLabs가 특정 문장을 유난히 작게
         # 생성하는 변동성 때문에 중간에 소리가 확 작아지던 문제 방지(길이 불변)
