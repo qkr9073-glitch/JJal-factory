@@ -727,9 +727,9 @@
   }
   function wizSave(){try{localStorage.setItem('reelwiz',JSON.stringify({pid:wiz.pid||'',step:wiz.step,acct:wiz.acct||''}));}catch(_){}}
   function wizAcctPaint(){
-    const box=$('acctPickChips'); if(!box)return;
-    box.innerHTML=ACCTS.map(a=>`<span class="chip ${wiz.acct===a?'on':''}" onclick="wizAcctPick('${esch(a)}')">@${esch(a)}</span>`).join('')
-      +`<span class="chip ${!wiz.acct?'on':''}" onclick="wizAcctPick('')">미지정</span>`;
+    const sel=$('acctPickSel'); if(!sel)return;
+    sel.innerHTML='<option value="">미지정 — 채널을 선택하세요</option>'
+      +ACCTS.map(a=>`<option value="${esch(a)}" ${wiz.acct===a?'selected':''}>@${esch(a)}</option>`).join('');
   }
   function wizAcctPick(a){
     wiz.acct=a||''; wizSave(); wizAcctPaint(); wizAcctPush();
@@ -1510,7 +1510,7 @@
       </div>
       <div class="lcard">
         <b>📤 올릴 채널</b> <span style="color:var(--faint);font-size:12px">— 이 프로젝트를 업로드할 인스타 계정. 워터마크·보이스·자막 기록이 이 채널 기준으로 저장돼요 (이후 단계에선 변경만 가능)</span>
-        <div class="chips" id="acctPickChips" style="margin-top:10px"></div>
+        <div style="margin-top:10px"><select class="in" id="acctPickSel" style="max-width:260px" onchange="wizAcctPick(this.value)"></select></div>
       </div>
       <div class="lcard">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
