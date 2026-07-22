@@ -283,6 +283,7 @@ def build_tts(cfg, base, pid, speed=1.0, voice="", log=print):
             pass
     FF = autoshorts.FFMPEG
     line_files, subs, cum = [], [], 0.0
+    gwords = []
     for i, line in enumerate(lines):
         log(f"[{i+1}/{len(lines)}] 음성 생성·무음제거…")
         audio, words = autoshorts.tts(cfg, line, voice_id=voice)
@@ -300,6 +301,10 @@ def build_tts(cfg, base, pid, speed=1.0, voice="", log=print):
         for ch in _phrase_chunks(words):                   # 의미단위 짧은 구절 자막(속도만큼 타이밍 축소)
             subs.append({"s": round(cum + (ch["s"] - s0) / speed, 2),
                          "e": round(cum + (ch["e"] - s0) / speed, 2), "t": ch["t"]})
+        for w in words:                                    # 단어별 타임라인 보관(끊어읽기 편집 시 자동 타이밍)
+            gwords.append({"t": str(w.get("t", "")),
+                           "s": round(cum + (float(w["s"]) - s0) / speed, 3),
+                           "e": round(cum + (float(w["s"]) + float(w["d"]) - s0) / speed, 3)})
         cum += autoshorts._dur(ln)
         try:
             raw.unlink(missing_ok=True)
@@ -310,7 +315,7 @@ def build_tts(cfg, base, pid, speed=1.0, voice="", log=print):
     autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
                      "-i", "_list.txt", "-c:a", "libmp3lame", "-q:a", "2", "tts.mp3"], cwd=str(tdir))
     st["tts"] = {"audio": "tts/tts.mp3", "dur": round(cum, 2), "subs": subs, "n_sub": len(subs),
-                 "speed": speed, "voice": voice}
+                 "speed": speed, "voice": voice, "words": gwords}
     # 음성이 바뀌면 기존 정밀컷(edl/edit)은 무효 → 제거
     st.pop("edl", None)
     st.pop("edit", None)
@@ -501,6 +506,42 @@ def _subs_ass(path, subs, style=None, wm=None, dur=None):
     if wm.get("ad"):
         ev.append(f"Dialogue: 1,0:00:00.00,{end_ts},AD,,0,0,0,,[광고]")
     Path(path).write_text(head + "\n".join(ev) + "\n", encoding="utf-8")
+
+
+def align_phrases(words, texts):
+    """단어 타임라인(words: [{t,s,e}])에 사용자가 끊은 구절(texts)을 순서대로 정렬해
+    각 구절의 시작·끝 시간을 자동 계산. 공백 무시 글자수 소진 방식(문구 소폭 수정 허용)."""
+    import re as _re
+    clean_texts = [str(x).strip() for x in texts if str(x).strip()]
+    if not words or not clean_texts:
+        return []
+    total_chars = sum(len(_re.sub(r"\s+", "", w["t"])) for w in words)
+    want_chars = sum(len(_re.sub(r"\s+", "", tx)) for tx in clean_texts)
+    scale = (total_chars / want_chars) if want_chars else 1.0   # 문구를 고쳐 길이가 달라져도 비례 배분
+    out, wi = [], 0
+    for k, tx in enumerate(clean_texts):
+        need = max(1, round(len(_re.sub(r"\s+", "", tx)) * scale))
+        got = 0
+        start = None
+        end = None
+        while wi < len(words) and (got < need or start is None):
+            w = words[wi]
+            if start is None:
+                start = float(w["s"])
+            got += len(_re.sub(r"\s+", "", w["t"]))
+            end = float(w["e"])
+            wi += 1
+            if got >= need:
+                break
+        if start is None:                      # 단어 소진 — 남은 구절은 마지막에 붙임
+            if out:
+                out[-1]["t"] = (out[-1]["t"] + " " + tx).strip()
+            continue
+        if k == len(clean_texts) - 1 and wi < len(words):   # 마지막 구절은 끝까지
+            end = float(words[-1]["e"])
+            wi = len(words)
+        out.append({"s": round(start, 2), "e": round(end if end is not None else start + 0.5, 2), "t": tx})
+    return out
 
 
 def set_subs_style(base, pid, style):

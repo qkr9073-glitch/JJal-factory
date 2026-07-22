@@ -5233,21 +5233,31 @@ def api_reelproj_subs_edit():
     pid = (data.get("pid") or "").strip()
     if not pid or not reelproj.exists(BASE, pid):
         return jsonify(ok=False, error="프로젝트 없음"), 404
-    clean = []
-    for s in (data.get("subs") or []):
-        try:
-            s0, e0 = float(s.get("s")), float(s.get("e"))
-            txt = str(s.get("t") or "").strip()
-        except Exception:
-            continue
-        if txt and 0 <= s0 < e0:
-            clean.append({"s": round(s0, 2), "e": round(e0, 2), "t": txt[:120]})
-    if not clean:
-        return jsonify(ok=False, error="유효한 구절이 없어요"), 400
-    clean.sort(key=lambda x: x["s"])
     st = reelproj.load(BASE, pid)
     if not st.get("tts"):
         return jsonify(ok=False, error="먼저 ④ 음성을 생성하세요"), 400
+    texts = data.get("texts")
+    if texts is not None:
+        # 사용자는 '끊는 위치(문구)'만 편집 → 단어 타임스탬프에 정렬해 시작·끝 자동 계산
+        words = (st.get("tts") or {}).get("words") or []
+        if not words:
+            return jsonify(ok=False, error="이 프로젝트엔 단어 타이밍이 없어요 — ④ [음성 생성]을 한 번 다시 눌러주세요"), 400
+        clean = reelproj.align_phrases(words, texts)
+        if not clean:
+            return jsonify(ok=False, error="구절이 비었어요"), 400
+    else:
+        clean = []
+        for s in (data.get("subs") or []):
+            try:
+                s0, e0 = float(s.get("s")), float(s.get("e"))
+                txt = str(s.get("t") or "").strip()
+            except Exception:
+                continue
+            if txt and 0 <= s0 < e0:
+                clean.append({"s": round(s0, 2), "e": round(e0, 2), "t": txt[:120]})
+        if not clean:
+            return jsonify(ok=False, error="유효한 구절이 없어요"), 400
+        clean.sort(key=lambda x: x["s"])
     st["tts"]["subs"] = clean
     st["tts"]["n_sub"] = len(clean)
     reelproj.save(BASE, pid, st)
@@ -5255,8 +5265,8 @@ def api_reelproj_subs_edit():
         jid = uuid.uuid4().hex[:10]
         JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None, "error": None, "ts": time.time()}
         threading.Thread(target=_run_reelproj_restyle, args=(jid, cfg, pid), daemon=True).start()
-        return jsonify(ok=True, n=len(clean), job=jid)
-    return jsonify(ok=True, n=len(clean))
+        return jsonify(ok=True, n=len(clean), subs=clean, job=jid)
+    return jsonify(ok=True, n=len(clean), subs=clean)
 
 
 @app.post("/api/reelproj/subs_style")
