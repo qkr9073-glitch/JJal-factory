@@ -1274,8 +1274,8 @@
       <div class="view" style="gap:16px;align-items:flex-start;flex-wrap:wrap">
         <div style="flex:1;min-width:290px">
           <div class="lcard">
-            <div style="display:flex;align-items:center;gap:8px"><b>🎵 내 BGM</b><span style="color:var(--faint);font-size:12px">(계정별·mp3/wav)</span><button class="btn" style="margin-left:auto" onclick="document.getElementById('bgUp').click()">＋업로드</button></div>
-            <input id="bgUp" type="file" accept=".mp3,.wav,audio/*" style="display:none" onchange="bgmUpload(this)">
+            <div style="display:flex;align-items:center;gap:8px"><b>🎵 내 BGM</b><span style="color:var(--faint);font-size:12px">(계정별·mp3/wav/mp4 — 영상은 소리만 추출)</span><button class="btn" style="margin-left:auto" onclick="document.getElementById('bgUp').click()">＋업로드</button></div>
+            <input id="bgUp" type="file" accept=".mp3,.wav,.mp4,.m4a,.mov,.webm,audio/*,video/mp4" style="display:none" onchange="bgmUpload(this)">
             <div id="bgList" style="margin-top:10px"><div style="color:var(--faint)">불러오는 중…</div></div>
           </div>
           <div class="lcard"><b>🔗 다른 계정 BGM 가져오기</b>

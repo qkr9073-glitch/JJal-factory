@@ -7,6 +7,7 @@ from pathlib import Path
 from . import autoshorts
 
 _EXT = (".mp3", ".wav")
+_VIDEO_EXT = (".mp4", ".m4a", ".mov", ".webm")   # 영상/컨테이너 → 소리만 추출해 mp3로 저장
 
 
 def _trim_lead_silence(path):
@@ -46,10 +47,27 @@ def list_bgm(base, code):
 
 def save_upload(base, code, filename, data):
     safe = Path(filename).name
-    if Path(safe).suffix.lower() not in _EXT:
-        raise RuntimeError("mp3/wav 파일만 가능합니다")
-    dst = bdir(base, code) / safe
-    dst.write_bytes(data)
+    suffix = Path(safe).suffix.lower()
+    if suffix not in _EXT + _VIDEO_EXT:
+        raise RuntimeError("mp3/wav/mp4 파일만 가능합니다")
+    d = bdir(base, code)
+    if suffix in _VIDEO_EXT:         # 영상이면 소리만 추출해 mp3로 저장
+        tmp = d / ("_up" + suffix)
+        tmp.write_bytes(data)
+        dst = d / (Path(safe).stem + ".mp3")
+        try:
+            autoshorts._run([autoshorts.FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+                             "-i", str(tmp), "-vn", "-c:a", "libmp3lame", "-b:a", "256k", str(dst)])
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if not dst.exists() or dst.stat().st_size < 1024:
+            raise RuntimeError("이 영상에서 소리를 추출하지 못했어요 (오디오 트랙 확인)")
+    else:
+        dst = d / safe
+        dst.write_bytes(data)
     _trim_lead_silence(dst)          # 앞부분 무음 자동 제거
     return list_bgm(base, code)
 
