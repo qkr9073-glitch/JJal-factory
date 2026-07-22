@@ -2799,6 +2799,7 @@
   async function openReelModal(name){
     let d; try{d=await apiJson('/api/pack',{code:code(),pack:name});}catch(e){flash('통신 오류');return;}
     if(!d.ok){flash('❌ '+d.error);return;}
+    const old=$('reelOv'); if(old)old.remove();   // 중복 모달 방지(id 겹침 → 옛 셀렉트 값 읽는 버그)
     PKR=d; const base=packBase(d.name), ts=Date.now();
     const cands=(d.reel_thumbs&&d.reel_thumbs.length)?d.reel_thumbs:(d.thumbs||[]).filter(x=>x!=='thumb.jpg');
     const cover=d.cover||'';
@@ -2843,7 +2844,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--faint)">올릴 계정
-            <select id="rpAcct" class="in" style="width:auto;padding:7px 9px">${(typeof ACCTS!=='undefined'?ACCTS:[]).map(a=>`<option value="${a}">@${a}</option>`).join('')}</select></label>
+            <select id="rpAcct" class="in" style="width:auto;padding:7px 9px" onchange="syncSchedAcct()">${(typeof ACCTS!=='undefined'?ACCTS:[]).map(a=>`<option value="${a}">@${a}</option>`).join('')}</select></label>
           <button class="btn primary" id="rpUp" onclick="togglePop(event,'reelpack')" style="margin-left:auto">📤 업로드</button></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <a class="btn" href="${base}/${d.video||'video.mp4'}" download="${esch(d.name)}.mp4" style="text-decoration:none">⬇ 영상 다운로드</a>
