@@ -5204,9 +5204,9 @@ def _tts_voices(cfg):
         if out:
             return out
     base = (cfg.get("elevenlabs_voice_id") or "").strip() or "ZbKehTnuETNa9LsAnRO8"
-    return [{"id": base, "name": "기본 보이스"},
-            {"id": "NaQdbkW5gNZD8wfwXeTV", "name": "보이스 2"},
-            {"id": "zgDzx5jLLCqEp6Fl7Kl7", "name": "보이스 3"}]
+    return [{"id": base, "name": "세레나"},
+            {"id": "NaQdbkW5gNZD8wfwXeTV", "name": "온유"},
+            {"id": "zgDzx5jLLCqEp6Fl7Kl7", "name": "한나"}]
 
 
 @app.post("/api/reelproj/voices")
