@@ -98,15 +98,29 @@ def refresh_token_if_due(cfg, base_dir, key, acc, log=print, force=False):
                                  "access_token": acc["access_token"]}, timeout=30)
         data = r.json()
         if r.status_code == 200 and data.get("access_token"):
-            path = Path(base_dir) / "config.json"
-            disk = json.loads(path.read_text(encoding="utf-8"))
-            entry = disk.setdefault("ig_accounts", {}).setdefault(key, dict(acc))
-            entry["access_token"] = data["access_token"]
-            entry["refreshed"] = date.today().isoformat()
-            path.write_text(json.dumps(disk, ensure_ascii=False, indent=2),
-                            encoding="utf-8")
+            # 저장 위치: UI로 추가한 계정(ig_accounts.json) 우선, 아니면 config.json.
+            # ⚠️ 반환값은 항상 '호출자가 준 acc(병합된 최신값)' 기준 — 예전엔 config.json의
+            #    옛 항목(잘못된 user_id 등)을 그대로 반환해 발행이 옛 값으로 나가는 버그가 있었음.
+            for fname in ("ig_accounts.json", "config.json"):
+                path = Path(base_dir) / fname
+                try:
+                    disk = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                store = disk if fname == "ig_accounts.json" else disk.setdefault("ig_accounts", {})
+                if fname == "ig_accounts.json" and key not in store:
+                    continue                     # UI 파일에 없는 계정은 config 쪽에 기록
+                entry = store.setdefault(key, dict(acc))
+                entry["access_token"] = data["access_token"]
+                entry["refreshed"] = date.today().isoformat()
+                path.write_text(json.dumps(disk, ensure_ascii=False, indent=2),
+                                encoding="utf-8")
+                break
+            acc = dict(acc)
+            acc["access_token"] = data["access_token"]
+            acc["refreshed"] = date.today().isoformat()
             log(f"      [{key}] 토큰 자동 연장 완료 (60일)")
-            return entry
+            return acc
         log(f"      [{key}] 토큰 연장 실패(무시하고 진행): {str(data)[:120]}")
     except Exception as e:
         log(f"      [{key}] 토큰 연장 오류(무시하고 진행): {e}")
