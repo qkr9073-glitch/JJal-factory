@@ -5,6 +5,7 @@ import json
 import queue
 import re
 import shutil
+import os
 import sys
 import threading
 import time
@@ -4169,6 +4170,34 @@ def _ig_extra_save(d):
     with _admin_lock:
         IG_ACCOUNTS_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2),
                                     encoding="utf-8")
+
+
+@app.post("/api/admin/update_deps")
+def api_admin_update_deps():
+    """(관리자) yt-dlp 업데이트 후 서버 자동 재시작(감시견이 새 모듈로 부활).
+    서버 PC를 못 만질 때 원격으로 인스타 다운로드 오류(구버전 yt-dlp)를 해결하는 용도."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    import subprocess as _sp
+    try:
+        old = ""
+        try:
+            import yt_dlp as _y
+            old = _y.version.__version__
+        except Exception:
+            pass
+        r = _sp.run([sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+                    capture_output=True, text=True, timeout=300)
+        outtail = ((r.stdout or "") + (r.stderr or ""))[-400:]
+        ok = r.returncode == 0
+        if ok:
+            # 새 모듈을 물려면 프로세스 재시작 필요 → 응답 보내고 2초 뒤 종료(감시견이 부활)
+            threading.Timer(2.0, lambda: os._exit(0)).start()
+        return jsonify(ok=ok, old_version=old, restarting=ok, pip_tail=outtail)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:200]), 500
 
 
 @app.post("/api/admin/ig/list")
