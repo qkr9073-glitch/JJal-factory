@@ -892,11 +892,12 @@
   }
   function srcUrlPaint(){
     const el=$('srcUrlList'); if(!el)return;
-    const items=wiz._srcUrls||[];
+    // 클립창고에 실제로 들어간(성공한) 영상 링크만 표시
+    const items=(wiz._srcUrls||[]).filter(u=>u.status&&u.status.indexOf('클립')===0);
     if(!items.length){el.innerHTML='';return;}
-    el.innerHTML='<div style="font-weight:700;font-size:12.5px;margin-bottom:6px">📎 첨부한 영상 <span style="color:var(--faint);font-weight:400">(프로젝트에 저장됨 — 언제든 다시 확인 가능)</span></div>'
+    el.innerHTML='<div style="font-weight:700;font-size:12.5px;margin-bottom:6px">📎 수집한 영상 <span style="color:var(--faint);font-weight:400">(클립창고 소스 — 프로젝트에 저장됨)</span></div>'
       +items.map(u=>`<div style="display:flex;gap:8px;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)">
-        <span style="flex-shrink:0">${u.status==='실패'?'❌':(u.status&&u.status.indexOf('클립')===0?'✅':'⏳')}</span>
+        <span style="flex-shrink:0">✅</span>
         <a href="${esch(u.url)}" target="_blank" style="color:var(--muted);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" title="${esch(u.url)}">${esch(u.url)}</a>
         <span style="color:var(--faint);flex-shrink:0">${esch(u.status||'')}</span></div>`).join('');
   }
