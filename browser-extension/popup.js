@@ -10,6 +10,7 @@ const els = {
   copyBtn: document.getElementById("copyBtn"),
   sendLocalBtn: document.getElementById("sendLocalBtn"),
   serverUrl: document.getElementById("serverUrl"),
+  memberCode: document.getElementById("memberCode"),
   modeLabel: document.getElementById("modeLabel"),
   modeHint: document.getElementById("modeHint"),
   status: document.getElementById("status"),
@@ -34,12 +35,17 @@ function init() {
 
 function loadServerUrl() {
   try {
-    chrome.storage.local.get(["serverUrl"], (r) => {
+    chrome.storage.local.get(["serverUrl", "memberCode"], (r) => {
       if (els.serverUrl) els.serverUrl.value = (r && r.serverUrl) || DEFAULT_SERVER;
+      if (els.memberCode) els.memberCode.value = (r && r.memberCode) || "";
     });
   } catch {
     if (els.serverUrl) els.serverUrl.value = DEFAULT_SERVER;
   }
+}
+
+function memberCode() {
+  return (els.memberCode && els.memberCode.value || "").trim();
 }
 
 function serverUrl() {
@@ -59,6 +65,9 @@ function bind() {
   els.sendLocalBtn.addEventListener("click", sendToLocalApp);
   if (els.serverUrl) els.serverUrl.addEventListener("change", () => {
     try { chrome.storage.local.set({ serverUrl: serverUrl() }); } catch {}
+  });
+  if (els.memberCode) els.memberCode.addEventListener("change", () => {
+    try { chrome.storage.local.set({ memberCode: memberCode() }); } catch {}
   });
 }
 
@@ -186,7 +195,8 @@ async function sendToLocalApp() {
   const account = cleanAccountName(els.accountInput.value.trim()) || guessAccountFromItems(filtered) || "shortform";
   setStatus("짤공장으로 전송 중...");
 
-  const response = await send({ type: "SEND_TO_LOCAL_APP", items: filtered, account, serverUrl: serverUrl() });
+  if (!memberCode()) return setStatus("회원코드(짤공장 접속코드)를 입력하세요");
+  const response = await send({ type: "SEND_TO_LOCAL_APP", items: filtered, account, serverUrl: serverUrl(), memberCode: memberCode() });
   if (!response || (response.error && !response.fallback)) return setStatus((response && response.error) || "응답 없음 — 확장 새로고침 후 재시도");
   if (response.fallback) return setStatus(response.error || "URL만 전달됨");
 

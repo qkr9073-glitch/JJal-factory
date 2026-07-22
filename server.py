@@ -4296,6 +4296,18 @@ IG_COLLECTED_FILE = BASE / "ig_collected.json"
 _collect_lock = threading.Lock()
 
 
+def _collected_mine(cfg, code):
+    """수집 항목 중 내(code) 것만. 옛 항목(by 없음)은 config "ig_legacy_owner" 계정에게만."""
+    legacy_owner = str(cfg.get("ig_legacy_owner") or "").strip()
+    code = (code or "").strip()
+    out = []
+    for it in _collected_load():
+        b = (it.get("by") or "").strip()
+        if b == code or (not b and legacy_owner and code == legacy_owner):
+            out.append(it)
+    return out
+
+
 def _collected_load():
     try:
         d = json.loads(IG_COLLECTED_FILE.read_text(encoding="utf-8"))
@@ -5289,7 +5301,7 @@ def api_reel_insta_topics():
     cfg = load_config()
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
-    items = _collected_load()
+    items = _collected_mine(cfg, (data.get("code") or "").strip())
     reels = [it for it in items if it.get("kind") == "reel"
              and int(it.get("viewCount", 0) or 0) >= 10000]
     reels.sort(key=lambda x: int(x.get("viewCount", 0) or 0), reverse=True)
@@ -5428,16 +5440,21 @@ def api_ie_insta_collect():
     incoming = data.get("items") or []
     if not isinstance(incoming, list):
         return jsonify(ok=False, error="items 형식 오류"), 400
+    cfg = load_config()
+    by = (data.get("by") or "").strip()          # 수집한 사람의 회원코드(확장 팝업에서 입력)
+    if not by or not _member(cfg, by):
+        return jsonify(ok=False, error="확장 팝업의 '회원코드'에 짤공장 접속코드를 입력하세요"), 403
     with _collect_lock:
         cur = _collected_load()
-        by_key = {(it.get("platform", ""), it.get("shortcode") or it.get("url")): it for it in cur}
+        by_key = {(it.get("by", ""), it.get("platform", ""), it.get("shortcode") or it.get("url")): it for it in cur}
         added = 0
         for it in incoming[:500]:
             if not isinstance(it, dict):
                 continue
-            key = (it.get("platform", ""), it.get("shortcode") or it.get("url"))
-            if not key[1]:
+            key = (by, it.get("platform", ""), it.get("shortcode") or it.get("url"))
+            if not key[2]:
                 continue
+            it["by"] = by
             it["collected_at"] = datetime.now().isoformat(timespec="seconds")
             prev = by_key.get(key)
             if prev:   # 조회수는 0 아닌 최신값 우선, 나머지 최신으로 덮음
@@ -5462,7 +5479,7 @@ def api_ie_insta_collected():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     kind = (data.get("kind") or "all").strip()   # all|reel|image
-    items = _collected_load()
+    items = _collected_mine(cfg, (data.get("code") or "").strip())
     out = []
     for it in items:
         k = it.get("kind", "")
@@ -5490,11 +5507,16 @@ def api_ie_insta_collected_clear():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     sc = (data.get("shortcode") or "").strip()
+    mycode = (data.get("code") or "").strip()
+    legacy_owner = str(cfg.get("ig_legacy_owner") or "").strip()
+    def mine(x):
+        b = (x.get("by") or "").strip()
+        return b == mycode or (not b and legacy_owner and mycode == legacy_owner)
     with _collect_lock:
-        if sc:   # 한 건만 제거
-            items = [x for x in _collected_load() if x.get("shortcode") != sc]
-        else:    # 전체 비우기
-            items = []
+        if sc:   # 한 건만 제거(내 것만)
+            items = [x for x in _collected_load() if not (mine(x) and x.get("shortcode") == sc)]
+        else:    # 내 수집만 전체 비우기(남의 것 보존)
+            items = [x for x in _collected_load() if not mine(x)]
         IG_COLLECTED_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
     return jsonify(ok=True, total=len(items))
 

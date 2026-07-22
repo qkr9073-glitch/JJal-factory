@@ -396,6 +396,7 @@ async function sendToLocalAppFromBackground(message) {
   const body = JSON.stringify({
     influencer: account,
     project: "Short-form Script Research",
+    by: String(message.memberCode || "").trim(),   // 짤공장 회원코드(계정별 수집 분리)
     urls,
     items: payloadItems
   });
