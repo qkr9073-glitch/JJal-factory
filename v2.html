@@ -1286,9 +1286,9 @@
           <div class="lcard">
             <b>🎬 최종 합치기</b>
             <div style="margin-top:8px;font-size:13px">선택 BGM: <b id="bgSelName">없음</b></div>
-            <label class="fld" style="margin-top:11px">BGM 볼륨 <b id="bgDbV" style="color:var(--ink)">-20 dB</b></label>
-            <input type="range" id="bgDb" min="-30" max="0" step="1" value="-20" style="width:100%" oninput="var e=document.getElementById('bgDbV');if(e)e.textContent=this.value+' dB'">
-            <div class="caphint" style="margin-top:4px">기본 -20dB(작게). 조정 후 [완성]을 다시 누르면 재믹스 → 미리듣기.</div>
+            <label class="fld" style="margin-top:11px">BGM 볼륨 <b id="bgDbV" style="color:var(--ink)">-14 dB</b></label>
+            <input type="range" id="bgDb" min="-30" max="0" step="1" value="-14" style="width:100%" oninput="var e=document.getElementById('bgDbV');if(e)e.textContent=this.value+' dB'">
+            <div class="caphint" style="margin-top:4px">🔊 안 들리면 오른쪽(0 쪽)으로 올리세요. 조정 후 [완성]을 다시 누르면 재믹스 → 미리듣기.</div>
             <button class="go" style="margin-top:12px" onclick="bgmFinal()">🎬 완성 (합치기)</button>
             <div id="bgJob"></div>
           </div>
@@ -1354,7 +1354,7 @@
     });
   }
   function bgmFinal(){
-    const db=($('bgDb')&&$('bgDb').value)||'-20';
+    const db=($('bgDb')&&$('bgDb').value)||'-14';
     $('bgJob').innerHTML='<div class="caphint" style="margin-top:10px">🎬 합치는 중…</div>';
     apiJson('/api/reelproj/final',{code:code(),pid:wiz.pid,bgm_code:code(),bgm_file:bgmState.sel,bgm_db:parseFloat(db)}).then(d=>{
       if(!d.ok){$('bgJob').innerHTML='<div style="color:var(--danger)">❌ '+esch(d.error)+'</div>';return;}
