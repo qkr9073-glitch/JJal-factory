@@ -3186,14 +3186,16 @@ def api_pack_covertext():
     if not script and not title:
         return jsonify(ok=False, error="대본 정보가 없어요(옛 릴스는 직접 입력)"), 400
     prompt = ("아래 쇼츠 대본으로 인스타 릴스 '커버 썸네일' 문구를 만들어라.\n"
-              "- 2줄 구성: 1줄은 상황·궁금증을 던지고, 2줄이 핵심(정답·반전)이다.\n"
-              "- 각 줄 12자 내외로 짧고 굵게. 이모지·따옴표·마침표 금지.\n"
+              "- 2줄 구성: 1줄=감정 섞인 후킹(공감·한탄·놀람), 2줄=핵심 결론(해결·반전).\n"
+              "- 각 줄 6~9자로 아주 짧고 굵게(공백 포함). ㅠㅠ, ?!, ~ 같은 표현 OK.\n"
+              "- 예시 톤: '모기야 제발ㅠㅠ / 이거 하나면 끝장', '얼음 넣는다고? / 손선풍기 미쳤다'\n"
+              "- 이모지·따옴표·마침표 금지.\n"
               f"[소재] {title}\n[대본]\n{script[:1200]}\n"
               '반드시 JSON만: {"cands":[{"line1":"..","line2":".."}]} (서로 다른 3세트)')
     try:
         r = reelproj._gjson(cfg, prompt, maxtok=1024)
-        cands = [{"line1": str(c.get("line1", "")).strip()[:20],
-                  "line2": str(c.get("line2", "")).strip()[:20]}
+        cands = [{"line1": str(c.get("line1", "")).strip()[:12],
+                  "line2": str(c.get("line2", "")).strip()[:12]}
                  for c in (r.get("cands") or [])][:3]
     except Exception as e:
         return jsonify(ok=False, error=f"문구 생성 실패: {str(e)[:120]}"), 502
