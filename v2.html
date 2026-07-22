@@ -2843,7 +2843,8 @@
           <textarea id="reelCap" style="flex:1;min-height:150px;width:100%;resize:vertical;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);padding:10px;font:inherit;line-height:1.5">${esch(d.caption||'')}</textarea>
           <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
             <button class="btn" onclick="reelRegenCap()" title="대본으로 캡션 새로 생성">✨ 캡션 새로생성</button>
-            <button class="btn" onclick="reelSaveCap()">💾 캡션 저장</button></div>
+            <button class="btn" onclick="reelSaveCap()">💾 캡션 저장</button>
+            <button class="btn" onclick="reelComment()" title="발행된 게시물에 CTA 자동 댓글 달기(발행 때 실패한 경우 재시도)">💬 댓글 달기</button></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--faint)">올릴 계정
@@ -2955,6 +2956,15 @@
       });
       flash('✅ 대표 썸네일 지정됨'); loadPacks();
     });
+  }
+  function reelComment(){
+    if(!PKR)return;
+    if(!PKR.published){flash('발행된 게시물에만 댓글을 달 수 있어요 (먼저 업로드)');return;}
+    flash('💬 CTA 댓글 생성·게시 중…');
+    apiJson('/api/pack/comment',{code:code(),pack:PKR.name}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      flash('✅ 댓글 달림: '+(d.comment||'').slice(0,30)+'…');
+    }).catch(()=>flash('❌ 통신 오류'));
   }
   function reelSaveCap(){
     if(!PKR)return;

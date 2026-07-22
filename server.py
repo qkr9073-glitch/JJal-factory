@@ -3114,6 +3114,49 @@ def api_cover_preset_learn():
     return jsonify(ok=True, preset=_cover_presets_load().get(acct) or {}, analyzed=len(imgs))
 
 
+@app.post("/api/pack/comment")
+def api_pack_comment():
+    """발행 완료된 팩에 CTA 자동 댓글 달기(재시도용 — 발행 때 실패했을 경우)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    pd = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not pd.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    pub = insta.load_published(BASE)
+    rec = pub.get(pack)
+    if not rec or not rec.get("media_id"):
+        return jsonify(ok=False, error="이 팩의 게시 기록(media_id)이 없어요 — 발행 후에 가능"), 400
+    try:
+        meta = json.loads((pd / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        meta = {}
+    caption = ""
+    try:
+        caption = (pd / "caption.txt").read_text(encoding="utf-8")
+    except Exception:
+        pass
+    if meta.get("type") == "reel" or meta.get("template") == "reel":
+        kind, text, kw = "릴스(쇼츠 영상)", (meta.get("script") or caption), ""
+    elif meta.get("type") == "cardnews":
+        kind, text, kw = "카드뉴스(정보 캐러셀)", caption, str(meta.get("keyword") or "")
+    else:
+        kind, text, kw = "커뮤니티 유머 짤(캐러셀)", caption, ""
+    try:
+        cmt = _gen_auto_comment(cfg, kind, str(meta.get("title") or ""), text, kw)
+        if not cmt:
+            return jsonify(ok=False, error="댓글 문구 생성 실패"), 502
+        insta.post_comment(cfg, rec["media_id"], cmt, account=rec.get("account"))
+        rec["auto_comment"] = "ok"
+        (BASE / "published.json").write_text(json.dumps(pub, ensure_ascii=False, indent=2),
+                                             encoding="utf-8")
+        return jsonify(ok=True, comment=cmt)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:160]), 502
+
+
 @app.post("/api/pack/covertext")
 def api_pack_covertext():
     """릴스 커버 문구(2줄) 자동 생성 — 대본 기반, 후보 3세트."""
@@ -3729,20 +3772,33 @@ def _gen_auto_comment(cfg, kind, title, text, keyword=""):
     return str(r.get("comment", "")).strip()[:500]
 
 
-def _auto_comment(cfg, result, kind, title, text, keyword="", log=print):
-    """발행 성공 직후 CTA 댓글 자동 작성. 실패해도 게시물엔 영향 없음(로그만).
-    config "insta_auto_comment": false 로 끌 수 있음(기본 켬)."""
+def _auto_comment(cfg, result, kind, title, text, keyword="", log=print, pack_name=""):
+    """발행 성공 직후 CTA 댓글 자동 작성. 실패해도 게시물엔 영향 없음.
+    결과(성공/실패 사유)는 published.json에 기록 → 나중에 확인·재시도 가능."""
     if not cfg.get("insta_auto_comment", True):
         return
     mid = (result or {}).get("media_id")
     if not mid:
         return
+    status = "ok"
     try:
         cmt = _gen_auto_comment(cfg, kind, title, text, keyword)
         if cmt:
             insta.post_comment(cfg, mid, cmt, account=(result or {}).get("account"), log=log)
+        else:
+            status = "failed: 댓글 문구 생성 결과 없음"
     except Exception as e:
+        status = "failed: " + str(e)[:120]
         log(f"      (자동댓글 실패 — 게시물은 정상: {str(e)[:100]})")
+    if pack_name:
+        try:
+            pub = insta.load_published(BASE)
+            if pack_name in pub:
+                pub[pack_name]["auto_comment"] = status
+                (BASE / "published.json").write_text(
+                    json.dumps(pub, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
 
 def _auto_comment_pack(cfg, pack_dir, result, log=print):
@@ -3764,7 +3820,8 @@ def _auto_comment_pack(cfg, pack_dir, result, log=print):
         kind, text, kw = "카드뉴스(정보 캐러셀)", caption, str(meta.get("keyword") or "")
     else:
         kind, text, kw = "커뮤니티 유머 짤(캐러셀)", caption, ""
-    _auto_comment(cfg, result, kind, str(meta.get("title") or ""), text, kw, log=log)
+    _auto_comment(cfg, result, kind, str(meta.get("title") or ""), text, kw, log=log,
+                  pack_name=pack_dir.name)
 
 
 def _run_insta_job(jid, pack_dir, lead, force, cfg, account=None):
