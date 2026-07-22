@@ -4454,7 +4454,9 @@ def _run_transcripts_job(jid, cfg, sel):
             text, lang, summary, err = "", "", "", ""
             vid = work / f"{_tr_safe(sc)}.mp4"
             try:
-                youtube.download_video(url, str(vid), cookies=youtube._reel_cookies(cfg))
+                # 대본만 뽑으면 되므로 저화질(480p)로 — 다운로드·Gemini 업로드 몇 배 빠름
+                youtube.download_video(url, str(vid), max_height=480,
+                                       cookies=youtube._reel_cookies(cfg))
                 res = youtube.transcribe_reel_text(cfg, str(vid))
                 text, lang, summary = res.get("transcript", ""), res.get("lang", ""), res.get("summary", "")
                 if text:
