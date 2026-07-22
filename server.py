@@ -4420,7 +4420,7 @@ def api_ie_insta_transcripts():
     want = [str(s).strip() for s in (data.get("shortcodes") or []) if str(s).strip()]
     if not want:
         return jsonify(ok=False, error="대본 뽑을 릴스를 선택하세요"), 400
-    coll = _collected_load()
+    coll = _collected_mine(cfg, (data.get("code") or "").strip())
     by_sc = {x.get("shortcode"): x for x in coll}
     sel = []
     for sc in want[:100]:
@@ -4549,14 +4549,23 @@ def api_autoshorts_file(pid, fn):
 
 # ─────────────── 대본 학습 + 프로파일 (자동쇼츠 1단계) ───────────────
 def _learn_corpus(code):
-    """인스타 대본추출로 모인 대본 중 이 계정이 아직 학습 안 한 것들."""
+    """인스타 대본추출로 모인 대본 중 이 계정이 아직 학습 안 한 것들(내 수집만).
+    같은 릴스의 대본이 다른 복사본(옛 항목 등)에 저장돼 있으면 그것도 끌어옴."""
     learned = set(scriptlearn.load(BASE, code).get("learned_ids", []))
-    out = []
-    for it in _collected_load():
-        t = (it.get("transcript") or "").strip()
+    cfg = load_config()
+    allitems = _collected_load()
+    tr_any = {}
+    for it in allitems:                       # shortcode → 어딘가 저장된 대본(폴백)
+        tx = (it.get("transcript") or "").strip()
         sc = it.get("shortcode") or it.get("url")
-        if t and sc and sc not in learned:
-            out.append({"id": sc, "text": t})
+        if tx and sc and sc not in tr_any:
+            tr_any[sc] = tx
+    out = []
+    for it in _collected_mine(cfg, code):
+        sc = it.get("shortcode") or it.get("url")
+        tx = (it.get("transcript") or "").strip() or tr_any.get(sc, "")
+        if tx and sc and sc not in learned:
+            out.append({"id": sc, "text": tx})
     return out
 
 
