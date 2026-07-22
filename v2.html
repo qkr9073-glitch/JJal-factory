@@ -1310,11 +1310,11 @@
   }
   function bgmRenderList(){
     const el=$('bgList'); if(!el)return;
-    let h=`<label class="catrow" style="cursor:pointer"><input type="radio" name="bgsel" ${bgmState.sel===''?'checked':''} onchange="bgmSelect('')"> <b>BGM 없음</b></label>`;
-    h+=bgmState.list.map(x=>`<div class="catrow"><input type="radio" name="bgsel" ${bgmState.sel===x.file?'checked':''} onchange="bgmSelect('${encodeURIComponent(x.file)}')"> <b style="white-space:nowrap">${esch(x.name)}</b><audio src="${x.url}" controls preload="none" style="height:32px;flex:1;min-width:120px"></audio><button class="btn collmini" onclick="bgmDel('${encodeURIComponent(x.file)}')" title="삭제">🗑</button></div>`).join('');
+    let h=`<label class="catrow" style="cursor:pointer;${bgmState.sel===''?'border-color:var(--gold)':''}"><input type="radio" name="bgsel" ${bgmState.sel===''?'checked':''} onchange="bgmSelect('')"> <b>BGM 없음</b></label>`;
+    h+=bgmState.list.map(x=>`<div class="catrow" style="cursor:pointer;${bgmState.sel===x.file?'border-color:var(--gold);background:color-mix(in srgb,var(--gold) 8%,transparent)':''}" onclick="bgmSelect('${encodeURIComponent(x.file)}')"><input type="radio" name="bgsel" ${bgmState.sel===x.file?'checked':''} onchange="bgmSelect('${encodeURIComponent(x.file)}')"> <b style="white-space:nowrap">${esch(x.name)}${bgmState.sel===x.file?' ✅':''}</b><audio src="${x.url}" controls preload="none" style="height:32px;flex:1;min-width:120px" onclick="event.stopPropagation()"></audio><button class="btn collmini" onclick="event.stopPropagation();bgmDel('${encodeURIComponent(x.file)}')" title="삭제">🗑</button></div>`).join('');
     el.innerHTML=h||'<div style="color:var(--faint)">업로드된 BGM이 없어요</div>';
   }
-  function bgmSelect(enc){bgmState.sel=enc?decodeURIComponent(enc):'';bgmSelName();}
+  function bgmSelect(enc){bgmState.sel=enc?decodeURIComponent(enc):'';bgmSelName();bgmRenderList();}
   function bgmSelName(){const el=$('bgSelName');if(el){const f=bgmState.list.find(x=>x.file===bgmState.sel);el.textContent=bgmState.sel?(f?f.name:bgmState.sel):'없음';}}
   function bgmUpload(input){
     const file=input.files&&input.files[0]; if(!file)return;
@@ -1354,6 +1354,7 @@
     });
   }
   function bgmFinal(){
+    if(!bgmState.sel && bgmState.list.length && !confirm('BGM을 선택하지 않았어요 — BGM 없이(음성만) 완성할까요?\n(곡을 넣으려면 취소 후 목록에서 곡을 클릭하세요)'))return;
     const db=($('bgDb')&&$('bgDb').value)||'-14';
     $('bgJob').innerHTML='<div class="caphint" style="margin-top:10px">🎬 합치는 중…</div>';
     apiJson('/api/reelproj/final',{code:code(),pid:wiz.pid,bgm_code:code(),bgm_file:bgmState.sel,bgm_db:parseFloat(db)}).then(d=>{
