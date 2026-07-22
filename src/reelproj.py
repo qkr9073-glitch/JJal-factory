@@ -261,7 +261,8 @@ def state_public(base, pid):
         final = {"video": f"/reelproj/{pid}/edit/final.mp4"}
     return {"pid": pid, "script": st.get("script", ""), "topic": st.get("topic", ""),
             "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit,
-            "subs_style": st.get("subs_style", DEFAULT_STYLE), "final": final, "bgm": st.get("bgm")}
+            "subs_style": st.get("subs_style", DEFAULT_STYLE), "wm": st.get("wm") or {},
+            "final": final, "bgm": st.get("bgm")}
 
 
 def build_tts(cfg, base, pid, speed=1.0, voice="", log=print):
@@ -469,14 +470,18 @@ def _subs_sig(s):
             s.get("outline_w"), s.get("align"), s.get("bold"), bool(s.get("pop")), s.get("margin_v")]
 
 
-def _subs_ass(path, subs, style=None):
+def _subs_ass(path, subs, style=None, wm=None, dur=None):
     s = {**DEFAULT_STYLE, **(style or {})}
+    wm = wm or {}
     head = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
             "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, "
             "Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV\n"
             f"Style: Default,{s['family']},{int(s['size'])},{_ass_color(s['primary'])},"
             f"{_ass_color(s['outline'],'&H00000000')},&H90000000,{-1 if s.get('bold') else 0},1,"
-            f"{s['outline_w']},2,{int(s['align'])},80,80,{int(s['margin_v'])}\n\n"
+            f"{s['outline_w']},2,{int(s['align'])},80,80,{int(s['margin_v'])}\n"
+            # 워터마크: WM=계정명(하단 중앙, 작게·반투명), AD=[광고](우상단, 아주 작게)
+            f"Style: WM,{s['family']},34,&H55FFFFFF,&H88000000,&H00000000,0,1,2,0,2,80,80,60\n"
+            f"Style: AD,{s['family']},26,&H66FFFFFF,&H88000000,&H00000000,0,1,2,0,9,28,28,28\n\n"
             "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
     pop = _POP if s.get("pop") else ""
     # 시간 겹침 제거: 겹치면 두 자막이 동시에 떠 위치가 순간 어긋나 보임 → 앞 자막 끝을 다음 시작 직전으로
@@ -488,6 +493,13 @@ def _subs_ass(path, subs, style=None):
             items[i]["e"] = max(items[i]["s"] + 0.1, nxt - 0.03)
     ev = [f"Dialogue: 0,{autoshorts._ass_ts(x['s'])},{autoshorts._ass_ts(x['e'])},Default,,0,0,0,,{pop}{_ass_text(x['t'])}"
           for x in items if _ass_text(x['t'])]
+    # 워터마크: 영상 전체 길이 동안 고정 표시
+    end_ts = autoshorts._ass_ts(float(dur) + 5.0) if dur else "9:59:59.00"
+    acc = str(wm.get("account") or "").strip().lstrip("@")
+    if acc:
+        ev.append(f"Dialogue: 1,0:00:00.00,{end_ts},WM,,0,0,0,,@{_ass_text(acc)}")
+    if wm.get("ad"):
+        ev.append(f"Dialogue: 1,0:00:00.00,{end_ts},AD,,0,0,0,,[광고]")
     Path(path).write_text(head + "\n".join(ev) + "\n", encoding="utf-8")
 
 
@@ -603,7 +615,10 @@ def _mux_subs(base, pid, st):
     # 재추출한 family를 subs_style에도 반영(옛 프로젝트의 stale 무한루프 방지: rendered==style 유지)
     st["subs_style"] = style
     st["subs_rendered"] = dict(style)          # 이 스타일로 preview.mp4를 구움(⑥ 반영 판별용)
-    _subs_ass(edir / "sub.ass", st["tts"]["subs"], style)
+    wm = dict(st.get("wm") or {})
+    st["wm_rendered"] = dict(wm)
+    _subs_ass(edir / "sub.ass", st["tts"]["subs"], style,
+              wm=wm, dur=(st.get("tts") or {}).get("dur"))
     # cwd=edir 이므로 상위 tts 폴더는 ../tts 로 참조(절대/상대 base 모두 안전)
     autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", "video.mp4", "-i", "../tts/tts.mp3",
                      "-vf", ff_arg, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
@@ -683,6 +698,8 @@ def edit_public(base, pid, st):
     # 렌더된 자막 스타일과 현재 스타일이 다르면 stale=True (⑥ 진입 시 자동 재입힘 트리거)
     rendered = st.get("subs_rendered")
     stale = bool(rendered) and _subs_sig(st.get("subs_style") or {}) != _subs_sig(rendered)
+    if not stale and rendered is not None:      # 워터마크(계정명·[광고]) 변경도 재입힘 대상
+        stale = dict(st.get("wm") or {}) != dict(st.get("wm_rendered") or {})
     return {"preview": f"/reelproj/{pid}/edit/preview.mp4", "blocks": blocks, "subs_stale": stale}
 
 

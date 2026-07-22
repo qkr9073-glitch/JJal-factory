@@ -5189,7 +5189,14 @@ def api_reelproj_subs_style():
     pid = (data.get("pid") or "").strip()
     if not pid or not reelproj.exists(BASE, pid):
         return jsonify(ok=False, error="프로젝트 없음"), 404
-    reelproj.set_subs_style(BASE, pid, data.get("style") or {})
+    if data.get("style"):
+        reelproj.set_subs_style(BASE, pid, data.get("style") or {})
+    if "wm" in data:      # 워터마크 설정(계정명·[광고] 표시) — {account:"", ad:bool}
+        st = reelproj.load(BASE, pid)
+        w = data.get("wm") or {}
+        st["wm"] = {"account": str(w.get("account") or "").strip().lstrip("@")[:40],
+                    "ad": bool(w.get("ad"))}
+        reelproj.save(BASE, pid, st)
     return jsonify(ok=True)
 
 

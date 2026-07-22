@@ -1122,13 +1122,38 @@
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>✂️ 정밀 컷 생성</b>
           <span style="font-size:12px;color:var(--muted)">내용 전환점마다 태그 맞는 클립 배치 · 짧으면 최대 2배 슬로우 · 클립 재사용 안 함</span>
           <button class="btn primary" style="margin-left:auto" onclick="editRun()">정밀 컷 생성</button></div>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:11px;flex-wrap:wrap">
+          <span style="font-size:12.5px;color:var(--muted)">💧 계정 워터마크</span>
+          <select class="in" id="wmAcct" style="width:auto;padding:6px 9px;font-size:12.5px" onchange="wmSave()"></select>
+          <label class="ck" style="margin:0"><input type="checkbox" id="wmAd" onchange="wmSave()"> <span style="font-size:12.5px">[광고] 표시 <span style="color:var(--faint)">(우상단 아주 작게)</span></span></label>
+        </div>
+        <div class="caphint" style="margin-top:5px;color:var(--faint)">계정명은 영상 하단 중앙에 반투명으로 작게 들어가요. 바꾸면 자막처럼 자동으로 다시 입혀집니다.</div>
         <div id="editJob"></div>
       </div>
       <div id="editOut"></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:20px"><button class="btn" onclick="wizPrev()">← 이전(자막)</button><button class="btn" onclick="wizGo('bgm')">다음: BGM →</button></div>`;
     editLoad();
   }
-  function editLoad(){apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{if(d.ok&&d.edit)editRender(d.edit);});}
+  function editLoad(){
+    apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{
+      if(!d.ok)return;
+      wiz._wm=d.wm||{};
+      const sel=$('wmAcct');
+      if(sel){sel.innerHTML='<option value="">워터마크 없음</option>'+ACCTS.map(a=>`<option value="${esch(a)}" ${a===(wiz._wm.account||'')?'selected':''}>@${esch(a)}</option>`).join('');}
+      const ad=$('wmAd'); if(ad)ad.checked=!!wiz._wm.ad;
+      if(d.edit)editRender(d.edit);
+    });
+  }
+  function wmSave(){
+    const wm={account:($('wmAcct')&&$('wmAcct').value)||'', ad:!!($('wmAd')&&$('wmAd').checked)};
+    wiz._wm=wm;
+    apiJson('/api/reelproj/subs_style',{code:code(),pid:wiz.pid,wm}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      // 이미 만든 미리보기가 있으면 워터마크만 다시 입힘(자막 재입힘과 동일 경로)
+      if(wiz._edit&&wiz._edit.preview){editRestyle();}
+      else flash('💧 워터마크 설정 저장됨 — 컷 생성 시 반영');
+    });
+  }
   function editRun(){
     apiJson('/api/reelproj/edit',{code:code(),pid:wiz.pid}).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
