@@ -479,9 +479,9 @@ def _subs_ass(path, subs, style=None, wm=None, dur=None):
             f"Style: Default,{s['family']},{int(s['size'])},{_ass_color(s['primary'])},"
             f"{_ass_color(s['outline'],'&H00000000')},&H90000000,{-1 if s.get('bold') else 0},1,"
             f"{s['outline_w']},2,{int(s['align'])},80,80,{int(s['margin_v'])}\n"
-            # 워터마크: WM=계정명(하단 중앙, 작게·반투명), AD=[광고](우상단, 아주 작게)
-            f"Style: WM,{s['family']},34,&H55FFFFFF,&H88000000,&H00000000,0,1,2,0,2,80,80,60\n"
-            f"Style: AD,{s['family']},26,&H66FFFFFF,&H88000000,&H00000000,0,1,2,0,9,28,28,28\n\n"
+            # 워터마크: WM=계정명(하단 중앙, 반투명), AD=[광고](우상단)
+            f"Style: WM,{s['family']},68,&H55FFFFFF,&H88000000,&H00000000,0,1,2,0,2,80,80,60\n"
+            f"Style: AD,{s['family']},39,&H66FFFFFF,&H88000000,&H00000000,0,1,2,0,9,28,28,28\n\n"
             "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
     pop = _POP if s.get("pop") else ""
     # 시간 겹침 제거: 겹치면 두 자막이 동시에 떠 위치가 순간 어긋나 보임 → 앞 자막 끝을 다음 시작 직전으로
