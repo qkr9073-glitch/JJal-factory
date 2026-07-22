@@ -4452,6 +4452,17 @@ def _run_transcripts_job(jid, cfg, sel):
             job["msg"] = f"{i}/{total} 대본 추출 중… {sc}"
             job["pct"] = int(3 + (i - 1) / max(1, total) * 92)
             text, lang, summary, err = "", "", "", ""
+            prev = (it.get("transcript") or "").strip()
+            if prev:                          # 이미 추출된 대본은 재사용(재실행 시 시간·한도 절약)
+                text, lang = prev, it.get("transcript_lang", "")
+                ok += 1
+                views = it.get("viewCount") or 0
+                head = (f"# 릴스 대본  {sc}\nURL: {url}\n조회수: {views}\n언어: {lang or '미상'}"
+                        f"\n요지: (기존 추출 재사용)\n\n" + ("=" * 30) + "\n\n")
+                fn = f"{i:02d}_{_tr_views(views)}_{_tr_safe(sc)}.txt"
+                (work / fn).write_text(head + text + "\n", encoding="utf-8")
+                txts.append(work / fn)
+                continue
             vid = work / f"{_tr_safe(sc)}.mp4"
             try:
                 # 대본만 뽑으면 되므로 저화질(480p)로 — 다운로드·Gemini 업로드 몇 배 빠름

@@ -177,16 +177,26 @@ def _gemini_upload_video(key, video_path, log=print):
     with open(video_path, "rb") as f:
         data = f.read()
     log("      영상 Gemini 업로드 중...")
-    r = requests.post(brain._FILES_UPLOAD, params={"key": key},
-                      headers={"X-Goog-Upload-Protocol": "resumable",
-                               "X-Goog-Upload-Command": "start",
-                               "X-Goog-Upload-Header-Content-Length": str(len(data)),
-                               "X-Goog-Upload-Header-Content-Type": "video/mp4",
-                               "Content-Type": "application/json"},
-                      json={"file": {"display_name": "reel"}}, timeout=60)
-    up = r.headers.get("X-Goog-Upload-URL")
-    if not up:
+    up = None
+    for attempt in range(5):          # 429(분당 한도)는 점증 대기 후 재시도 — 대량 추출 필수
+        r = requests.post(brain._FILES_UPLOAD, params={"key": key},
+                          headers={"X-Goog-Upload-Protocol": "resumable",
+                                   "X-Goog-Upload-Command": "start",
+                                   "X-Goog-Upload-Header-Content-Length": str(len(data)),
+                                   "X-Goog-Upload-Header-Content-Type": "video/mp4",
+                                   "Content-Type": "application/json"},
+                          json={"file": {"display_name": "reel"}}, timeout=60)
+        up = r.headers.get("X-Goog-Upload-URL")
+        if up:
+            break
+        if r.status_code in (429, 503) and attempt < 4:
+            wait = 20 * (attempt + 1)
+            log(f"      Gemini 한도({r.status_code}) — {wait}초 대기 후 재시도 {attempt+2}/5")
+            time.sleep(wait)
+            continue
         raise RuntimeError(f"영상 업로드 시작 실패 ({r.status_code})")
+    if not up:
+        raise RuntimeError("영상 업로드 시작 실패 (재시도 소진)")
     r2 = requests.post(up, headers={"X-Goog-Upload-Offset": "0",
                                     "X-Goog-Upload-Command": "upload, finalize"},
                        data=data, timeout=300)
