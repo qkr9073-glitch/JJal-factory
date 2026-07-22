@@ -5496,6 +5496,7 @@ def api_ie_insta_collected():
             "likeCount": int(it.get("likeCount", 0) or 0),
             "n_img": len(imgs), "thumb": imgs[0] if imgs else it.get("thumbUrl", ""),
             "collected_at": it.get("collected_at", ""),
+            "transcript": bool((it.get("transcript") or "").strip()),
         })
     return jsonify(ok=True, items=out[:400])
 
@@ -5512,9 +5513,13 @@ def api_ie_insta_collected_clear():
     def mine(x):
         b = (x.get("by") or "").strip()
         return b == mycode or (not b and legacy_owner and mycode == legacy_owner)
+    only_extracted = bool(data.get("extracted"))
     with _collect_lock:
         if sc:   # 한 건만 제거(내 것만)
             items = [x for x in _collected_load() if not (mine(x) and x.get("shortcode") == sc)]
+        elif only_extracted:   # 대본 추출 끝난 내 항목만 제거
+            items = [x for x in _collected_load()
+                     if not (mine(x) and (x.get("transcript") or "").strip())]
         else:    # 내 수집만 전체 비우기(남의 것 보존)
             items = [x for x in _collected_load() if not mine(x)]
         IG_COLLECTED_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")

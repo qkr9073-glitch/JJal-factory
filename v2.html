@@ -2319,6 +2319,7 @@
         <button class="btn" style="margin-left:auto" onclick="ieTrSelectAll()" title="현재 목록의 릴스 전체 선택/해제">☑ 전체선택</button>
         <button class="btn primary" onclick="ieTranscriptsZip()" title="📝로 고른(또는 전체선택한) 릴스들의 대본을 추출">📝 대본 추출 (<span id="trcount">0</span>)</button>
         <button class="btn" onclick="ieLoadCollected()">🔄</button>
+        <button class="btn" onclick="ieClearExtracted()" title="📝대본✓ 표시된(추출 끝난) 항목만 목록에서 제거">🧹 추출된 것 비우기</button>
         <button class="btn" onclick="ieClearCollected()">🗑 비우기</button></div>
       <div class="caphint" style="margin-bottom:12px"><b>짤공장 릴스 헌터</b> 확장으로 인스타를 둘러보면 여기에 자동으로 쌓입니다(로그인 X). <b>이미지</b>는 템플릿 골라 한국판 짤, <b>릴스</b>는 영상 대본을 뽑아 유튜브 짤처럼 생성. 릴스 썸네일의 <b>📝</b>를 눌러 여러 개 고른 뒤 <b>대본 추출</b>로 대본만 한꺼번에 뽑을 수 있어요.</div>
       <div id="ie_collected"><div style="color:var(--faint)">불러오는 중…</div></div>
@@ -2409,6 +2410,13 @@
       el.style.cssText='background:color-mix(in srgb,var(--gold) 15%,transparent);border:2px solid var(--gold);border-radius:10px;padding:12px';
     }
     flash('📎 소재 선택됨 — '+(k==='reel'?'아래 [만들기]를 누르세요 (릴스는 템플릿 무관)':'템플릿 고르고 [만들기]'));
+  }
+  function ieClearExtracted(){
+    if(!confirm('📝대본✓ 표시된(추출 끝난) 항목만 목록에서 뺄까요?\n(추출한 대본 파일·학습 데이터는 그대로 남아요)'))return;
+    apiJson('/api/ie/insta/collected_clear',{code:code(),extracted:true}).then(d=>{
+      if(d&&d.ok===false){flash('❌ '+d.error);return;}
+      IEB.trSel.clear(); ieLoadCollected(); flash('🧹 추출된 항목 정리됨');
+    });
   }
   function ieClearCollected(){
     if(!confirm('수집 목록을 전부 비울까요?'))return;
