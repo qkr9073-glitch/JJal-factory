@@ -725,12 +725,27 @@
       slideEl(body,renderWizStep,dir);
     } else { renderAutoReel(); }
   }
-  function wizSave(){try{localStorage.setItem('reelwiz',JSON.stringify({pid:wiz.pid||'',step:wiz.step}));}catch(_){}}
+  function wizSave(){try{localStorage.setItem('reelwiz',JSON.stringify({pid:wiz.pid||'',step:wiz.step,acct:wiz.acct||''}));}catch(_){}}
+  function wizAcctPaint(){
+    const box=$('acctPickChips'); if(!box)return;
+    box.innerHTML=ACCTS.map(a=>`<span class="chip ${wiz.acct===a?'on':''}" onclick="wizAcctPick('${esch(a)}')">@${esch(a)}</span>`).join('')
+      +`<span class="chip ${!wiz.acct?'on':''}" onclick="wizAcctPick('')">미지정</span>`;
+  }
+  function wizAcctPick(a){
+    wiz.acct=a||''; wizSave(); wizAcctPaint(); wizAcctPush();
+    flash(a?('📤 올릴 채널: @'+a):'올릴 채널 미지정');
+  }
+  function wizAcctPush(){   // 프로젝트가 있으면 서버(워터마크 계정)에도 반영
+    if(!wiz.pid)return;
+    const ad=(wiz._wm&&wiz._wm.ad)||false;
+    wiz._wm={account:wiz.acct||'',ad};
+    apiJson('/api/reelproj/subs_style',{code:code(),pid:wiz.pid,wm:wiz._wm}).catch(()=>{});
+  }
   function wizRestore(){
     let s;try{s=JSON.parse(localStorage.getItem('reelwiz')||'{}');}catch(_){return;}
     if(!s.pid||!code())return;
     apiJson('/api/reelproj/state',{code:code(),pid:s.pid}).then(d=>{
-      if(d&&d.ok){wiz.pid=s.pid;wiz.script=d.script;wiz.topic=d.topic;wiz.category=d.category;wiz.step=s.step||wiz.step;renderAutoReel();}
+      if(d&&d.ok){wiz.pid=s.pid;wiz.script=d.script;wiz.topic=d.topic;wiz.category=d.category;wiz.step=s.step||wiz.step;wiz.acct=s.acct||((d.wm||{}).account||'');renderAutoReel();}
     }).catch(()=>{});
   }
   function wizNew(){wiz={step:'learn',_restored:true};wizSave();renderAutoReel();}
@@ -754,7 +769,7 @@
   function wizOpen(pid){
     apiJson('/api/reelproj/state',{code:code(),pid}).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
-      wiz.pid=pid;wiz.script=d.script;wiz.topic=d.topic;wiz.category=d.category;
+      wiz.pid=pid;wiz.script=d.script;wiz.topic=d.topic;wiz.category=d.category;wiz.acct=((d.wm||{}).account)||wiz.acct||'';
       wiz.step=d.final?'bgm':(d.edit?'edit':(d.tts?'subs':'clips'));
       wizSave();renderAutoReel();flash('📂 프로젝트 이어가기');
     });
@@ -882,7 +897,7 @@
     if(wiz.pid)body.pid=wiz.pid;
     apiJson('/api/reelproj/collect',body).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
-      wiz.pid=d.pid; wizSave();
+      wiz.pid=d.pid; wizSave(); wizAcctPush();
       $('clipJob').innerHTML=`<div id="cj-${d.job}" class="lcard" style="padding:11px 13px"><div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:5%;background:var(--gold);transition:width .5s"></div></div><span class="jm" style="color:var(--gold)">접수됨…</span></div>`;
       clipPoll(d.job);
     }).catch(e=>flash('❌ 통신 오류'));
@@ -1192,8 +1207,10 @@
           <span style="font-size:12px;color:var(--muted)">내용 전환점마다 태그 맞는 클립 배치 · 짧으면 최대 2배 슬로우 · 클립 재사용 안 함</span>
           <button class="btn primary" style="margin-left:auto" onclick="editRun()">정밀 컷 생성</button></div>
         <div style="display:flex;align-items:center;gap:12px;margin-top:11px;flex-wrap:wrap">
-          <span style="font-size:12.5px;color:var(--muted)">💧 계정 워터마크</span>
-          <select class="in" id="wmAcct" style="width:auto;padding:6px 9px;font-size:12.5px" onchange="wmSave()"></select>
+          <span style="font-size:12.5px;color:var(--muted)">💧 올릴 채널·워터마크</span>
+          <b id="wmAcctShow" style="font-size:13px;color:var(--gold)"></b>
+          <button class="btn collmini" onclick="wmAcctToggle()">변경</button>
+          <select class="in" id="wmAcct" style="width:auto;padding:6px 9px;font-size:12.5px;display:none" onchange="wmSave();wmAcctToggle(true)"></select>
           <label class="ck" style="margin:0"><input type="checkbox" id="wmAd" onchange="wmSave()"> <span style="font-size:12.5px">[광고] 표시 <span style="color:var(--faint)">(우상단 아주 작게)</span></span></label>
         </div>
         <div class="caphint" style="margin-top:5px;color:var(--faint)">계정명은 영상 하단 중앙에 반투명으로 작게 들어가요. 바꾸면 자막처럼 자동으로 다시 입혀집니다.</div>
@@ -1207,15 +1224,24 @@
     apiJson('/api/reelproj/state',{code:code(),pid:wiz.pid}).then(d=>{
       if(!d.ok)return;
       wiz._wm=d.wm||{};
+      if(!wiz._wm.account&&wiz.acct){wiz._wm.account=wiz.acct;wizAcctPush();}   // ①에서 고른 채널 반영
+      wiz.acct=wiz._wm.account||wiz.acct||'';
       const sel=$('wmAcct');
       if(sel){sel.innerHTML='<option value="">워터마크 없음</option>'+ACCTS.map(a=>`<option value="${esch(a)}" ${a===(wiz._wm.account||'')?'selected':''}>@${esch(a)}</option>`).join('');}
+      const show=$('wmAcctShow'); if(show)show.textContent=wiz._wm.account?('@'+wiz._wm.account):'(미지정 — ①에서 선택)';
       const ad=$('wmAd'); if(ad)ad.checked=!!wiz._wm.ad;
       if(d.edit)editRender(d.edit);
     });
   }
+  function wmAcctToggle(hide){
+    const sel=$('wmAcct'); if(!sel)return;
+    sel.style.display=(hide===true||sel.style.display==='')?'none':'';
+  }
   function wmSave(){
-    const wm={account:($('wmAcct')&&$('wmAcct').value)||'', ad:!!($('wmAd')&&$('wmAd').checked)};
-    wiz._wm=wm;
+    const wm={account:($('wmAcct')&&$('wmAcct').style.display!=='none'?$('wmAcct').value:(wiz._wm&&wiz._wm.account)||''), ad:!!($('wmAd')&&$('wmAd').checked)};
+    if($('wmAcct')&&$('wmAcct').style.display!=='none')wm.account=$('wmAcct').value||'';
+    wiz._wm=wm; wiz.acct=wm.account||wiz.acct; wizSave();
+    const show=$('wmAcctShow'); if(show)show.textContent=wm.account?('@'+wm.account):'(미지정 — ①에서 선택)';
     apiJson('/api/reelproj/subs_style',{code:code(),pid:wiz.pid,wm}).then(d=>{
       if(!d.ok){flash('❌ '+d.error);return;}
       // 이미 만든 미리보기가 있으면 워터마크만 다시 입힘(자막 재입힘과 동일 경로)
@@ -1483,6 +1509,10 @@
         <div id="lpeek"></div>
       </div>
       <div class="lcard">
+        <b>📤 올릴 채널</b> <span style="color:var(--faint);font-size:12px">— 이 프로젝트를 업로드할 인스타 계정. 워터마크·보이스·자막 기록이 이 채널 기준으로 저장돼요 (이후 단계에선 변경만 가능)</span>
+        <div class="chips" id="acctPickChips" style="margin-top:10px"></div>
+      </div>
+      <div class="lcard">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <b>🔥 트렌드 소재 추천</b>
           <select class="in" id="recCat" style="max-width:170px"></select>
@@ -1521,6 +1551,7 @@
     const av=$('lavail'); if(av)av.textContent=learnState.avail?`· 미학습 대본 ${learnState.avail}개`:'· 새로 학습할 대본 없음';
     paintCats();
     const rc=$('recCat'); if(rc)rc.innerHTML=learnState.cats.map(c=>`<option>${esch(c.name)}</option>`).join('');
+    wizAcctPaint();
   }
   function recRun(){
     const cat=($('recCat')&&$('recCat').value)||'';
