@@ -766,7 +766,7 @@ def build_final(cfg, base, pid, bgm_code="", bgm_file="", bgm_db=-20.0, log=prin
         db = max(-40.0, min(0.0, float(bgm_db)))
         fc = (f"[1:a]volume={db}dB,aformat=sample_rates=44100:channel_layouts=stereo[b];"
               "[0:a]aformat=sample_rates=44100:channel_layouts=stereo[v];"
-              "[v][b]amix=inputs=2:duration=first:normalize=0[a]")
+              "[v][b]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.89:level=false[a]")
         autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", str(prev.resolve()),
                          "-stream_loop", "-1", "-i", str(bgm_path.resolve()), "-filter_complex", fc,
                          "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
