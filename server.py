@@ -5766,7 +5766,7 @@ def _published_pack_traits():
         subs = meta.get("subs_style") or {}
         bgm = meta.get("bgm") or {}
         cover_style = meta.get("cover_style") or {}
-        if (not voice or not subs) and meta.get("script"):
+        if (not voice or not subs or not bgm) and meta.get("script"):
             # 구팩 소급: 같은 대본의 릴스 프로젝트에서 설정을 끌어옴(메타 저장 이전 팩 대응)
             key_script = str(meta["script"]).strip()
             for sj in (BASE / "reelproj").glob("*/state.json"):
