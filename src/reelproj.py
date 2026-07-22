@@ -294,8 +294,11 @@ def build_tts(cfg, base, pid, speed=1.0, voice="", log=print):
         s0 = max(0.0, float(words[0]["s"]) - 0.02)          # 앞 무음 컷
         e1 = float(words[-1]["s"]) + float(words[-1]["d"]) + 0.04   # 뒤 살짝 여유
         ln = tdir / f"line{i}.mp3"
+        # loudnorm: 줄마다 표준 음량으로 정규화 — ElevenLabs가 특정 문장을 유난히 작게
+        # 생성하는 변동성 때문에 중간에 소리가 확 작아지던 문제 방지(길이 불변)
         autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{s0:.3f}",
-                         "-to", f"{e1:.3f}", "-i", str(raw), "-af", f"atempo={speed:.3f}",
+                         "-to", f"{e1:.3f}", "-i", str(raw),
+                         "-af", f"atempo={speed:.3f},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100",
                          "-c:a", "libmp3lame", "-q:a", "2", str(ln)])
         line_files.append(ln.name)
         for ch in _phrase_chunks(words):                   # 의미단위 짧은 구절 자막(속도만큼 타이밍 축소)
