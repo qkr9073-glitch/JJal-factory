@@ -3819,6 +3819,98 @@ def _sched_autohold(items, now, grace=600):
     return ch
 
 
+def _sched_publish_entry(cfg, e):
+    """예약 항목 1건 발행(성공/실패 상태를 항목에 기록). 스케줄러·즉시발행 공용."""
+    try:
+        if e.get("type") == "reel" and e.get("video_pack"):
+            # 릴스 완성팩 예약: 팩의 video.mp4를 릴스로 발행(커버=선택 대표컷)
+            pack_dir = OUTPUT / e["video_pack"]
+            if not (pack_dir / "video.mp4").exists():
+                raise RuntimeError("예약 팩 영상 없음(삭제됨?)")
+            video_url, cover_url, caption = _reel_pack_urls(
+                cfg, pack_dir, lead=e.get("lead") or None)
+            r = insta.publish_reel(cfg, BASE, video_url,
+                                   caption or e.get("caption") or "",
+                                   account=e.get("account") or None,
+                                   cover_url=cover_url)
+            insta.mark_published(BASE, pack_dir.name, r)
+            _auto_comment_pack(cfg, pack_dir, r)
+        elif e.get("type") == "reel":        # 릴스 예약(대량): _videos 영상 URL로 발행
+            vn = e.get("video") or ""
+            vpath = OUTPUT / "_videos" / vn
+            if not vn or not vpath.exists():
+                raise RuntimeError("예약 영상 없음(만료/삭제됨?)")
+            public = (cfg.get("public_base_url")
+                      or "https://jjal.traffic-charger.com").rstrip("/")
+            video_url = f"{public}/packs/_videos/{vn}"
+            r = insta.publish_reel(cfg, BASE, video_url,
+                                   e.get("caption") or "",
+                                   account=e.get("account") or None)
+            _auto_comment(cfg, r, "릴스(쇼츠 영상)",
+                          e.get("title") or "", e.get("caption") or "")
+            try:
+                vpath.unlink()               # 게시 후 영상 정리
+            except OSError:
+                pass
+        else:                                # 게시물(캐러셀) 예약
+            pack_dir = OUTPUT / e["pack"]
+            if not pack_dir.is_dir():
+                raise RuntimeError("팩 없음(삭제됨?)")
+            r = insta.publish_pack(cfg, BASE, pack_dir,
+                                   lead=e.get("lead") or None,
+                                   account=e.get("account") or None)
+            _auto_comment_pack(cfg, pack_dir, r)
+        e["status"] = "done"
+        e["permalink"] = r.get("permalink", "")
+        e["error"] = ""
+    except Exception as ex:
+        e["status"] = "failed"
+        e["error"] = str(ex)[:200]
+    e["posted_at"] = datetime.now().isoformat(timespec="seconds")
+
+
+def _run_sched_publish_now(jid, cfg, sid):
+    job = JOBS[jid]
+    job.update(status="running", pct=20, msg="즉시 발행 중… (인스타 처리 수십 초)")
+    items = _sched_load()
+    e = next((x for x in items if x.get("id") == sid), None)
+    if e is None:
+        job.update(status="error", error="예약을 찾을 수 없어요")
+        return
+    _sched_publish_entry(cfg, e)
+    with _sched_lock:
+        cur = _sched_load()               # 그 사이 변경 병합: 해당 항목만 갱신
+        for i, x in enumerate(cur):
+            if x.get("id") == sid:
+                cur[i] = e
+                break
+        _sched_save(cur)
+    if e.get("status") == "done":
+        job.update(status="done", pct=100, msg="게시 완료",
+                   result={"permalink": e.get("permalink", "")})
+    else:
+        job.update(status="error", error=e.get("error") or "발행 실패")
+
+
+@app.post("/api/schedule/publish_now")
+def api_schedule_publish_now():
+    """(관리자) 예약 건을 지금 즉시 발행 — 대기·승인대기·실패·놓침·보류 모두 가능."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="즉시 업로드는 관리자만 가능합니다"), 403
+    sid = (data.get("id") or "").strip()
+    if not any(x.get("id") == sid for x in _sched_load()):
+        return jsonify(ok=False, error="예약을 찾을 수 없습니다"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None,
+                 "error": None, "ts": time.time()}
+    threading.Thread(target=_run_sched_publish_now, args=(jid, cfg, sid), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
 def _scheduler_loop():
     """예약 큐 주기 확인 → 시간 되면 자동 게시. 서버 꺼져 놓친 건 시작 시 '놓침' 처리."""
     grace = 600   # 10분 이상 지난 pending = (서버 꺼졌던 것) → 놓침
@@ -3841,51 +3933,7 @@ def _scheduler_loop():
             if due:
                 cfg = load_config()
                 for e in due:
-                    try:
-                        if e.get("type") == "reel" and e.get("video_pack"):
-                            # 릴스 완성팩 예약: 팩의 video.mp4를 릴스로 발행(커버=선택 대표컷)
-                            pack_dir = OUTPUT / e["video_pack"]
-                            if not (pack_dir / "video.mp4").exists():
-                                raise RuntimeError("예약 팩 영상 없음(삭제됨?)")
-                            video_url, cover_url, caption = _reel_pack_urls(
-                                cfg, pack_dir, lead=e.get("lead") or None)
-                            r = insta.publish_reel(cfg, BASE, video_url,
-                                                   caption or e.get("caption") or "",
-                                                   account=e.get("account") or None,
-                                                   cover_url=cover_url)
-                            insta.mark_published(BASE, pack_dir.name, r)
-                            _auto_comment_pack(cfg, pack_dir, r)
-                        elif e.get("type") == "reel":        # 릴스 예약(대량): _videos 영상 URL로 발행
-                            vn = e.get("video") or ""
-                            vpath = OUTPUT / "_videos" / vn
-                            if not vn or not vpath.exists():
-                                raise RuntimeError("예약 영상 없음(만료/삭제됨?)")
-                            public = (cfg.get("public_base_url")
-                                      or "https://jjal.traffic-charger.com").rstrip("/")
-                            video_url = f"{public}/packs/_videos/{vn}"
-                            r = insta.publish_reel(cfg, BASE, video_url,
-                                                   e.get("caption") or "",
-                                                   account=e.get("account") or None)
-                            _auto_comment(cfg, r, "릴스(쇼츠 영상)",
-                                          e.get("title") or "", e.get("caption") or "")
-                            try:
-                                vpath.unlink()               # 게시 후 영상 정리
-                            except OSError:
-                                pass
-                        else:                                # 게시물(캐러셀) 예약
-                            pack_dir = OUTPUT / e["pack"]
-                            if not pack_dir.is_dir():
-                                raise RuntimeError("팩 없음(삭제됨?)")
-                            r = insta.publish_pack(cfg, BASE, pack_dir,
-                                                   lead=e.get("lead") or None,
-                                                   account=e.get("account") or None)
-                            _auto_comment_pack(cfg, pack_dir, r)
-                        e["status"] = "done"
-                        e["permalink"] = r.get("permalink", "")
-                    except Exception as ex:
-                        e["status"] = "failed"
-                        e["error"] = str(ex)[:200]
-                    e["posted_at"] = datetime.now().isoformat(timespec="seconds")
+                    _sched_publish_entry(cfg, e)
                 _sched_save(items)
         except Exception:
             pass

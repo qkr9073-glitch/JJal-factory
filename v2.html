@@ -492,7 +492,8 @@
     <div class="sminfo" id="smInfo"></div>
     <div class="smcap" id="smCap" style="display:none"></div>
     <div class="smfoot">
-      <button class="btn primary" id="smEdit">🕒 예약 변경</button>
+      <button class="btn primary" id="smNow" style="display:none">⚡ 지금 업로드</button>
+      <button class="btn" id="smEdit">🕒 예약 변경</button>
       <div class="sp"></div>
       <button class="btn" id="smCancel" style="color:var(--danger);border-color:var(--danger)">🗑 예약 취소</button>
     </div>
@@ -3326,10 +3327,25 @@
     if($('smCap')){ $('smCap').style.display=cap?'':'none';
       $('smCap').innerHTML='<span class="cl">📝 올릴 캡션</span>'+esch(cap); }
     const canEdit=(e.status==='pending'||e.status==='await');
+    const canDel=canEdit||(isAdmin()&&['failed','missed','hold','rejected','done'].includes(e.status));
+    const canNow=isAdmin()&&['pending','await','failed','missed','hold'].includes(e.status);
     $('smEdit').style.display=canEdit?'':'none';
-    $('smCancel').style.display=canEdit?'':'none';
+    $('smCancel').style.display=canDel?'':'none';
+    $('smCancel').textContent=canEdit?'🗑 예약 취소':'🗑 기록 삭제';
+    $('smNow').style.display=canNow?'':'none';
     $('smEdit').onclick=(ev)=>{ev.stopPropagation();openReschedule(e.id);};
-    $('smCancel').onclick=(ev)=>{ev.stopPropagation();if(confirm('이 예약을 취소할까요? (되돌릴 수 없습니다)')){cancelSched(e.id);closeSModal();}};
+    $('smCancel').onclick=(ev)=>{ev.stopPropagation();if(confirm(canEdit?'이 예약을 취소할까요? (되돌릴 수 없습니다)':'이 기록을 삭제할까요?')){cancelSched(e.id);closeSModal();}};
+    $('smNow').onclick=(ev)=>{ev.stopPropagation();
+      if(!confirm('@'+(e.account||'')+' 에 지금 바로 게시할까요?'+(e.status==='failed'?'\n(실패했던 건 재시도)':'')))return;
+      closeSModal(); flash('⚡ 즉시 발행 요청…');
+      apiJson('/api/schedule/publish_now',{code:code(),id:e.id}).then(d=>{
+        if(!d.ok){flash('❌ '+d.error);return;}
+        (async function pp(){let j;try{const r=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(er){setTimeout(pp,2500);return;}
+          if(j.status==='done'){flash('✅ 게시 완료!');loadSched();loadPacks&&loadPacks();}
+          else if(j.status==='error'){flash('❌ '+j.error);loadSched();}
+          else{flash('📤 '+(j.msg||'발행 중…'));setTimeout(pp,2000);}})();
+      });
+    };
     $('sScrim').classList.add('open');
   }
   function paintSPrev(){
