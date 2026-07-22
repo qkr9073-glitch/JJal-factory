@@ -2806,13 +2806,13 @@ def api_packs():
                 continue
             owner = owners.get(d.name)
             sched = d.name in sched_packs
-            visible = admin_all or owner == mycode or (is_admin and not owner)
-            if not visible and sched:
-                # 예약 건 팩은 결과물에도 보여야 관리 가능 → 관리자 전체 + 예약 건 본인
-                if is_admin or mycode in sched_by.get(d.name, set()):
-                    visible = True
+            # 엄격 계정 분리: 내 소유 팩 + 내가 예약 건 팩만. 관리자도 예외 없음.
+            # (소유자 미상 레거시는 아무에게도 안 보임 — 미소유팩정리.cmd로 백업/정리.
+            #  전체를 봐야 하면 config "results_admin_see_all": true)
+            visible = admin_all or owner == mycode \
+                or (sched and mycode in sched_by.get(d.name, set()))
             if not visible:
-                continue      # 남의 소유·비예약 팩은 숨김. (관리자는 미소유 레거시·모든 예약도 봄)
+                continue
             if len(packs) >= 60 and not sched:
                 continue      # 60개 초과분은 건너뛰되, 예약 팩은 항상 포함(잘림 방지)
             meta = {}
