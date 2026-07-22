@@ -254,6 +254,29 @@ def publish_reel(cfg, base_dir, video_url, caption, account=None,
     return {"media_id": media_id, "permalink": permalink, "account": key}
 
 
+def post_comment(cfg, media_id, text, account=None, log=print):
+    """발행된 게시물/릴스에 '본인 계정'으로 댓글 작성(고정댓글 CTA용).
+    권한: 토큰에 instagram_business_manage_comments 필요. 실패 시 예외."""
+    text = (text or "").strip()
+    if not media_id or not text:
+        return None
+    accs = _accounts(cfg)
+    key = account if (account and account in accs) else \
+        ((cfg.get("ig_route") or {}).get("default") or next(iter(accs), None))
+    acc = accs.get(key) or {}
+    token = str(acc.get("access_token") or "").strip()
+    if not token:
+        raise RuntimeError(f"'{key}' 계정 토큰이 없어요")
+    r = requests.post(f"{_base(cfg)}/{media_id}/comments",
+                      data={"message": text[:900], "access_token": token}, timeout=30)
+    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    if r.status_code != 200 or "id" not in body:
+        msg = body.get("error", {}).get("message", r.text[:150])
+        raise RuntimeError(f"댓글 실패: {msg}")
+    log(f"      💬 @{key} 자동 댓글 달림")
+    return body["id"]
+
+
 def fetch_profile(cfg, account=None, dest_photo=None, log=print):
     """선택 계정의 인스타 프로필(유저명·이름·소개·사진) 조회. dest_photo 경로 주면 사진 다운로드.
     반환 {username, name, biography, photo_path} 또는 None(미연동/실패)."""

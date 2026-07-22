@@ -2561,6 +2561,7 @@ def _run_reel_job(jid, video_path, video_url, caption, account, cfg):
     try:
         result = insta.publish_reel(cfg, BASE, video_url, caption,
                                     account=account, log=log)
+        _auto_comment(cfg, result, "릴스(쇼츠 영상)", "", caption, log=log)
         job["result"] = {"reel": True, "insta": True,
                          "permalink": result.get("permalink", ""),
                          "account": result.get("account", "")}
@@ -3599,6 +3600,66 @@ def api_card_edit():
     return jsonify(ok=True, job=jid)
 
 
+def _gen_auto_comment(cfg, kind, title, text, keyword=""):
+    """게시물 내용 기반 CTA 자동 댓글 1개 생성(후킹 1줄 + 댓글 키워드 CTA 1줄)."""
+    kw_line = (f"- CTA 키워드는 반드시 '{keyword}' 를 그대로 사용." if keyword
+               else "- CTA 키워드는 소재에 어울리는 짧은 한 단어를 직접 정해라(예: 제품명 일부).")
+    prompt = f"""너는 인스타 운영자다. 방금 올린 게시물에 '작성자 고정 댓글'로 달 CTA 댓글 1개를 써라.
+- 정확히 2줄: 1줄=게시물 내용에 딱 붙는 후킹 한 줄(이모지 0~1개), 2줄=댓글에 '키워드' 남기면 정보를 준다는 CTA.
+{kw_line}
+- 과장·거짓 금지, 자연스러운 구어체.
+예시(쇼핑 릴스):
+손글씨 쓰는 사람들은 이거 진짜 못 빠져나옵니다 😳
+댓글에 '엣지' 남기면 정보 바로 드릴게요!
+
+[게시물 종류] {kind}
+[제목] {title}
+[내용]
+{(text or "")[:800]}
+반드시 JSON만: {{"comment":"1줄
+2줄"}}"""
+    r = reelproj._gjson(cfg, prompt, maxtok=512)
+    return str(r.get("comment", "")).strip()[:500]
+
+
+def _auto_comment(cfg, result, kind, title, text, keyword="", log=print):
+    """발행 성공 직후 CTA 댓글 자동 작성. 실패해도 게시물엔 영향 없음(로그만).
+    config "insta_auto_comment": false 로 끌 수 있음(기본 켬)."""
+    if not cfg.get("insta_auto_comment", True):
+        return
+    mid = (result or {}).get("media_id")
+    if not mid:
+        return
+    try:
+        cmt = _gen_auto_comment(cfg, kind, title, text, keyword)
+        if cmt:
+            insta.post_comment(cfg, mid, cmt, account=(result or {}).get("account"), log=log)
+    except Exception as e:
+        log(f"      (자동댓글 실패 — 게시물은 정상: {str(e)[:100]})")
+
+
+def _auto_comment_pack(cfg, pack_dir, result, log=print):
+    """완성팩 meta로 종류/재료를 뽑아 자동 댓글."""
+    pack_dir = Path(pack_dir)
+    meta = {}
+    try:
+        meta = json.loads((pack_dir / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    caption = ""
+    try:
+        caption = (pack_dir / "caption.txt").read_text(encoding="utf-8")
+    except Exception:
+        pass
+    if meta.get("type") == "reel" or meta.get("template") == "reel":
+        kind, text, kw = "릴스(쇼츠 영상)", (meta.get("script") or caption), ""
+    elif meta.get("type") == "cardnews":
+        kind, text, kw = "카드뉴스(정보 캐러셀)", caption, str(meta.get("keyword") or "")
+    else:
+        kind, text, kw = "커뮤니티 유머 짤(캐러셀)", caption, ""
+    _auto_comment(cfg, result, kind, str(meta.get("title") or ""), text, kw, log=log)
+
+
 def _run_insta_job(jid, pack_dir, lead, force, cfg, account=None):
     job = JOBS[jid]
 
@@ -3618,6 +3679,7 @@ def _run_insta_job(jid, pack_dir, lead, force, cfg, account=None):
         else:
             result = insta.publish_pack(cfg, BASE, pack_dir, lead=lead, force=force,
                                         account=account, log=log)
+        _auto_comment_pack(cfg, pack_dir, result, log=log)
         job["result"] = {"insta": True, "permalink": result.get("permalink", "")}
         job["pct"] = 100
         job["status"] = "done"
@@ -3791,6 +3853,7 @@ def _scheduler_loop():
                                                    account=e.get("account") or None,
                                                    cover_url=cover_url)
                             insta.mark_published(BASE, pack_dir.name, r)
+                            _auto_comment_pack(cfg, pack_dir, r)
                         elif e.get("type") == "reel":        # 릴스 예약(대량): _videos 영상 URL로 발행
                             vn = e.get("video") or ""
                             vpath = OUTPUT / "_videos" / vn
@@ -3802,6 +3865,8 @@ def _scheduler_loop():
                             r = insta.publish_reel(cfg, BASE, video_url,
                                                    e.get("caption") or "",
                                                    account=e.get("account") or None)
+                            _auto_comment(cfg, r, "릴스(쇼츠 영상)",
+                                          e.get("title") or "", e.get("caption") or "")
                             try:
                                 vpath.unlink()               # 게시 후 영상 정리
                             except OSError:
@@ -3813,6 +3878,7 @@ def _scheduler_loop():
                             r = insta.publish_pack(cfg, BASE, pack_dir,
                                                    lead=e.get("lead") or None,
                                                    account=e.get("account") or None)
+                            _auto_comment_pack(cfg, pack_dir, r)
                         e["status"] = "done"
                         e["permalink"] = r.get("permalink", "")
                     except Exception as ex:
