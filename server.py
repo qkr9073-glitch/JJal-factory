@@ -6234,6 +6234,9 @@ def api_ie_insta_collect():
                 it["viewCount"] = max(int(it.get("viewCount", 0) or 0), int(prev.get("viewCount", 0) or 0))
                 if not it.get("imageUrls") and prev.get("imageUrls"):
                     it["imageUrls"] = prev["imageUrls"]
+                for f in ("transcript", "transcript_lang"):   # 재전송이 추출된 대본을 지우지 않게 보존
+                    if prev.get(f) and not it.get(f):
+                        it[f] = prev[f]
             else:
                 added += 1
             by_key[key] = it
