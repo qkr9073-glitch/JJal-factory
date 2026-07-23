@@ -2891,6 +2891,7 @@
   const acctOptsHTML=()=>ACCTS.map(a=>`<option value="${esch(a)}">@${esch(a)}</option>`).join('');
   const swapHandle=(cap,handle)=>String(cap||'').replace(/@[A-Za-z0-9_.]+(?![\s\S]*@[A-Za-z0-9_.]+)/, handle);
   function onAcct(){ const a=$('macct2')&&$('macct2').value; if(!a)return;
+    try{if(PK&&PK.name)localStorage.setItem('rpacct_'+PK.name,a);}catch(e){}
     if($('mAcct'))$('mAcct').textContent=a;
     if($('capta'))$('capta').value=swapHandle($('capta').value,'@'+a);
     syncSchedAcct();
@@ -3012,7 +3013,8 @@
     ORDER=(d.images||[]).map(fn=>({fn,ex:false}));
     $('mTitle').textContent=iconOf(d)+' '+d.title;
     const st=$('mStat'); st.textContent=d.published?'📤 업로드완료':'🆕 미업로드'; st.className='mstat '+(d.published?'up':'no');
-    const a0=acctOf(d);
+    let a0=acctOf(d);
+    try{const kv=localStorage.getItem('rpacct_'+d.name); if(kv&&ACCTS.includes(kv))a0=kv;}catch(e){}
     if($('macct2')){$('macct2').innerHTML=ACCTS.map(a=>`<option value="${a}">@${a}</option>`).join('');$('macct2').value=a0;}
     $('mAcct').textContent=a0;
     $('mFootCount').textContent='짤 '+ORDER.length+'장';
@@ -3399,11 +3401,28 @@
       <input class="in" id="cteHead" value="${esch(c.head||'')}">
       <label class="fld" style="margin-top:11px">${isCover?'(표지는 본문 없음)':(isCta?'작은 안내 줄 (손글씨)':'둘째 줄 (손글씨)')}</label>
       <input class="in" id="cteBody" value="${esch(c.body||'')}" ${isCover?'disabled':''}>
-      <div style="display:flex;gap:8px;margin-top:15px;justify-content:flex-end">
+      <div style="display:flex;gap:8px;margin-top:15px;align-items:center">
+        <button class="btn" onclick="cardTextAI(${idx})" title="대본을 근거로 이 장 문구를 새로 생성(검토 후 저장)">🤖 AI로 재생성</button>
+        <span id="cteMsg" style="font-size:11.5px;color:var(--gold)"></span>
+        <span style="flex:1"></span>
         <button class="btn" onclick="document.getElementById('cteOv').remove()">취소</button>
         <button class="btn primary" onclick="cardTextSave(${idx})">💾 저장·재렌더</button></div></div>`;
-    ov.onclick=()=>ov.remove();
+    // 입력칸 드래그가 팝업 밖에서 끝나도 닫히지 않게: mousedown이 배경에서 시작한 경우만 닫음
+    let downOnBg=false;
+    ov.addEventListener('mousedown',e=>{downOnBg=(e.target===ov);});
+    ov.addEventListener('click',e=>{if(downOnBg&&e.target===ov)ov.remove();downOnBg=false;});
     document.body.appendChild(ov);
+  }
+  function cardTextAI(idx){
+    const m=$('cteMsg'); if(m)m.textContent='🤖 문구 생성 중… (5~10초)';
+    apiJson('/api/pack/cardregen',{code:code(),pack:PK.name,idx}).then(d=>{
+      if(!d.ok){if(m)m.textContent='❌ '+d.error;return;}
+      const c=d.card||{};
+      if($('cteLabel')&&c.label)$('cteLabel').value=c.label;
+      if($('cteHead'))$('cteHead').value=c.head||'';
+      if($('cteBody')&&!$('cteBody').disabled)$('cteBody').value=c.body||'';
+      if(m)m.textContent='✅ 새 문구 — 검토 후 [저장·재렌더]';
+    }).catch(()=>{if(m)m.textContent='❌ 통신 오류';});
   }
   function cardTextSave(idx){
     const body={code:code(),pack:PK.name,idx,
@@ -3998,6 +4017,8 @@
     t.style.cssText='position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--raised);color:var(--ink);border:1px solid var(--line2);border-radius:12px;padding:13px 20px;font-size:13.5px;font-weight:700;box-shadow:var(--shadow);z-index:200';
     document.body.appendChild(t);setTimeout(()=>t.remove(),2400);}
   document.addEventListener('keydown',e=>{
+    const tg=e.target&&e.target.tagName;
+    if(tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT')return;   // 입력 중엔 슬라이드 단축키 무시
     if($('sScrim').classList.contains('open')){
       if(e.key==='Escape')closeSModal();
       else if(e.key==='ArrowRight')sSlide(1);

@@ -264,6 +264,43 @@ def convert_script(cfg, script, topic, profile=None):
     return cards[:10], str(r.get("caption") or "").strip()
 
 
+def regen_card(cfg, script, topic, cards, idx, profile=None):
+    """카드 1장 문구만 재생성(다른 카드 문구와 겹치지 않게)."""
+    n = len(cards)
+    role = "표지(훅)" if idx == 1 else ("CTA(저장/팔로우/댓글 유도)" if idx == n else "내지")
+    others = "\n".join(
+        f"{i + 1}번: " + " ".join(str(cards[i].get(k) or "").replace("\n", " ").replace("|", " ")
+                                  for k in ("label", "head", "body")).strip()
+        for i in range(n) if i != idx - 1)
+    guide = ""
+    if profile:
+        tone = str(profile.get("tone") or "").strip()
+        if tone:
+            guide += f"[말투] {tone}\n"
+        ex = [str(x).strip() for x in (profile.get("examples") or []) if str(x).strip()]
+        if ex:
+            guide += "[실제 문구 예시 — 이 말투·호흡 그대로]\n" + "\n".join(f"- {x}" for x in ex[:6]) + "\n"
+    if idx == 1:
+        spec = "label=상품/소재 이름 짧게(10자 내), head=후킹 큰 글씨 두 줄을 '|'로 구분(각 6~12자, 줄바꿈 금지), body=\"\""
+    elif idx == n:
+        spec = "head=CTA 큰 글씨 한 줄(8~14자), body=작은 안내 한 줄(8~16자), label=\"\""
+    else:
+        spec = "head=첫 줄(8~18자), body=둘째 줄(8~18자) — 공감형 존댓말 체험담, label=\"\""
+    prompt = f"""너는 인스타 카드뉴스 작가다. 아래 대본을 근거로 {idx}번 카드({role})의 문구만 새로 써라.
+[소재] {topic}
+[대본]
+{str(script)[:1500]}
+[다른 카드 문구 — 내용이 겹치지 않게]
+{others}
+{guide}규칙: 내용 창작 금지(대본에 있는 정보만), 이모지는 ❤️ 정도만 아주 가끔. {spec}
+반드시 JSON만: {{"label":"...","head":"...","body":"..."}}"""
+    r = cbrain._call_parts(cfg, [{"text": prompt}], max_tokens=1024, temperature=0.9, thinking=0)
+    out = {k: str(r.get(k) or "").strip() for k in ("label", "head", "body")}
+    if not (out["head"] or out["body"]):
+        raise RuntimeError("생성 결과가 비었어요 — 다시 시도하세요")
+    return out
+
+
 # ── 렌더 ─────────────────────────────────────────────────────
 def _hex(c, fb):
     m = re.match(r"^#?([0-9a-fA-F]{6})$", str(c or "").strip())

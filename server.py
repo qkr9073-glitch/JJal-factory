@@ -6560,6 +6560,38 @@ def api_pack_cardframe():
     return jsonify(ok=True, pos=pos + 1, total=len(cands[idx - 1]))
 
 
+@app.post("/api/pack/cardregen")
+def api_pack_cardregen():
+    """카드 변환팩: 특정 장 문구 AI 재생성(렌더는 안 함 — 검토 후 저장 시 반영)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    d = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not d.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    try:
+        idx = int(data.get("idx") or 0)
+        meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        return jsonify(ok=False, error="팩 정보를 읽을 수 없어요"), 400
+    cards = meta.get("cards") or []
+    if not (1 <= idx <= len(cards)):
+        return jsonify(ok=False, error="이 장은 문구 데이터가 없어요 (구버전 팩)"), 400
+    profile = None
+    st = (meta.get("style") or "").strip()
+    if st:
+        profile = cardgen.load_styles(BASE).get(f"{code}:{st}")
+    try:
+        card = cardgen.regen_card(cfg, meta.get("script", ""),
+                                  str(meta.get("title") or ""), cards, idx, profile)
+    except Exception as e:
+        return jsonify(ok=False, error=f"생성 실패: {str(e)[:120]}"), 400
+    return jsonify(ok=True, card=card)
+
+
 @app.post("/api/pack/cardtext")
 def api_pack_cardtext():
     """카드 변환팩: 특정 장의 문구(label/head/body) 수정 → 같은 배경으로 즉시 재렌더."""
