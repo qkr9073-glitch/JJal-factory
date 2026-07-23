@@ -29,7 +29,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import autoshorts, bgm as bgmlib, brain, fonts, hunter, insights, pipeline, reelcover, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import autoshorts, bgm as bgmlib, brain, cardgen, fonts, hunter, insights, pipeline, reelcover, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
@@ -6263,6 +6263,139 @@ def api_learn_import():
         return jsonify(ok=False, error="가져올 분류를 고르세요"), 400
     n = scriptlearn.import_cats(BASE, code, other, names)
     return jsonify(ok=True, imported=n, categories=scriptlearn.summary(BASE, code))
+
+
+@app.post("/api/carousel/channels")
+def api_carousel_channels():
+    """내 수집물 중 이미지(캐러셀) 게시물의 채널 목록 + 학습된 스타일 목록."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    ch = {}
+    for it in _collected_mine(cfg, code):
+        if it.get("kind") != "image":
+            continue
+        c = (it.get("channel") or "").strip()
+        if not c:
+            continue
+        ch[c] = ch.get(c, 0) + 1
+    styles_all = cardgen.load_styles(BASE)
+    mine = [{"key": k.split(":", 1)[1], "learned": str(v.get("learned", ""))[:10],
+             "flow": str(v.get("flow", ""))[:60]}
+            for k, v in styles_all.items() if k.startswith(code + ":")]
+    return jsonify(ok=True,
+                   channels=[{"name": k, "count": v}
+                             for k, v in sorted(ch.items(), key=lambda x: -x[1])],
+                   styles=mine)
+
+
+def _run_carousel_learn(jid, cfg, code, channel):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=8, msg="카드 이미지 모으는 중…")
+        posts = [it for it in _collected_mine(cfg, code)
+                 if it.get("kind") == "image"
+                 and (it.get("channel") or "").strip() == channel]
+        posts.sort(key=lambda x: -len(x.get("imageUrls") or []))
+        imgs = cardgen.fetch_card_images(posts[:8], max_total=14,
+                                         log=lambda m: job.__setitem__("msg", str(m)))
+        if len(imgs) < 3:
+            raise RuntimeError("읽을 카드 이미지가 부족해요 — 확장 수집을 켜고 그 계정 "
+                               "게시물을 몇 개 열어본 뒤(이미지가 쌓임) 다시 학습하세요")
+        job.update(pct=45, msg=f"{len(imgs)}장 비전 분석 중… (20~40초)")
+        prof = cardgen.learn_style(cfg, imgs)
+        prof["learned"] = datetime.now().isoformat(timespec="seconds")
+        prof["channel"] = channel
+        styles_all = cardgen.load_styles(BASE)
+        styles_all[f"{code}:{channel}"] = prof
+        cardgen.save_styles(BASE, styles_all)
+        job["result"] = {"channel": channel, "cards_read": len(imgs),
+                         "flow": str(prof.get("flow", ""))}
+        job.update(status="done", pct=100,
+                   msg=f"학습 완료 — 전개: {str(prof.get('flow',''))[:40]}")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:200])
+
+
+@app.post("/api/carousel/learn")
+def api_carousel_learn():
+    """참고 캐러셀 계정 스타일 학습(비전) — 백그라운드 잡."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    channel = (data.get("channel") or "").strip()
+    if not channel:
+        return jsonify(ok=False, error="캐러셀 계정(채널)을 고르세요"), 400
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None,
+                 "error": None, "ts": time.time()}
+    threading.Thread(target=_run_carousel_learn,
+                     args=(jid, cfg, code, channel), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle):
+    job = JOBS[jid]
+    try:
+        job.update(status="running", pct=8, msg="릴스 대본 읽는 중…")
+        pdir = OUTPUT / pack
+        meta = json.loads((pdir / "meta.json").read_text(encoding="utf-8"))
+        script = str(meta.get("script") or "").strip()
+        if not script:
+            raise RuntimeError("이 팩엔 저장된 대본이 없어요 (구버전 팩)")
+        profile = None
+        if style_ch:
+            profile = cardgen.load_styles(BASE).get(f"{code}:{style_ch}")
+        job.update(pct=30, msg="카드 텍스트 구성 중… (10~20초)")
+        cards, caption = cardgen.convert_script(
+            cfg, script, str(meta.get("title") or ""), profile)
+        job.update(pct=65, msg=f"{len(cards)}장 카드 렌더 중…")
+        title = re.sub(r'[\\/:*?"<>|]+', "", str(meta.get("title") or pack))[:22].strip() or "카드"
+        name = f"{datetime.now():%y%m%d}_카드_{title}"
+        if (OUTPUT / name).exists():
+            name += "_" + uuid.uuid4().hex[:4]
+        ndir = OUTPUT / name
+        ndir.mkdir(parents=True)
+        visual = (profile or {}).get("visual")
+        files = cardgen.render_cards(BASE, cards, visual, ndir, handle=handle)
+        shutil.copyfile(ndir / files[0], ndir / "thumb.jpg")
+        (ndir / "caption.txt").write_text(caption or "", encoding="utf-8")
+        (ndir / "meta.json").write_text(json.dumps({
+            "title": f"카드 · {meta.get('title') or pack}",
+            "created": datetime.now().isoformat(timespec="seconds"),
+            "type": "cardnews", "source": f"릴스팩 {pack}",
+            "style": style_ch, "script": script,
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
+        _owner_set(name, code)
+        job["result"] = {"pack": name, "cards": len(files)}
+        job.update(status="done", pct=100, msg=f"완성 — 카드 {len(files)}장")
+    except Exception as e:
+        job.update(status="error", error=str(e)[:200])
+
+
+@app.post("/api/pack/to_carousel")
+def api_pack_to_carousel():
+    """릴스 완성팩 대본 → 카드뉴스(캐러셀) 짤 완성팩 생성 — 백그라운드 잡."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _check_code(cfg, code):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    if not pack or "/" in pack or "\\" in pack or not (OUTPUT / pack).is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None,
+                 "error": None, "ts": time.time()}
+    threading.Thread(target=_run_pack_to_carousel,
+                     args=(jid, cfg, code, pack, (data.get("style") or "").strip(),
+                           (data.get("account") or "").strip()),
+                     daemon=True).start()
+    return jsonify(ok=True, job=jid)
 
 
 @app.post("/api/admin/profile_merge_imported")

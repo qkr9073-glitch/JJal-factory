@@ -3075,6 +3075,7 @@
           <button class="btn primary" id="rpUp" onclick="togglePop(event,'reelpack')" style="margin-left:auto">📤 업로드</button></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <a class="btn" href="${base}/${d.video||'video.mp4'}" download="${esch(d.name)}.mp4" style="text-decoration:none">⬇ 영상 다운로드</a>
+          <button class="btn" onclick="carouselOpen()" title="릴스 확정 대본을 카드뉴스(캐러셀) 짤로 재구성">🃏 카드뉴스 변환</button>
           <button class="btn" onclick="reelDelete()" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">🗑 삭제</button></div>
       </div></div>`;
     document.body.appendChild(ov);
@@ -3083,6 +3084,81 @@
     coverFontsLoad();
   }
   function closeReelModal(){const o=$('reelOv');if(o)o.remove();PKR=null;}
+  /* ---- 릴스 → 카드뉴스(캐러셀) 변환 ---- */
+  function carouselOpen(){
+    if(!PKR)return;
+    document.querySelectorAll('[id=carOv]').forEach(x=>x.remove());
+    const ov=document.createElement('div'); ov.id='carOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:400;display:flex;align-items:center;justify-content:center';
+    ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;width:min(480px,92vw)" onclick="event.stopPropagation()">
+      <b>🃏 카드뉴스로 변환</b>
+      <div class="caphint" style="margin-top:6px">릴스 확정 대본의 내용을 그대로 살려 캐러셀 카드 짤로 재구성합니다. 완성되면 결과물 탭에 새 팩으로 생깁니다.</div>
+      <label class="fld" style="margin-top:12px">전개방식 스타일</label>
+      <select class="in" id="carStyle"><option value="">기본 카드뉴스체 (학습 없이)</option></select>
+      <label class="fld" style="margin-top:12px">＋ 새 스타일 학습 (참고 캐러셀 계정)</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select class="in" id="carCh" style="flex:1"><option value="">수집한 캐러셀 계정 선택…</option></select>
+        <button class="btn" onclick="carLearn()">📚 학습</button></div>
+      <div class="caphint" style="margin-top:6px;color:var(--faint)">참고 계정 프로필에서 수집확장을 켜고 게시물(이미지)을 몇 개 열어보면 목록에 떠요.</div>
+      <div id="carMsg" class="caphint" style="margin-top:10px;color:var(--gold)"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+        <button class="btn" onclick="document.getElementById('carOv').remove()">닫기</button>
+        <button class="btn primary" id="carGo" onclick="carConvert()">🃏 변환 시작</button></div></div>`;
+    ov.onclick=()=>ov.remove();
+    document.body.appendChild(ov);
+    carChannelsLoad();
+  }
+  function carChannelsLoad(){
+    apiJson('/api/carousel/channels',{code:code()}).then(d=>{
+      if(!d.ok)return;
+      const st=$('carStyle'); if(st){
+        st.innerHTML='<option value="">기본 카드뉴스체 (학습 없이)</option>';
+        (d.styles||[]).forEach(s=>{const o=document.createElement('option');o.value=s.key;
+          o.textContent='📚 '+s.key+(s.learned?' · '+s.learned+' 학습':'');st.appendChild(o);});
+        if(d.styles&&d.styles.length)st.value=d.styles[0].key;}
+      const ch=$('carCh'); if(ch){
+        ch.innerHTML='<option value="">수집한 캐러셀 계정 선택…</option>';
+        (d.channels||[]).forEach(c=>{const o=document.createElement('option');o.value=c.name;
+          o.textContent=c.name+' ('+c.count+'개 수집됨)';ch.appendChild(o);});}
+    }).catch(()=>{});
+  }
+  async function carPoll(jid,onDone){
+    let d; try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}
+    catch(e){setTimeout(()=>carPoll(jid,onDone),2500);return;}
+    const m=$('carMsg'); if(!m)return;
+    if(!d.ok){m.textContent='❌ '+(d.error||'작업 조회 실패');return;}
+    if(d.status==='error'){m.textContent='❌ '+(d.error||'실패');const g=$('carGo');if(g)g.disabled=false;return;}
+    if(d.status==='done'){onDone(d.result||{});return;}
+    m.textContent='⏳ '+(d.msg||'작업 중…');
+    setTimeout(()=>carPoll(jid,onDone),2000);
+  }
+  function carLearn(){
+    const ch=($('carCh')&&$('carCh').value)||'';
+    if(!ch){flash('수집한 캐러셀 계정을 고르세요');return;}
+    if($('carMsg'))$('carMsg').textContent='📚 카드 이미지 읽는 중…';
+    apiJson('/api/carousel/learn',{code:code(),channel:ch}).then(d=>{
+      if(!d.ok){if($('carMsg'))$('carMsg').textContent='❌ '+d.error;return;}
+      carPoll(d.job,r=>{
+        if($('carMsg'))$('carMsg').textContent='✅ 학습 완료 ('+(r.cards_read||0)+'장) — 전개: '+(r.flow||'');
+        carChannelsLoad();
+      });
+    }).catch(()=>{if($('carMsg'))$('carMsg').textContent='❌ 통신 오류';});
+  }
+  function carConvert(){
+    if(!PKR)return;
+    const g=$('carGo'); if(g)g.disabled=true;
+    if($('carMsg'))$('carMsg').textContent='🃏 카드 구성 중…';
+    apiJson('/api/pack/to_carousel',{code:code(),pack:PKR.name,
+      style:($('carStyle')&&$('carStyle').value)||'',
+      account:($('rpAcct')&&$('rpAcct').value)||''}).then(d=>{
+      if(!d.ok){if($('carMsg'))$('carMsg').textContent='❌ '+d.error;if(g)g.disabled=false;return;}
+      carPoll(d.job,r=>{
+        flash('✅ 카드뉴스 팩 생성: '+(r.pack||''));
+        const o=$('carOv'); if(o)o.remove();
+        loadPacks();
+      });
+    }).catch(()=>{if($('carMsg'))$('carMsg').textContent='❌ 통신 오류';if(g)g.disabled=false;});
+  }
   /* ---- 릴스 커스텀 커버(썸네일) 만들기 ---- */
   function coverPresetApply(){
     const acct=($('rpAcct')&&$('rpAcct').value)||''; if(!acct)return;
