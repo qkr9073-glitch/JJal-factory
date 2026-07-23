@@ -205,35 +205,13 @@ function scrapeInstagramPostsFromPage() {
   // 화면(DOM)에 보이는 모든 게시물 링크(/p/, /reel/)를 수집. 조회수는 API 인터셉트가 채움.
   const out = [];
   const seen = new Set();
-  // 게시물이 아닌 예약 경로(/reels/audio/ 등)가 shortcode로 오인되지 않게 차단
-  const RESERVED = new Set(["audio", "explore", "tags", "locations", "direct", "create", "stories", "highlights"]);
-  // 그리드 타일에 겹쳐 보이는 조회수(30.2만 / 1.2M / 9,032) 파싱 — 클릭 없이 필터 가능
-  const parseViews = (raw) => {
-    const s = String(raw || "").replace(/\s+/g, " ");
-    let m = s.match(/([\d.,]+)\s*억/);
-    if (m) return Math.round(parseFloat(m[1].replace(/,/g, "")) * 100000000);
-    m = s.match(/([\d.,]+)\s*만/);
-    if (m) return Math.round(parseFloat(m[1].replace(/,/g, "")) * 10000);
-    m = s.match(/([\d.,]+)\s*천/);
-    if (m) return Math.round(parseFloat(m[1].replace(/,/g, "")) * 1000);
-    m = s.match(/([\d.,]+)\s*([KMB])(?![a-z])/i);
-    if (m) {
-      const mult = { K: 1e3, M: 1e6, B: 1e9 }[m[2].toUpperCase()] || 1;
-      return Math.round(parseFloat(m[1].replace(/,/g, "")) * mult);
-    }
-    m = s.match(/(?:^|\s)([\d,]{1,12})(?:\s|$)/);
-    if (m) return parseInt(m[1].replace(/,/g, ""), 10) || 0;
-    return 0;
-  };
   const anchors = Array.from(document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"], a[href*="/reels/"]'));
   for (const a of anchors) {
     let href = "";
     try { href = new URL(a.getAttribute("href") || a.href, location.origin).href; } catch { continue; }
-    if (/\/reels?\/audio\//.test(href)) continue;
-    const m = href.match(/instagram\.com\/(?:[A-Za-z0-9_.]{1,40}\/)?(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
+    const m = href.match(/instagram\.com\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
     if (!m) continue;
     const shortcode = m[1];
-    if (RESERVED.has(shortcode)) continue;
     if (seen.has(shortcode)) continue;
     seen.add(shortcode);
     const isReel = /\/(reel|reels)\//.test(href);
@@ -245,22 +223,8 @@ function scrapeInstagramPostsFromPage() {
       kind: isReel ? "reel" : "image",
       url: isReel ? `https://www.instagram.com/reel/${shortcode}/` : `https://www.instagram.com/p/${shortcode}/`,
       shortcode, title: "", channel: "",
-      viewCount: parseViews(a.innerText), likeCount: 0, commentCount: 0, takenAt: "",
-      caption: "", imageUrls: [], thumbUrl: thumb
-    });
-  }
-  // 지금 보고 있는 단독 게시물 페이지 자체(목록에 링크가 없어 못 읽던 경우)
-  const cm = location.href.match(/instagram\.com\/(?:[A-Za-z0-9_.]{1,40}\/)?(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
-  if (cm && !seen.has(cm[1]) && !RESERVED.has(cm[1])) {
-    const isReel = /\/(reel|reels)\//.test(location.href);
-    const og = (k) => (document.querySelector(`meta[property="${k}"]`) || {}).content || "";
-    out.push({
-      platform: "instagram",
-      kind: isReel ? "reel" : "image",
-      url: isReel ? `https://www.instagram.com/reel/${cm[1]}/` : `https://www.instagram.com/p/${cm[1]}/`,
-      shortcode: cm[1], title: og("og:title") || document.title || "", channel: "",
       viewCount: 0, likeCount: 0, commentCount: 0, takenAt: "",
-      caption: "", imageUrls: [], thumbUrl: og("og:image")
+      caption: "", imageUrls: [], thumbUrl: thumb
     });
   }
   return out;
@@ -342,24 +306,6 @@ function scrapeYoutubeShortsFromPage() {
     });
   }
 
-  // 지금 보고 있는 쇼츠/영상 페이지 자체(목록에 링크가 없어 못 읽던 경우)
-  const curM = location.pathname.match(/^\/shorts\/([A-Za-z0-9_-]{6,})/);
-  let curId = curM ? curM[1] : "";
-  if (!curId && location.pathname === "/watch") {
-    curId = ((new URLSearchParams(location.search).get("v") || "").match(/^[A-Za-z0-9_-]{6,}/) || [""])[0];
-  }
-  if (curId && !seen.has(curId)) {
-    seen.add(curId);
-    const t0 = ((document.querySelector('meta[name="title"]') || {}).content || document.title || "")
-      .replace(/\s*-\s*YouTube\s*$/, "").trim();
-    found.push({
-      platform: "youtube",
-      kind: curM ? "shorts" : "video",
-      url: `https://www.youtube.com/watch?v=${curId}`,
-      shortcode: curId, title: t0, channel: channelFromPage(),
-      viewCount: 0, likeCount: 0, commentCount: 0, takenAt: "", caption: t0
-    });
-  }
   return found;
 
   // 조회수만 정확히 추출 (제목 속 숫자/구독자수/배속 배지에 속지 않도록)
@@ -481,13 +427,13 @@ async function sendToLocalAppFromBackground(message) {
     items: payloadItems
   });
 
-  // 전송 대상: 팝업 설정 주소 → 공개 주소 → 로컬 순서로 전부 시도.
-  // (주소가 localhost로 저장된 채 다른 컴퓨터에서 쓰면 공개 주소로 자동 폴백)
+  // 전송 대상: 팝업에서 설정한 짤공장 주소 우선(다른 컴퓨터=공개주소), 없으면 로컬 폴백.
+  // 서버는 0.0.0.0(IPv4) 바인딩 → 127.0.0.1 먼저(localhost가 IPv6 ::1로 풀려 실패하는 경우 회피)
   const configured = (message.serverUrl || "").trim().replace(/\/+$/, "");
   const hosts = [];
-  for (const h of [configured, "https://jjal.traffic-charger.com",
-                   "http://127.0.0.1:8777", "http://localhost:8777"]) {
-    if (h && !hosts.includes(h)) hosts.push(h);
+  if (configured) hosts.push(configured);
+  for (const h of ["http://127.0.0.1:8777", "http://localhost:8777"]) {
+    if (h !== configured) hosts.push(h);
   }
   let lastErr = "";
   for (const base of hosts) {
@@ -497,12 +443,7 @@ async function sendToLocalAppFromBackground(message) {
         headers: { "content-type": "application/json" },
         body
       }, 8000);
-      if (!response.ok) {
-        let msg = `HTTP ${response.status}`;
-        try { const j = await response.json(); if (j && j.error) msg = j.error; } catch { /* 무시 */ }
-        lastErr = `${msg} (${base})`;
-        continue;
-      }
+      if (!response.ok) { lastErr = `HTTP ${response.status} (${base})`; continue; }
       let info = {};
       try { info = await response.json(); } catch { /* 무시 */ }
       // 짤공장은 이미 열려 있으므로 새 탭을 띄우지 않는다
