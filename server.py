@@ -2867,6 +2867,10 @@ def api_packs():
             except Exception:
                 pass
             thumb = "thumb.jpg" if (d / "thumb.jpg").exists() else "01.jpg"
+            try:
+                tv = int((d / thumb).stat().st_mtime)   # 썸네일 캐시 버전(교체 시 갱신)
+            except OSError:
+                tv = 0
             checked = [m for m in (usage.get(d.name, {}).get("checked_by") or [])
                        if m in mgrs]
             is_story = meta.get("template") == "story"
@@ -2881,7 +2885,7 @@ def api_packs():
                           "type": "cardnews" if meta.get("type") == "cardnews" else "meme",
                           "site": meta.get("site", "") or
                                   ("카드뉴스" if meta.get("type") == "cardnews" else ""),
-                          "thumb": thumb,
+                          "thumb": thumb, "tv": tv,
                           "story": is_story,
                           "lang": meta.get("lang", "ko"),
                           "video": (meta.get("video") or ""),
