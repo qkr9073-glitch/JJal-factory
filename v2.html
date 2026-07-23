@@ -872,6 +872,13 @@
     b.innerHTML=`
       <div class="panehead"><h2>③ 영상 수집 + AI 러프컷</h2><span class="n">관련 영상 URL → AI가 하이라이트를 잘라 클립 창고 생성</span></div>
       <div class="lcard">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <b>🔎 AI 검색어 추천</b>
+          <span style="font-size:12px;color:var(--muted)">소재를 영어·중국어·일본어 현지 표현으로 — 클릭하면 복사, 아이콘으로 바로 검색</span>
+          <button class="btn primary" style="margin-left:auto" onclick="searchTermsRun()">추천받기</button></div>
+        <div id="searchTermsOut"></div>
+      </div>
+      <div class="lcard">
         <div class="caphint" style="margin-bottom:8px">유튜브·틱톡·빌리빌리·릴스 <b>영상 링크</b>를 붙여넣으세요. 각 영상에서 소재 관련 장면을 여러 개 자동으로 잘라 태그를 답니다. (최대 10개)</div>
         <div id="urlBoxes">${Array.from({length:boxes},(_,i)=>`<input class="in urlbox" style="margin-bottom:6px" placeholder="🔗 영상 URL ${i+1}">`).join('')}</div>
         <div style="display:flex;gap:8px;margin-top:6px">
@@ -900,6 +907,27 @@
         <span style="flex-shrink:0">✅</span>
         <a href="${esch(u.url)}" target="_blank" style="color:var(--muted);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" title="${esch(u.url)}">${esch(u.url)}</a>
         <span style="color:var(--faint);flex-shrink:0">${esch(u.status||'')}</span></div>`).join('');
+  }
+  function searchTermsRun(){
+    const el=$('searchTermsOut'); if(el)el.innerHTML='<div class="caphint" style="margin-top:8px">🔎 현지 검색어 뽑는 중… (5~10초)</div>';
+    apiJson('/api/reelproj/search_terms',{code:code(),pid:wiz.pid||'',topic:wiz.topic||''}).then(d=>{
+      if(!d.ok){if(el)el.innerHTML='<div style="color:var(--danger);margin-top:8px;font-size:12.5px">❌ '+esch(d.error)+'</div>';return;}
+      const g=d.terms||{}; const label={en:'🇺🇸 영어',zh:'🇨🇳 중국어',ja:'🇯🇵 일본어'};
+      if(el)el.innerHTML=['en','zh','ja'].map(k=>{
+        const arr=g[k]||[]; if(!arr.length)return '';
+        return `<div style="margin-top:9px"><span style="font-size:12px;color:var(--faint)">${label[k]}</span><div class="chips" style="margin-top:5px">`
+          +arr.map(q=>{const eq=encodeURIComponent(q);
+            return `<span class="chip" style="cursor:pointer" onclick="termCopy('${esch(q).replace(/'/g,"\'")}')" title="클릭=복사">${esch(q)}</span>`
+              +`<a class="chip" href="https://www.tiktok.com/search?q=${eq}" target="_blank" title="틱톡 검색" style="text-decoration:none">🎵</a>`
+              +`<a class="chip" href="https://www.youtube.com/results?search_query=${eq}" target="_blank" title="유튜브 검색" style="text-decoration:none">▶️</a>`
+              +(k==='zh'?`<a class="chip" href="https://search.bilibili.com/all?keyword=${eq}" target="_blank" title="빌리빌리 검색" style="text-decoration:none">📺</a>`:'');
+          }).join('')+'</div></div>';
+      }).join('');
+    }).catch(()=>{if(el)el.innerHTML='<div style="color:var(--danger)">통신 오류</div>';});
+  }
+  function termCopy(q){
+    try{navigator.clipboard.writeText(q).then(()=>flash('📋 복사됨: '+q));}
+    catch(e){flash('복사 실패 — 직접 드래그하세요');}
   }
   function clipAddBox(){
     const wrap=$('urlBoxes'); if(!wrap)return;

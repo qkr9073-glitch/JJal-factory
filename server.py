@@ -5838,6 +5838,39 @@ def api_reelproj_voice_usage():
     return jsonify(ok=True, items=out)
 
 
+@app.post("/api/reelproj/search_terms")
+def api_reelproj_search_terms():
+    """③ 소재 기반 원본 영상 검색어 추천 — 영어/중국어/일본어(현지 실제 표현)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    topic = (data.get("topic") or "").strip()
+    pid = (data.get("pid") or "").strip()
+    script = ""
+    if pid and reelproj.exists(BASE, pid):
+        st = reelproj.load(BASE, pid)
+        topic = topic or str(st.get("topic") or "")
+        script = str(st.get("script") or "")[:400]
+    if not topic and not script:
+        return jsonify(ok=False, error="소재가 없어요 (①에서 소재/대본 먼저)"), 400
+    prompt = (f"쇼츠 소재 '{topic}'의 원본(소스) 영상을 틱톡·유튜브·빌리빌리에서 찾으려 한다.\n"
+              "각 언어권에서 실제로 쓰는 현지 표현으로 검색어를 만들어라(직역 금지, 그 나라 쇼핑/리뷰 영상에서 쓰는 말).\n"
+              "- en: 영어 3개, zh: 중국어(간체) 3개, ja: 일본어 3개. 각 2~4단어의 짧은 검색어.\n"
+              + (f"[대본 참고]\n{script}\n" if script else "")
+              + '반드시 JSON만: {"en":["..",".."],"zh":["..",".."],"ja":["..",".."]}')
+    try:
+        r = reelproj._gjson(cfg, prompt, maxtok=1024)
+    except Exception as e:
+        return jsonify(ok=False, error=f"생성 실패: {str(e)[:120]}"), 502
+    out = {}
+    for k in ("en", "zh", "ja"):
+        out[k] = [str(x).strip() for x in (r.get(k) or []) if str(x).strip()][:4]
+    if not any(out.values()):
+        return jsonify(ok=False, error="검색어가 비었어요, 다시 시도하세요"), 502
+    return jsonify(ok=True, terms=out, topic=topic)
+
+
 @app.post("/api/reelproj/voices")
 def api_reelproj_voices():
     data = request.get_json(silent=True) or {}
