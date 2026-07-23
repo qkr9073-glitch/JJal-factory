@@ -6275,7 +6275,7 @@ def api_carousel_channels():
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     ch = {}
     for it in _collected_mine(cfg, code):
-        if it.get("kind") != "image":
+        if it.get("kind") not in ("image", "carousel"):
             continue
         c = (it.get("channel") or "").strip()
         if not c:
@@ -6296,7 +6296,7 @@ def _run_carousel_learn(jid, cfg, code, channel):
     try:
         job.update(status="running", pct=8, msg="카드 이미지 모으는 중…")
         posts = [it for it in _collected_mine(cfg, code)
-                 if it.get("kind") == "image"
+                 if it.get("kind") in ("image", "carousel")
                  and (it.get("channel") or "").strip() == channel]
         posts.sort(key=lambda x: -len(x.get("imageUrls") or []))
         imgs = cardgen.fetch_card_images(posts[:8], max_total=14,
@@ -6457,6 +6457,9 @@ def api_ie_insta_collect():
     by = (data.get("by") or "").strip()          # 수집한 사람의 회원코드(확장 팝업에서 입력)
     if not by or not _member(cfg, by):
         return jsonify(ok=False, error="확장 팝업의 '회원코드'에 짤공장 접속코드를 입력하세요"), 403
+    infl = str(data.get("influencer") or "").strip().lstrip("@")
+    if infl.lower() in ("", "shortform"):     # 팝업 기본값은 채널명 아님
+        infl = ""
     with _collect_lock:
         cur = _collected_load()
         by_key = {(it.get("by", ""), it.get("platform", ""), it.get("shortcode") or it.get("url")): it for it in cur}
@@ -6464,6 +6467,8 @@ def api_ie_insta_collect():
         for it in incoming[:500]:
             if not isinstance(it, dict):
                 continue
+            if not str(it.get("channel") or "").strip() and infl:
+                it["channel"] = infl          # 그리드 수집분엔 계정명이 없어 채워줌
             key = (by, it.get("platform", ""), it.get("shortcode") or it.get("url"))
             if not key[2] or (it.get("shortcode") or "") in _RESERVED_SC:
                 continue
