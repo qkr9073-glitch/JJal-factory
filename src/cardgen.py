@@ -233,20 +233,23 @@ def _emoji_font(size):
         return None
 
 
-def _mixed_w(d, text, font, size, ef):
+def _mixed_w(d, text, font, size, ef, track=0.0):
     w = 0
     for s, is_e in _emoji_runs(text):
         if is_e:
             if ef:
                 for ch in s:
                     w += d.textlength(ch, font=ef) + int(size * 0.06)
+        elif track:
+            for ch in s:
+                w += d.textlength(ch, font=font) - size * track
         else:
             w += d.textlength(s, font=font)
     return w
 
 
-def _mixed_draw(d, x, y, text, font, size, fill, ef, stroke=0, stroke_fill=(255, 255, 255)):
-    """이모지 섞인 한 줄 그리기 — 이모지는 컬러 폰트(embedded_color)."""
+def _mixed_draw(d, x, y, text, font, size, fill, ef, stroke=0, stroke_fill=(255, 255, 255), track=0.0):
+    """이모지 섞인 한 줄 그리기 — 이모지는 컬러 폰트(embedded_color). track=자간 축소 비율."""
     for s, is_e in _emoji_runs(text):
         if is_e:
             if ef:
@@ -256,6 +259,11 @@ def _mixed_draw(d, x, y, text, font, size, fill, ef, stroke=0, stroke_fill=(255,
                     except Exception:
                         pass
                     x += d.textlength(ch, font=ef) + int(size * 0.06)
+        elif track:
+            for ch in s:
+                d.text((x, y), ch, font=font, fill=fill,
+                       stroke_width=stroke, stroke_fill=stroke_fill)
+                x += d.textlength(ch, font=font) - size * track
         else:
             d.text((x, y), s, font=font, fill=fill,
                    stroke_width=stroke, stroke_fill=stroke_fill)
@@ -390,29 +398,30 @@ def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
             # ── 내지: 상단 중앙 반투명 흰 박스 + 손글씨 1~2줄
             lines = [_cleanws(c.get("head") or ""), _cleanws(c.get("body") or "")]
             lines = [x for x in lines if x][:2] or [""]
-            size = 56
+            size = 58
+            TR = 0.05                    # 자간 -5% (레퍼런스처럼 촘촘하게)
             hf = ImageFont.truetype(hand_path, size)
             ef = _emoji_font(size)
-            while size > 40 and any(_mixed_w(d, ln, hf, size, ef) > W - 200 for ln in lines):
+            while size > 40 and any(_mixed_w(d, ln, hf, size, ef, TR) > W - 170 for ln in lines):
                 size -= 3
                 hf = ImageFont.truetype(hand_path, size)
                 ef = _emoji_font(size)
-            lh = int(size * 1.55)
+            lh = int(size * 1.3)
             total = lh * len(lines)
-            wmax = max(_mixed_w(d, ln, hf, size, ef) for ln in lines)
+            wmax = max(_mixed_w(d, ln, hf, size, ef, TR) for ln in lines)
             y0 = int(H * 0.15)
-            bw = min(W - 120, int(wmax) + 110)
+            bw = min(W - 120, int(wmax) + 56)
             x0 = (W - bw) // 2
             lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ld = ImageDraw.Draw(lay)
-            ld.rounded_rectangle([x0, y0 - 30, x0 + bw, y0 + total + 18],
-                                 radius=16, fill=(255, 255, 255, 195))
+            ld.rounded_rectangle([x0, y0 - 18, x0 + bw, y0 + total + 10],
+                                 radius=14, fill=(255, 255, 255, 195))
             img = Image.alpha_composite(img, lay)
             d = ImageDraw.Draw(img)
             y = y0
             for ln in lines:
-                lw = _mixed_w(d, ln, hf, size, ef)
-                _mixed_draw(d, int((W - lw) // 2), y, ln, hf, size, (52, 52, 52), ef)
+                lw = _mixed_w(d, ln, hf, size, ef, TR)
+                _mixed_draw(d, int((W - lw) // 2), y, ln, hf, size, (52, 52, 52), ef, track=TR)
                 y += lh
         hf2 = ImageFont.truetype(hand_path, 32)
         s = "@" + str(handle or "").lstrip("@") if handle else ""
