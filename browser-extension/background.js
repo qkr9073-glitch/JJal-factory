@@ -230,7 +230,7 @@ function scrapeInstagramPostsFromPage() {
     let href = "";
     try { href = new URL(a.getAttribute("href") || a.href, location.origin).href; } catch { continue; }
     if (/\/reels?\/audio\//.test(href)) continue;
-    const m = href.match(/instagram\.com\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
+    const m = href.match(/instagram\.com\/(?:[A-Za-z0-9_.]{1,40}\/)?(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
     if (!m) continue;
     const shortcode = m[1];
     if (RESERVED.has(shortcode)) continue;
@@ -250,7 +250,7 @@ function scrapeInstagramPostsFromPage() {
     });
   }
   // 지금 보고 있는 단독 게시물 페이지 자체(목록에 링크가 없어 못 읽던 경우)
-  const cm = location.href.match(/instagram\.com\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
+  const cm = location.href.match(/instagram\.com\/(?:[A-Za-z0-9_.]{1,40}\/)?(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
   if (cm && !seen.has(cm[1]) && !RESERVED.has(cm[1])) {
     const isReel = /\/(reel|reels)\//.test(location.href);
     const og = (k) => (document.querySelector(`meta[property="${k}"]`) || {}).content || "";
