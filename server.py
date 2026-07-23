@@ -6504,6 +6504,21 @@ _RESERVED_SC = {"audio", "explore", "tags", "locations", "direct", "create",
                 "stories", "highlights"}   # 게시물 shortcode로 오인되는 예약 경로
 
 
+@app.post("/api/admin/collected_dump")
+def api_admin_collected_dump():
+    """수집 항목 원본(전체 필드) 덤프 — 스타일 분석/디버그용(관리자)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    code = (data.get("code") or "").strip()
+    if not _is_admin(cfg, code):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    ch = (data.get("channel") or "").strip()
+    items = _collected_mine(cfg, code)
+    if ch:
+        items = [it for it in items if (it.get("channel") or "").strip() == ch]
+    return jsonify(ok=True, items=items[:300])
+
+
 @app.post("/api/admin/collected_prune")
 def api_admin_collected_prune():
     """예약 경로(/reel/audio/ 등)로 오인 수집된 쓰레기 항목 일괄 제거(관리자)."""
