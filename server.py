@@ -6299,7 +6299,7 @@ def _run_carousel_learn(jid, cfg, code, channel):
                  if it.get("kind") in ("image", "carousel")
                  and (it.get("channel") or "").strip() == channel]
         posts.sort(key=lambda x: -len(x.get("imageUrls") or []))
-        imgs = cardgen.fetch_card_images(posts[:8], max_total=14,
+        imgs = cardgen.fetch_card_images(posts[:12], max_total=20,
                                          log=lambda m: job.__setitem__("msg", str(m)))
         if len(imgs) < 3:
             raise RuntimeError("읽을 카드 이미지가 부족해요 — 확장 수집을 켜고 그 계정 "

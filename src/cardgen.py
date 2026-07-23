@@ -87,7 +87,7 @@ LEARN_PROMPT = """이 이미지들은 한 인스타그램 카드뉴스(캐러셀
 
 def learn_style(cfg, images, log=print):
     """카드 이미지 bytes 목록 → 전개+비주얼 프로파일 dict."""
-    parts = [{"text": LEARN_PROMPT}] + [_img_part_bytes(b) for b in images[:14]]
+    parts = [{"text": LEARN_PROMPT}] + [_img_part_bytes(b) for b in images[:20]]
     prof = cbrain._call_parts(cfg, parts, max_tokens=2048, temperature=0.3, thinking=0)
     if not isinstance(prof, dict) or not str(prof.get("flow") or "").strip():
         raise RuntimeError("스타일 분석 결과가 비었어요 — 카드 이미지가 더 필요해요")
