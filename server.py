@@ -5874,7 +5874,7 @@ def api_reelproj_search_terms():
         return jsonify(ok=False, error=f"생성 실패: {str(e)[:120]}"), 502
     out = {}
     for k in ("en", "zh", "ja"):
-        out[k] = [str(x).strip() for x in (r.get(k) or []) if str(x).strip()][:4]
+        out[k] = [str(x).strip() for x in (r.get(k) or []) if str(x).strip()][:6]
     if not any(out.values()):
         return jsonify(ok=False, error="검색어가 비었어요, 다시 시도하세요"), 502
     return jsonify(ok=True, terms=out, topic=topic)

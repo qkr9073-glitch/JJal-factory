@@ -916,12 +916,7 @@
       if(el)el.innerHTML=['en','zh','ja'].map(k=>{
         const arr=g[k]||[]; if(!arr.length)return '';
         return `<div style="margin-top:9px"><span style="font-size:12px;color:var(--faint)">${label[k]}</span><div class="chips" style="margin-top:5px">`
-          +arr.map(q=>{const eq=encodeURIComponent(q);
-            return `<span class="chip" style="cursor:pointer" onclick="termCopy('${esch(q).replace(/'/g,"\'")}')" title="클릭=복사">${esch(q)}</span>`
-              +`<a class="chip" href="https://www.tiktok.com/search?q=${eq}" target="_blank" title="틱톡 검색" style="text-decoration:none">🎵</a>`
-              +`<a class="chip" href="https://www.youtube.com/results?search_query=${eq}" target="_blank" title="유튜브 검색" style="text-decoration:none">▶️</a>`
-              +(k==='zh'?`<a class="chip" href="https://search.bilibili.com/all?keyword=${eq}" target="_blank" title="빌리빌리 검색" style="text-decoration:none">📺</a>`:'');
-          }).join('')+'</div></div>';
+          +arr.map(q=>`<span class="chip" style="cursor:pointer" onclick="termCopy('${esch(q).replace(/'/g,"\'")}')" title="클릭=복사">${esch(q)}</span>`).join('')+'</div></div>';
       }).join('');
     }).catch(()=>{if(el)el.innerHTML='<div style="color:var(--danger)">통신 오류</div>';});
   }
