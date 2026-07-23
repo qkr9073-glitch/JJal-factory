@@ -427,13 +427,13 @@ async function sendToLocalAppFromBackground(message) {
     items: payloadItems
   });
 
-  // 전송 대상: 팝업에서 설정한 짤공장 주소 우선(다른 컴퓨터=공개주소), 없으면 로컬 폴백.
-  // 서버는 0.0.0.0(IPv4) 바인딩 → 127.0.0.1 먼저(localhost가 IPv6 ::1로 풀려 실패하는 경우 회피)
+  // 전송 대상: 팝업 설정 주소 → 공개 주소 → 로컬 순서로 전부 시도.
+  // (주소가 localhost로 저장된 채 다른 컴퓨터에서 쓰면 공개 주소로 자동 폴백)
   const configured = (message.serverUrl || "").trim().replace(/\/+$/, "");
   const hosts = [];
-  if (configured) hosts.push(configured);
-  for (const h of ["http://127.0.0.1:8777", "http://localhost:8777"]) {
-    if (h !== configured) hosts.push(h);
+  for (const h of [configured, "https://jjal.traffic-charger.com",
+                   "http://127.0.0.1:8777", "http://localhost:8777"]) {
+    if (h && !hosts.includes(h)) hosts.push(h);
   }
   let lastErr = "";
   for (const base of hosts) {
