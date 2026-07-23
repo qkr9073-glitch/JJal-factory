@@ -81,7 +81,8 @@ LEARN_PROMPT = """이 이미지들은 한 인스타그램 카드뉴스(캐러셀
 - cta_style: 마지막 카드의 행동유도 방식
 - tone: 말투(반말/존댓말, 특징적 어미)
 - visual: {"bg":"배경 대표색 hex", "bg2":"보조/그라데이션색 hex(단색이면 bg와 동일)",
-  "text":"글자색 hex", "accent":"강조색 hex(강조가 없으면 text와 동일하게)", "align":"center|left",
+  "text":"글자색 hex", "accent":"표지 큰 글씨의 포인트색 hex(핑크 등 — 없으면 #F9A8C9)",
+  "label_bg":"표지의 작은 라벨(태그) 배경 파스텔색 hex(없으면 #FFD9E3)", "align":"center|left",
   "font_feel":"손글씨|둥근|고딕굵게|픽셀 중 가장 가까운 것 (아기자기/귀여운 손글씨체면 반드시 손글씨)",
   "text_pos":"top|center|bottom — 사진 위 글자 블록의 위치",
   "panel":"white(반투명 흰 박스 위 글자)|dark(어두운 그라데이션 위 글자)|none(사진 위 바로)",
@@ -131,11 +132,13 @@ def convert_script(cfg, script, topic, profile=None):
 
 """ + guide + """규칙:
 - 내용 창작 금지: 대본에 있는 정보만 재구성(새 사실/과장 추가 금지).
-- head: 카드의 큰 글씨(짧고 강하게), body: 보조 설명(전개방식에 본문이 없으면 빈 문자열).
-- head/body에 이모지·특수문자 금지(한글/숫자/영문/기본 문장부호만 — 렌더러가 이모지를 못 그림).
-- 1번 카드는 표지(훅). 마지막 카드는 CTA(저장/팔로우/댓글 유도).
+- 1번 카드(표지): label=상품/소재 이름 짧게(10자 내, 예: 모션 센서 간접등),
+  head=후킹 큰 글씨 딱 두 줄(줄바꿈 \n로 구분, 각 줄 6~12자 — 짧을수록 좋다), body는 "".
+- 2번부터(내지): head=첫 줄, body=둘째 줄 — 손글씨 감성 문장(각 8~18자), 공감형 존댓말 체험담.
+- 마지막 카드는 CTA(저장/팔로우/댓글 유도) — 역시 head/body 두 줄.
+- 이모지는 ❤️ 하나를 줄 끝에 아주 가끔만(표지 label이나 내지 강조 줄).
 - caption: 인스타 캡션 — 훅 1줄 + 핵심 2줄 + CTA 1줄 + 해시태그 5개.
-반드시 JSON만: {"cards":[{"head":"...","body":"..."}],"caption":"..."}""")
+반드시 JSON만: {"cards":[{"label":"표지만","head":"...","body":"..."}],"caption":"..."}""")
     r = cbrain._call_parts(cfg, [{"text": prompt}], max_tokens=4096,
                            temperature=0.7, thinking=0)
     cards = [c for c in (r.get("cards") or [])
@@ -202,6 +205,64 @@ _EMOJI = re.compile(
     "\u2B00-\u2BFF\u2190-\u21FF\uFE0E\uFE0F\u200D\u200B\u2728\u2764]+")
 
 
+_EMOJI_FONT = r"C:\Windows\Fonts\seguiemj.ttf"
+
+
+def _cleanws(s):
+    """공백만 정규화(이모지 유지 — 사진 카드는 컬러 이모지로 렌더)."""
+    return re.sub(r"[^\S\n]+", " ", str(s or "")).strip()
+
+
+def _emoji_runs(text):
+    out = []
+    for ch in str(text):
+        if ch == "\ufe0f":
+            continue
+        e = bool(_EMOJI.match(ch))
+        if out and out[-1][1] == e:
+            out[-1][0] += ch
+        else:
+            out.append([ch, e])
+    return [(s, e) for s, e in out if s]
+
+
+def _emoji_font(size):
+    try:
+        return ImageFont.truetype(_EMOJI_FONT, int(size * 0.92))
+    except Exception:
+        return None
+
+
+def _mixed_w(d, text, font, size, ef):
+    w = 0
+    for s, is_e in _emoji_runs(text):
+        if is_e:
+            if ef:
+                for ch in s:
+                    w += d.textlength(ch, font=ef) + int(size * 0.06)
+        else:
+            w += d.textlength(s, font=font)
+    return w
+
+
+def _mixed_draw(d, x, y, text, font, size, fill, ef, stroke=0, stroke_fill=(255, 255, 255)):
+    """이모지 섞인 한 줄 그리기 — 이모지는 컬러 폰트(embedded_color)."""
+    for s, is_e in _emoji_runs(text):
+        if is_e:
+            if ef:
+                for ch in s:
+                    try:
+                        d.text((x, y + int(size * 0.05)), ch, font=ef, embedded_color=True)
+                    except Exception:
+                        pass
+                    x += d.textlength(ch, font=ef) + int(size * 0.06)
+        else:
+            d.text((x, y), s, font=font, fill=fill,
+                   stroke_width=stroke, stroke_fill=stroke_fill)
+            x += d.textlength(s, font=font)
+    return x
+
+
 def _clean(s):
     """문구 정리 — 이모지(폰트에 글리프가 없어 투명한 틈으로 렌더됨) 제거 + 공백 정규화."""
     s = _EMOJI.sub(" ", str(s or ""))
@@ -242,20 +303,17 @@ def _crop_45(img):
 
 
 def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
-    """영상 프레임(무자막·블러 반영) 배경 + 참고 계정 비주얼 재현:
-    글자 위치(top/center/bottom) · 반투명 흰 박스/어두운 그라데이션 · 학습 색/폰트."""
+    """참고 캐러셀 문법 재현:
+    표지 = 사진 하단 왼쪽, 파스텔 라벨(손글씨) + 큰 라운드볼드 2줄(포인트색+흰색, 흰 테두리)
+    내지 = 상단 중앙 반투명 흰 박스 + 손글씨 2줄. 이모지는 컬러 폰트로 그대로 렌더."""
     v = visual or {}
-    feel = str(v.get("font_feel") or "고딕굵게")
-    deco = str(v.get("deco") or "")
-    pos = (str(v.get("text_pos") or "bottom").strip() or "bottom")
-    panel = (str(v.get("panel") or ("dark" if pos == "bottom" else "white")).strip() or "dark")
-    acc = _hex(v.get("accent"), "#FFFFFF")
-    tcol = _hex(v.get("text"), "#FFFFFF" if panel == "dark" else "#3A3A3A")
-    if panel == "white" and sum(_rgb(tcol)) > 600:
-        tcol = "#3A3A3A"              # 흰 박스 위 흰 글자 방지
-    if panel == "white" and sum(_rgb(acc)) > 600:
-        acc = tcol
-    hcol = _hex(v.get("handle_color"), "#FFFFFF")
+    accent = _hex(v.get("accent"), "#F9A8C9")
+    label_bg = _hex(v.get("label_bg"), "#FFD9E3")
+    hand_path = _lib_font(base, "손글씨")
+    round_path = _lib_font(base, "둥근")
+    bold_path = round_path or str(Path(base) / "assets" / "fonts" / "BlackHanSans.ttf")
+    hand_path = hand_path or str(Path(base) / "assets" / "fonts" / "Pretendard-SemiBold.otf")
+
     frame_paths = list(frame_paths or [])
     if len(frame_paths) > 1:          # 표지가 어두운 인트로면 가장 밝은 프레임과 교체
         def _lum(path):
@@ -269,86 +327,98 @@ def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
         if lums[0] < 50:
             k = max(range(len(lums)), key=lambda j: lums[j])
             frame_paths[0], frame_paths[k] = frame_paths[k], frame_paths[0]
+
     out = []
-    n = len(cards)
     for i, c in enumerate(cards, 1):
         fp = frame_paths[min(i - 1, len(frame_paths) - 1)] if frame_paths else None
         try:
-            img = _crop_45(Image.open(fp)) if fp else Image.new("RGB", (W, H), (18, 20, 26))
+            img = _crop_45(Image.open(fp)) if fp else Image.new("RGB", (W, H), (240, 238, 235))
         except Exception:
-            img = Image.new("RGB", (W, H), (18, 20, 26))
+            img = Image.new("RGB", (W, H), (240, 238, 235))
         img = img.convert("RGBA")
-        cover = (i == 1)
-        head = _clean(c.get("head"))
-        body = _clean(c.get("body"))
-        hsize = (62 if cover else 54) if panel == "white" else (84 if cover else 70)
-        bsize = 40
-        hf = _font(base, feel, hsize, bold=True)
-        bf = _font(base, feel, bsize, bold=False)
-        d0 = ImageDraw.Draw(img)
-        maxw = W - (220 if panel == "white" else 130)
-        hl = _wrap(d0, head, hf, maxw) if head else []
-        bl = _wrap(d0, body, bf, maxw) if body else []
-        hlh, blh = int(hsize * 1.34), int(bsize * 1.5)
-        total = len(hl) * hlh + (22 if hl and bl else 0) + len(bl) * blh
-        if pos == "top":
-            y0 = 140
-        elif pos == "center":
-            y0 = max(140, (H - total) // 2)
+        d = ImageDraw.Draw(img)
+
+        if i == 1:
+            # ── 표지: 라벨 + 큰 두 줄 (하단 왼쪽)
+            label = _cleanws(c.get("label") or "")
+            head_lines = [_cleanws(x) for x in str(c.get("head") or "").split("\n") if _cleanws(x)]
+            if not head_lines:
+                head_lines = [_cleanws(c.get("body") or "")]
+            head_lines = head_lines[:2]
+            margin = 70
+            hsize = 92
+            bf = ImageFont.truetype(bold_path, hsize)
+            ef = _emoji_font(hsize)
+            while hsize > 54 and any(
+                    _mixed_w(d, ln, bf, hsize, ef) > W - margin * 2 for ln in head_lines):
+                hsize -= 4
+                bf = ImageFont.truetype(bold_path, hsize)
+                ef = _emoji_font(hsize)
+            hand_size = 48
+            hf = ImageFont.truetype(hand_path, hand_size)
+            hef = _emoji_font(hand_size)
+            hlh = int(hsize * 1.18)
+            y_last = H - 120 - hlh
+            ys = [y_last - hlh * (len(head_lines) - 1 - k) for k in range(len(head_lines))]
+            y_label = ys[0] - int(hand_size * 1.6)
+            if label:
+                lw = _mixed_w(d, label, hf, hand_size, hef)
+                lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+                ld = ImageDraw.Draw(lay)
+                lb = _rgb(label_bg)
+                ld.rounded_rectangle([margin - 14, y_label - 8,
+                                      margin + lw + 18, y_label + int(hand_size * 1.25)],
+                                     radius=10, fill=(lb[0], lb[1], lb[2], 235))
+                img = Image.alpha_composite(img, lay)
+                d = ImageDraw.Draw(img)
+                _mixed_draw(d, margin, y_label, label, hf, hand_size, (58, 58, 58), hef)
+            sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            sd = ImageDraw.Draw(sh)
+            for k, ln in enumerate(head_lines):
+                sd.text((margin + 4, ys[k] + 5), ln, font=bf,
+                        fill=(0, 0, 0, 70 if k == 0 else 90))
+            img = Image.alpha_composite(img, sh)
+            d = ImageDraw.Draw(img)
+            for k, ln in enumerate(head_lines):
+                if k == 0 and len(head_lines) > 1:
+                    _mixed_draw(d, margin, ys[k], ln, bf, hsize, _rgb(accent), ef,
+                                stroke=max(5, hsize // 16), stroke_fill=(255, 255, 255))
+                else:
+                    _mixed_draw(d, margin, ys[k], ln, bf, hsize, (255, 255, 255), ef,
+                                stroke=2, stroke_fill=(90, 90, 90))
         else:
-            y0 = H - 130 - total
-        if panel == "dark":               # 글자 구간만 어두운 그라데이션
-            grad = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            gd = ImageDraw.Draw(grad)
-            gtop = max(0, y0 - 170)
-            span = max(1, H - gtop)
-            for y in range(gtop, H):
-                a = int(210 * ((y - gtop) / span) ** 1.3)
-                gd.line([(0, y), (W, y)], fill=(0, 0, 0, a))
-            img = Image.alpha_composite(img, grad)
-        elif panel == "white":            # 반투명 흰 라운드 박스
-            wpx = 0
-            for ln in hl:
-                wpx = max(wpx, d0.textlength(ln, font=hf))
-            for ln in bl:
-                wpx = max(wpx, d0.textlength(ln, font=bf))
-            bw = min(W - 90, int(wpx) + 120)
+            # ── 내지: 상단 중앙 반투명 흰 박스 + 손글씨 1~2줄
+            lines = [_cleanws(c.get("head") or ""), _cleanws(c.get("body") or "")]
+            lines = [x for x in lines if x][:2] or [""]
+            size = 56
+            hf = ImageFont.truetype(hand_path, size)
+            ef = _emoji_font(size)
+            while size > 40 and any(_mixed_w(d, ln, hf, size, ef) > W - 200 for ln in lines):
+                size -= 3
+                hf = ImageFont.truetype(hand_path, size)
+                ef = _emoji_font(size)
+            lh = int(size * 1.55)
+            total = lh * len(lines)
+            wmax = max(_mixed_w(d, ln, hf, size, ef) for ln in lines)
+            y0 = int(H * 0.15)
+            bw = min(W - 120, int(wmax) + 110)
             x0 = (W - bw) // 2
             lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ld = ImageDraw.Draw(lay)
-            ld.rounded_rectangle([x0, y0 - 46, x0 + bw, y0 + total + 46],
-                                 radius=30, fill=(255, 255, 255, 186))
+            ld.rounded_rectangle([x0, y0 - 30, x0 + bw, y0 + total + 18],
+                                 radius=16, fill=(255, 255, 255, 195))
             img = Image.alpha_composite(img, lay)
-        d = ImageDraw.Draw(img)
-        y = y0
-        stroke = 0 if panel == "white" else max(3, hsize // 28)
-        for k, ln in enumerate(hl):
-            x = (W - d.textlength(ln, font=hf)) // 2
-            if panel == "white":
-                fill = _rgb(tcol) if k == 0 else _rgb(acc)
-            else:
-                fill = (255, 255, 255) if k == 0 else _rgb(acc)
-            d.text((x, y), ln, font=hf, fill=fill,
-                   stroke_width=stroke, stroke_fill=(18, 18, 18))
-            y += hlh
-        if hl and bl:
-            y += 22
-        for ln in bl:
-            x = (W - d.textlength(ln, font=bf)) // 2
-            d.text((x, y), ln, font=bf,
-                   fill=_rgb(tcol) if panel == "white" else (242, 242, 242),
-                   stroke_width=0 if panel == "white" else 2, stroke_fill=(18, 18, 18))
-            y += blh
-        if not cover and ("번호" in deco or "페이지" in deco):
-            sf = _font(base, "", 30, bold=False)
-            s = f"{i} / {n}"
-            d.text(((W - d.textlength(s, font=sf)) // 2, H - 92), s,
-                   font=sf, fill=_rgb(hcol), stroke_width=2, stroke_fill=(30, 30, 30, 140))
-        if handle:
-            sf = _font(base, feel, 30, bold=False)
-            s = "@" + str(handle).lstrip("@")
-            d.text(((W - d.textlength(s, font=sf)) // 2, H - 52), s,
-                   font=sf, fill=_rgb(hcol), stroke_width=2, stroke_fill=(30, 30, 30))
+            d = ImageDraw.Draw(img)
+            y = y0
+            for ln in lines:
+                lw = _mixed_w(d, ln, hf, size, ef)
+                _mixed_draw(d, int((W - lw) // 2), y, ln, hf, size, (52, 52, 52), ef)
+                y += lh
+        hf2 = ImageFont.truetype(hand_path, 32)
+        s = "@" + str(handle or "").lstrip("@") if handle else ""
+        if s:
+            d.text(((W - d.textlength(s, font=hf2)) // 2, H - 56), s, font=hf2,
+                   fill=(255, 255, 255), stroke_width=1, stroke_fill=(120, 120, 120))
         name = f"{i:02d}.jpg"
         img.convert("RGB").save(str(Path(out_dir) / name), quality=92)
         out.append(name)
