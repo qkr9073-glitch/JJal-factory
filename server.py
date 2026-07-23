@@ -2968,6 +2968,7 @@ def api_pack_detail():
         "srcs": sorted(p.name for p in d.glob("src[0-9][0-9].jpg")),  # 커버 교체용 원본사진
         "thumb_src": meta.get("thumb_src", ""),
         "cards": meta.get("cards", []),
+        "account": meta.get("account", ""),
         "published": insta.load_published(BASE).get(d.name),
         "arch": arch,
         "used_dir": cfg.get("used_dir") or "_사용완료",
@@ -6379,6 +6380,21 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="phot
                 vsrc = pdir / "video.mp4"    # 프로젝트 정리됨 → 완성본(자막 포함)으로 폴백
             if not vsrc:
                 raise RuntimeError("배경으로 쓸 영상을 못 찾았어요 — 텍스트 카드 템플릿으로 시도하세요")
+        src_acct = ""
+        try:                                  # 원본 릴스팩이 발행/예약된 계정 → 기본 올릴계정
+            src_acct = str((insta.load_published(BASE).get(pack) or {}).get("account") or "")
+        except Exception:
+            pass
+        if not src_acct:
+            try:
+                for e in _sched_load():
+                    if (e.get("video_pack") or e.get("pack")) == pack and e.get("account"):
+                        src_acct = str(e["account"])
+                        break
+            except Exception:
+                pass
+        if not handle:
+            handle = src_acct                 # 워터마크도 그 계정으로
         profile = None
         if style_ch:
             profile = cardgen.load_styles(BASE).get(f"{code}:{style_ch}")
@@ -6443,6 +6459,7 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="phot
             "type": "cardnews", "source": f"릴스팩 {pack}",
             "style": style_ch, "template": template, "script": script,
             "cards": cards, "visual": visual, "handle": handle,
+            "account": src_acct or handle,
             "frame_cands": frame_cands, "frame_used": frame_used,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
         import html as _html

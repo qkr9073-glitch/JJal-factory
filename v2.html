@@ -3014,6 +3014,7 @@
     $('mTitle').textContent=iconOf(d)+' '+d.title;
     const st=$('mStat'); st.textContent=d.published?'📤 업로드완료':'🆕 미업로드'; st.className='mstat '+(d.published?'up':'no');
     let a0=acctOf(d);
+    if(d.account&&ACCTS.includes(d.account))a0=d.account;   // 원본 릴스가 올라간 계정
     try{const kv=localStorage.getItem('rpacct_'+d.name); if(kv&&ACCTS.includes(kv))a0=kv;}catch(e){}
     if($('macct2')){$('macct2').innerHTML=ACCTS.map(a=>`<option value="${a}">@${a}</option>`).join('');$('macct2').value=a0;}
     $('mAcct').textContent=a0;
@@ -3394,7 +3395,7 @@
     const isCover=idx===1, isCta=idx===(PK.cards||[]).length;
     const ov=document.createElement('div'); ov.id='cteOv';
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:500;display:flex;align-items:center;justify-content:center';
-    ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;width:min(440px,92vw)" onclick="event.stopPropagation()">
+    ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;width:min(680px,94vw)" onclick="event.stopPropagation()">
       <b>✏️ ${idx}번 카드 문구 수정</b> <span style="font-size:11.5px;color:var(--faint)">${isCover?'표지':(isCta?'CTA':'내지')}</span>
       ${isCover?`<label class="fld" style="margin-top:11px">라벨 (파스텔 태그 속 손글씨)</label><input class="in" id="cteLabel" value="${esch(c.label||'')}">`:''}
       <label class="fld" style="margin-top:11px">${isCover?'큰 글씨 — 두 줄은 | 로 구분':(isCta?'CTA 큰 글씨 (포인트색)':'첫 줄 (손글씨)')}</label>
@@ -4017,6 +4018,8 @@
     t.style.cssText='position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--raised);color:var(--ink);border:1px solid var(--line2);border-radius:12px;padding:13px 20px;font-size:13.5px;font-weight:700;box-shadow:var(--shadow);z-index:200';
     document.body.appendChild(t);setTimeout(()=>t.remove(),2400);}
   document.addEventListener('keydown',e=>{
+    const cte=document.getElementById('cteOv');
+    if(cte){if(e.key==='Escape')cte.remove();return;}         // 문구편집 중엔 모든 단축키 차단
     const tg=e.target&&e.target.tagName;
     if(tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT')return;   // 입력 중엔 슬라이드 단축키 무시
     if($('sScrim').classList.contains('open')){

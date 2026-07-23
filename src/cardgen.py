@@ -251,7 +251,7 @@ def convert_script(cfg, script, topic, profile=None):
   head=후킹 큰 글씨 딱 두 줄을 '|' 문자로 구분(예: "밤길 불안 끝ㄷㄷ|이게 뭐라고 삶의 질 상승",
   각 줄 6~12자 — 짧을수록 좋다. 줄바꿈 문자 금지, 반드시 '|'), body는 "".
 - 2번부터(내지): head=첫 줄, body=둘째 줄 — 손글씨 감성 문장(각 8~18자), 공감형 존댓말 체험담.
-- 마지막 카드는 CTA(저장/팔로우/댓글 유도) — 역시 head/body 두 줄.
+- 마지막 카드는 CTA: 소재에서 짧은 키워드 하나를 정해 head=댓글 키워드 유도 큰 글씨(예: 댓글에 '조명' 남겨줘!), body=작은 안내 한 줄(예: 제품 정보 바로 보내드려요). caption의 댓글 키워드도 반드시 같은 단어로.
 - 이모지는 ❤️ 하나를 줄 끝에 아주 가끔만(표지 label이나 내지 강조 줄).
 - caption: 인스타 캡션 — 훅 1줄 + 핵심 2줄 + CTA 1줄 + 해시태그 5개.
 반드시 JSON만: {"cards":[{"label":"표지만","head":"...","body":"..."}],"caption":"..."}""")
@@ -283,16 +283,22 @@ def regen_card(cfg, script, topic, cards, idx, profile=None):
     if idx == 1:
         spec = "label=상품/소재 이름 짧게(10자 내), head=후킹 큰 글씨 두 줄을 '|'로 구분(각 6~12자, 줄바꿈 금지), body=\"\""
     elif idx == n:
-        spec = "head=CTA 큰 글씨 한 줄(8~14자), body=작은 안내 한 줄(8~16자), label=\"\""
+        spec = ("head=댓글 키워드 유도 큰 글씨(예: 댓글에 '조명' 남겨줘! — 기존 키워드가 있으면 그대로), "
+                "body=작은 안내 한 줄(8~16자), label=\"\"")
     else:
         spec = "head=첫 줄(8~18자), body=둘째 줄(8~18자) — 공감형 존댓말 체험담, label=\"\""
-    prompt = f"""너는 인스타 카드뉴스 작가다. 아래 대본을 근거로 {idx}번 카드({role})의 문구만 새로 써라.
+    cur = " · ".join(f"{k}={str(cards[idx - 1].get(k) or '').strip()}"
+                     for k in ("label", "head", "body")
+                     if str(cards[idx - 1].get(k) or "").strip())
+    prompt = f"""너는 인스타 카드뉴스 작가다. 아래 대본을 근거로 {idx}번 카드({role})의 문구를 다듬어 다시 써라.
 [소재] {topic}
 [대본]
 {str(script)[:1500]}
+[현재 문구 — 이 내용과 의미를 유지한 채 표현만 새로(A→A′). 쓰인 이모지도 가급적 그대로 유지]
+{cur}
 [다른 카드 문구 — 내용이 겹치지 않게]
 {others}
-{guide}규칙: 내용 창작 금지(대본에 있는 정보만), 이모지는 ❤️ 정도만 아주 가끔. {spec}
+{guide}규칙: 내용 창작 금지(대본에 있는 정보만), 현재 문구와 같은 메시지를 더 좋은 표현으로. {spec}
 반드시 JSON만: {{"label":"...","head":"...","body":"..."}}"""
     r = cbrain._call_parts(cfg, [{"text": prompt}], max_tokens=1024, temperature=0.9, thinking=0)
     out = {k: str(r.get(k) or "").strip() for k in ("label", "head", "body")}
