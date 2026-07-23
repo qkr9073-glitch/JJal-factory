@@ -3148,12 +3148,13 @@ def api_pack_comment():
         caption = (pd / "caption.txt").read_text(encoding="utf-8")
     except Exception:
         pass
+    cap_kw = _cta_keyword_from_caption(caption)
     if meta.get("type") == "reel" or meta.get("template") == "reel":
-        kind, text, kw = "릴스(쇼츠 영상)", (meta.get("script") or caption), ""
+        kind, text, kw = "릴스(쇼츠 영상)", (meta.get("script") or caption), cap_kw
     elif meta.get("type") == "cardnews":
-        kind, text, kw = "카드뉴스(정보 캐러셀)", caption, str(meta.get("keyword") or "")
+        kind, text, kw = "카드뉴스(정보 캐러셀)", caption, (str(meta.get("keyword") or "") or cap_kw)
     else:
-        kind, text, kw = "커뮤니티 유머 짤(캐러셀)", caption, ""
+        kind, text, kw = "커뮤니티 유머 짤(캐러셀)", caption, cap_kw
     try:
         cmt = _gen_auto_comment(cfg, kind, str(meta.get("title") or ""), text, kw)
         if not cmt:
@@ -3814,8 +3815,18 @@ def _auto_comment(cfg, result, kind, title, text, keyword="", log=print, pack_na
             pass
 
 
+def _cta_keyword_from_caption(caption):
+    """캡션 속 CTA 키워드 추출 — 댓글에 '와인' 남겨주세요 → 와인.
+    댓글 CTA는 본문과 반드시 동일한 키워드를 써야 하므로 여기서 뽑아 강제한다."""
+    quotes_open = "['\"‘“「『]?"
+    quotes_close = "['\"’”」』]?"
+    m = re.search("댓글에\\s*" + quotes_open + "([가-힣A-Za-z0-9]{1,12})" + quotes_close
+                  + "\\s*(?:이라고|라고|을|를)?\\s*(?:남|달|적|입력|쓰)", caption or "")
+    return m.group(1) if m else ""
+
+
 def _auto_comment_pack(cfg, pack_dir, result, log=print):
-    """완성팩 meta로 종류/재료를 뽑아 자동 댓글."""
+    """완성팩 meta로 종류/재료를 뽑아 자동 댓글. CTA 키워드는 본문 캡션과 동일하게."""
     pack_dir = Path(pack_dir)
     meta = {}
     try:
@@ -3827,12 +3838,13 @@ def _auto_comment_pack(cfg, pack_dir, result, log=print):
         caption = (pack_dir / "caption.txt").read_text(encoding="utf-8")
     except Exception:
         pass
+    cap_kw = _cta_keyword_from_caption(caption)
     if meta.get("type") == "reel" or meta.get("template") == "reel":
-        kind, text, kw = "릴스(쇼츠 영상)", (meta.get("script") or caption), ""
+        kind, text, kw = "릴스(쇼츠 영상)", (meta.get("script") or caption), cap_kw
     elif meta.get("type") == "cardnews":
-        kind, text, kw = "카드뉴스(정보 캐러셀)", caption, str(meta.get("keyword") or "")
+        kind, text, kw = "카드뉴스(정보 캐러셀)", caption, (str(meta.get("keyword") or "") or cap_kw)
     else:
-        kind, text, kw = "커뮤니티 유머 짤(캐러셀)", caption, ""
+        kind, text, kw = "커뮤니티 유머 짤(캐러셀)", caption, cap_kw
     _auto_comment(cfg, result, kind, str(meta.get("title") or ""), text, kw, log=log,
                   pack_name=pack_dir.name)
 
