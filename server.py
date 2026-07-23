@@ -6426,6 +6426,26 @@ def api_ie_insta_cookies():
     return jsonify(ok=True, saved=len(txt))
 
 
+_RESERVED_SC = {"audio", "explore", "tags", "locations", "direct", "create",
+                "stories", "highlights"}   # 게시물 shortcode로 오인되는 예약 경로
+
+
+@app.post("/api/admin/collected_prune")
+def api_admin_collected_prune():
+    """예약 경로(/reel/audio/ 등)로 오인 수집된 쓰레기 항목 일괄 제거(관리자)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    with _collect_lock:
+        cur = _collected_load()
+        keep = [it for it in cur if (it.get("shortcode") or "") not in _RESERVED_SC]
+        removed = len(cur) - len(keep)
+        if removed:
+            _collected_save(keep)
+    return jsonify(ok=True, removed=removed)
+
+
 @app.post("/api/ie/insta/collect")
 def api_ie_insta_collect():
     """확장 → 수집 항목 수신(인증 없음, 로컬 전용). shortcode 기준 dedup·조회수 최댓값 병합."""
@@ -6445,7 +6465,7 @@ def api_ie_insta_collect():
             if not isinstance(it, dict):
                 continue
             key = (by, it.get("platform", ""), it.get("shortcode") or it.get("url"))
-            if not key[2]:
+            if not key[2] or (it.get("shortcode") or "") in _RESERVED_SC:
                 continue
             it["by"] = by
             it["collected_at"] = datetime.now().isoformat(timespec="seconds")
