@@ -129,7 +129,7 @@ def match_frames(cfg, cards, frame_files, log=print):
     n = len(cards)
     texts = []
     for i, c in enumerate(cards):
-        s = " ".join(str(c.get(k) or "").replace("\n", " ")
+        s = " ".join(str(c.get(k) or "").replace("\n", " ").replace("|", " ")
                      for k in ("label", "head", "body")).strip()
         texts.append(f"{i + 1}번 카드: {s}")
     parts = [{"text": MATCH_PROMPT + "\n\n[카드 문구]\n" + "\n".join(texts)}]
@@ -193,7 +193,8 @@ def convert_script(cfg, script, topic, profile=None):
 """ + guide + """규칙:
 - 내용 창작 금지: 대본에 있는 정보만 재구성(새 사실/과장 추가 금지).
 - 1번 카드(표지): label=상품/소재 이름 짧게(10자 내, 예: 모션 센서 간접등),
-  head=후킹 큰 글씨 딱 두 줄(줄바꿈 \n로 구분, 각 줄 6~12자 — 짧을수록 좋다), body는 "".
+  head=후킹 큰 글씨 딱 두 줄을 '|' 문자로 구분(예: "밤길 불안 끝ㄷㄷ|이게 뭐라고 삶의 질 상승",
+  각 줄 6~12자 — 짧을수록 좋다. 줄바꿈 문자 금지, 반드시 '|'), body는 "".
 - 2번부터(내지): head=첫 줄, body=둘째 줄 — 손글씨 감성 문장(각 8~18자), 공감형 존댓말 체험담.
 - 마지막 카드는 CTA(저장/팔로우/댓글 유도) — 역시 head/body 두 줄.
 - 이모지는 ❤️ 하나를 줄 끝에 아주 가끔만(표지 label이나 내지 강조 줄).
@@ -386,7 +387,7 @@ def render_card_photo_one(base, card, visual, out_path, frame_path, handle="", c
     d = ImageDraw.Draw(img)
     if cover:
         label = _cleanws(card.get("label") or "")
-        head_lines = [_cleanws(x) for x in str(card.get("head") or "").split("\n") if _cleanws(x)]
+        head_lines = [_cleanws(x) for x in re.split(r"[|\n]", str(card.get("head") or "")) if _cleanws(x)]
         if not head_lines:
             head_lines = [_cleanws(card.get("body") or "")]
         head_lines = head_lines[:2]
