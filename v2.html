@@ -296,7 +296,7 @@
 
   .scrim{position:fixed;inset:0;background:rgba(6,8,12,.72);backdrop-filter:blur(4px);z-index:40;display:none;align-items:center;justify-content:center;padding:26px}
   .scrim.open{display:flex}
-  .modal{width:min(1180px,96vw);height:min(760px,92vh);background:var(--panel);border:1px solid var(--line2);border-radius:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+  .modal{width:min(1180px,96vw);height:min(900px,94vh);background:var(--panel);border:1px solid var(--line2);border-radius:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
   .mhead{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
   .mhead .mt{font-size:15px;font-weight:800}
   .mstat{font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px}
@@ -326,6 +326,7 @@
   .grp>h4{font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);margin:0 0 9px;display:flex;align-items:center;gap:7px}
   .grp>h4 .kbd{font-size:10px;font-weight:700;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;margin-left:auto;text-transform:none;letter-spacing:0}
   .thumbrow{display:flex;gap:9px}
+  .thumbrow .tpick:only-child{max-width:330px;margin:0 auto}   /* 카드팩(후보 1장)이 화면을 다 덮지 않게 */
   .tpick{flex:1;border-radius:10px;overflow:hidden;border:2px solid var(--line);cursor:pointer;position:relative}
   .tpick.sel{border-color:var(--gold)}
   .tpick .tp{position:relative;aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;text-align:center;padding:6px;line-height:1.3}
