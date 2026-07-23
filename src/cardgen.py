@@ -15,6 +15,7 @@ import requests
 from PIL import Image, ImageDraw, ImageFont, ImageStat
 
 from cardnews import brain as cbrain
+from src import fonts as fontlib
 
 W, H = 1080, 1350
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -80,8 +81,11 @@ LEARN_PROMPT = """이 이미지들은 한 인스타그램 카드뉴스(캐러셀
 - cta_style: 마지막 카드의 행동유도 방식
 - tone: 말투(반말/존댓말, 특징적 어미)
 - visual: {"bg":"배경 대표색 hex", "bg2":"보조/그라데이션색 hex(단색이면 bg와 동일)",
-  "text":"본문 글자색 hex", "accent":"강조색 hex", "align":"center|left",
-  "font_feel":"고딕굵게|둥근|손글씨|픽셀 중 가장 가까운 것",
+  "text":"글자색 hex", "accent":"강조색 hex(강조가 없으면 text와 동일하게)", "align":"center|left",
+  "font_feel":"손글씨|둥근|고딕굵게|픽셀 중 가장 가까운 것 (아기자기/귀여운 손글씨체면 반드시 손글씨)",
+  "text_pos":"top|center|bottom — 사진 위 글자 블록의 위치",
+  "panel":"white(반투명 흰 박스 위 글자)|dark(어두운 그라데이션 위 글자)|none(사진 위 바로)",
+  "handle_color":"하단 계정 핸들(@아이디) 글자색 hex (대개 #FFFFFF)",
   "deco":"페이지번호/밑줄/형광펜 등 눈에 띄는 장식 짧게"}
 반드시 JSON만."""
 
@@ -151,9 +155,38 @@ def _rgb(hx):
     return tuple(int(hx[i:i + 2], 16) for i in (1, 3, 5))
 
 
+_FEEL_FONTS = {
+    "손글씨": ("oneprettynight", "ownglyph", "meetme", "gaegu", "hi melody",
+             "himelody", "온글잎", "나눔손", "handwriting"),
+    "둥근": ("jua", "dongle", "do hyeon", "dohyeon", "ssurround", "round"),
+}
+
+
+def _lib_font(base, feel):
+    """자막 폰트 라이브러리에서 느낌에 맞는 폰트 파일 경로 탐색(없으면 None)."""
+    kws = None
+    for k, words in _FEEL_FONTS.items():
+        if k in feel:
+            kws = words
+            break
+    if not kws:
+        return None
+    try:
+        for f in fontlib.list_fonts(base):
+            nm = (str(f.get("family", "")) + " " + str(f.get("name", ""))).lower()
+            if any(w in nm for w in kws):
+                return str(fontlib.fdir(base) / f["file"])
+    except Exception:
+        pass
+    return None
+
+
 def _font(base, feel, size, bold=True):
-    d = Path(base) / "assets" / "fonts"
     feel = str(feel or "")
+    lib = _lib_font(base, feel)
+    if lib:                       # 손글씨/둥근 → 라이브러리 폰트(굵기 구분 없이 같은 파일)
+        return ImageFont.truetype(lib, size)
+    d = Path(base) / "assets" / "fonts"
     if "픽셀" in feel:
         f = d / "neodgm.ttf"
     elif bold:
@@ -209,14 +242,22 @@ def _crop_45(img):
 
 
 def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
-    """영상 프레임(무자막·블러 반영 원본) 배경 + 하단 그라데이션 + 학습 스타일 문구.
-    쇼핑 캐러셀 표준 스타일: 하단 2줄 큰 글씨(1줄 흰색, 2줄부터 강조색) + 보조 설명."""
+    """영상 프레임(무자막·블러 반영) 배경 + 참고 계정 비주얼 재현:
+    글자 위치(top/center/bottom) · 반투명 흰 박스/어두운 그라데이션 · 학습 색/폰트."""
     v = visual or {}
-    acc = _hex(v.get("accent"), "#FFD34D")
     feel = str(v.get("font_feel") or "고딕굵게")
     deco = str(v.get("deco") or "")
+    pos = (str(v.get("text_pos") or "bottom").strip() or "bottom")
+    panel = (str(v.get("panel") or ("dark" if pos == "bottom" else "white")).strip() or "dark")
+    acc = _hex(v.get("accent"), "#FFFFFF")
+    tcol = _hex(v.get("text"), "#FFFFFF" if panel == "dark" else "#3A3A3A")
+    if panel == "white" and sum(_rgb(tcol)) > 600:
+        tcol = "#3A3A3A"              # 흰 박스 위 흰 글자 방지
+    if panel == "white" and sum(_rgb(acc)) > 600:
+        acc = tcol
+    hcol = _hex(v.get("handle_color"), "#FFFFFF")
     frame_paths = list(frame_paths or [])
-    if len(frame_paths) > 1:      # 표지(1번)가 어두운 인트로 장면이면 가장 밝은 프레임으로 교체
+    if len(frame_paths) > 1:          # 표지가 어두운 인트로면 가장 밝은 프레임과 교체
         def _lum(path):
             try:
                 im = Image.open(path).convert("L")
@@ -237,51 +278,77 @@ def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
         except Exception:
             img = Image.new("RGB", (W, H), (18, 20, 26))
         img = img.convert("RGBA")
-        # 하단 그라데이션(가독) — 반투명은 레이어+alpha_composite (RGB 직드로잉 금지)
         cover = (i == 1)
-        gh = 700 if cover else 620
-        grad = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        gd = ImageDraw.Draw(grad)
-        for y in range(gh):
-            a = int(215 * (y / gh) ** 1.4)
-            gd.line([(0, H - gh + y), (W, H - gh + y)], fill=(0, 0, 0, a))
-        img = Image.alpha_composite(img, grad)
-        d = ImageDraw.Draw(img)
         head = _clean(c.get("head"))
         body = _clean(c.get("body"))
-        hsize = 84 if cover else 70
+        hsize = (62 if cover else 54) if panel == "white" else (84 if cover else 70)
+        bsize = 40
         hf = _font(base, feel, hsize, bold=True)
-        bf = _font(base, feel, 40, bold=False)
-        maxw = W - 130
-        hl = _wrap(d, head, hf, maxw) if head else []
-        bl = _wrap(d, body, bf, maxw) if body else []
-        hlh, blh = int(hsize * 1.26), int(40 * 1.5)
-        total = len(hl) * hlh + (24 if hl and bl else 0) + len(bl) * blh
-        y = H - 110 - total
-        stroke = max(3, hsize // 28)
+        bf = _font(base, feel, bsize, bold=False)
+        d0 = ImageDraw.Draw(img)
+        maxw = W - (220 if panel == "white" else 130)
+        hl = _wrap(d0, head, hf, maxw) if head else []
+        bl = _wrap(d0, body, bf, maxw) if body else []
+        hlh, blh = int(hsize * 1.34), int(bsize * 1.5)
+        total = len(hl) * hlh + (22 if hl and bl else 0) + len(bl) * blh
+        if pos == "top":
+            y0 = 140
+        elif pos == "center":
+            y0 = max(140, (H - total) // 2)
+        else:
+            y0 = H - 130 - total
+        if panel == "dark":               # 글자 구간만 어두운 그라데이션
+            grad = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            gd = ImageDraw.Draw(grad)
+            gtop = max(0, y0 - 170)
+            span = max(1, H - gtop)
+            for y in range(gtop, H):
+                a = int(210 * ((y - gtop) / span) ** 1.3)
+                gd.line([(0, y), (W, y)], fill=(0, 0, 0, a))
+            img = Image.alpha_composite(img, grad)
+        elif panel == "white":            # 반투명 흰 라운드 박스
+            wpx = 0
+            for ln in hl:
+                wpx = max(wpx, d0.textlength(ln, font=hf))
+            for ln in bl:
+                wpx = max(wpx, d0.textlength(ln, font=bf))
+            bw = min(W - 90, int(wpx) + 120)
+            x0 = (W - bw) // 2
+            lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            ld = ImageDraw.Draw(lay)
+            ld.rounded_rectangle([x0, y0 - 46, x0 + bw, y0 + total + 46],
+                                 radius=30, fill=(255, 255, 255, 186))
+            img = Image.alpha_composite(img, lay)
+        d = ImageDraw.Draw(img)
+        y = y0
+        stroke = 0 if panel == "white" else max(3, hsize // 28)
         for k, ln in enumerate(hl):
             x = (W - d.textlength(ln, font=hf)) // 2
-            fill = (255, 255, 255) if k == 0 else _rgb(acc)
+            if panel == "white":
+                fill = _rgb(tcol) if k == 0 else _rgb(acc)
+            else:
+                fill = (255, 255, 255) if k == 0 else _rgb(acc)
             d.text((x, y), ln, font=hf, fill=fill,
                    stroke_width=stroke, stroke_fill=(18, 18, 18))
             y += hlh
         if hl and bl:
-            y += 24
+            y += 22
         for ln in bl:
             x = (W - d.textlength(ln, font=bf)) // 2
-            d.text((x, y), ln, font=bf, fill=(242, 242, 242),
-                   stroke_width=2, stroke_fill=(18, 18, 18))
+            d.text((x, y), ln, font=bf,
+                   fill=_rgb(tcol) if panel == "white" else (242, 242, 242),
+                   stroke_width=0 if panel == "white" else 2, stroke_fill=(18, 18, 18))
             y += blh
         if not cover and ("번호" in deco or "페이지" in deco):
             sf = _font(base, "", 30, bold=False)
             s = f"{i} / {n}"
             d.text(((W - d.textlength(s, font=sf)) // 2, H - 92), s,
-                   font=sf, fill=(235, 235, 235), stroke_width=2, stroke_fill=(18, 18, 18))
+                   font=sf, fill=_rgb(hcol), stroke_width=2, stroke_fill=(30, 30, 30, 140))
         if handle:
-            sf = _font(base, "", 28, bold=False)
+            sf = _font(base, feel, 30, bold=False)
             s = "@" + str(handle).lstrip("@")
-            d.text(((W - d.textlength(s, font=sf)) // 2, H - 50), s,
-                   font=sf, fill=_rgb(acc), stroke_width=2, stroke_fill=(18, 18, 18))
+            d.text(((W - d.textlength(s, font=sf)) // 2, H - 52), s,
+                   font=sf, fill=_rgb(hcol), stroke_width=2, stroke_fill=(30, 30, 30))
         name = f"{i:02d}.jpg"
         img.convert("RGB").save(str(Path(out_dir) / name), quality=92)
         out.append(name)
