@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 import requests
-from PIL import Image, ImageDraw, ImageFont, ImageStat
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 from cardnews import brain as cbrain
 from src import fonts as fontlib
@@ -113,6 +113,48 @@ def learn_style(cfg, images, log=print):
                        + (f" ({str(last)[:60]})" if last else ""))
 
 
+def _dhash(im):
+    im2 = im.resize((9, 8))
+    px = list(im2.getdata())
+    bits = 0
+    for r in range(8):
+        for c in range(8):
+            bits = (bits << 1) | (1 if px[r * 9 + c] > px[r * 9 + c + 1] else 0)
+    return bits
+
+
+def _ham(a, b):
+    return bin(a ^ b).count("1")
+
+
+def filter_frames(frame_files, min_keep=12):
+    """비전에 보내기 전 사전 필터: 어두운 프레임·흐릿한 프레임·비슷한 연속 장면 제거."""
+    scored = []
+    for fp in frame_files:
+        try:
+            im = Image.open(fp).convert("L")
+            im.thumbnail((160, 160))
+            bright = ImageStat.Stat(im).mean[0]
+            sharp = ImageStat.Stat(im.filter(ImageFilter.FIND_EDGES)).mean[0]
+            scored.append((fp, bright, sharp, _dhash(im)))
+        except Exception:
+            continue
+    kept = []
+    for fp, b, s, h in scored:               # 중복 장면(해시 유사) 제거 — 후보 다양성 확보
+        if any(_ham(h, h2) <= 6 for _, _, _, h2 in kept):
+            continue
+        kept.append((fp, b, s, h))
+    good = [k for k in kept if k[1] >= 40]   # 어두운 프레임 컷
+    if len(good) < min_keep:
+        good = sorted(kept, key=lambda x: -x[1])[:min_keep]
+    if len(good) > min_keep:                 # 여유 있으면 선명도 하위 20%도 컷
+        thr = sorted(x[2] for x in good)[max(0, len(good) // 5)]
+        g2 = [k for k in good if k[2] >= thr]
+        if len(g2) >= min_keep:
+            good = g2
+    return [k[0] for k in good]
+
+
 MATCH_PROMPT = """이미지들은 쇼츠 영상에서 뽑은 프레임 후보다(각 이미지 앞에 [프레임 N] 번호).
 그 아래 카드뉴스 각 장의 문구가 있다. 각 카드에 가장 어울리는 프레임을 골라라.
 기준:
@@ -157,6 +199,14 @@ def match_frames(cfg, cards, frame_files, log=print):
                 cand.append(j)
                 seen.add(j)
         out.append(cand[:6])
+    used = set()                             # 1순위 배경이 카드끼리 겹치지 않게 강제 배정
+    for cand in out:
+        pick = next((f for f in cand if f not in used), cand[0] if cand else None)
+        if pick is not None:
+            if pick in cand:
+                cand.remove(pick)
+            cand.insert(0, pick)
+            used.add(pick)
     return out
 
 

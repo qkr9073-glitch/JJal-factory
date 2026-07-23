@@ -6401,7 +6401,7 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="phot
                 dur = float((pr.stdout or "0").strip() or 0)
             except Exception:
                 dur = 0.0
-            nfr = min(36, max(24, len(cards) * 3))    # 후보 프레임 대량 추출
+            nfr = min(48, max(36, len(cards) * 4))    # 후보 프레임 대량 추출
             job.update(pct=60, msg=f"배경 후보 프레임 {nfr}장 추출 중…")
             fdir = ndir / "frames"
             fdir.mkdir(exist_ok=True)
@@ -6417,8 +6417,9 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="phot
                     pass
                 if fp.exists():
                     frame_files.append(str(fp))
+            frame_files = cardgen.filter_frames(frame_files)   # 어두움/블러/중복장면 사전 컷
             if frame_files:
-                job.update(pct=72, msg="장면-대본 비전 매칭 중… (10~30초)")
+                job.update(pct=72, msg=f"후보 {len(frame_files)}장 — 장면-대본 비전 매칭 중… (10~30초)")
                 cands = cardgen.match_frames(cfg, cards, frame_files,
                                              log=lambda m: job.__setitem__("msg", str(m)))
                 names = [Path(f).name for f in frame_files]
