@@ -80,6 +80,7 @@ LEARN_PROMPT = """이 이미지들은 한 인스타그램 카드뉴스(캐러셀
 - head_chars: 카드 헤드(큰 글씨) 대략 글자수(숫자), body_chars: 본문 대략 글자수(없으면 0)
 - cta_style: 마지막 카드의 행동유도 방식
 - tone: 말투(반말/존댓말, 특징적 어미)
+- examples: 카드에 실제로 적힌 문구를 그대로 6개 옮겨 적기(표지 큰 글씨 2개 + 내지 문구 3개 + 마지막 CTA 1개 — 말투/호흡 학습용)
 - visual: {"bg":"배경 대표색 hex", "bg2":"보조/그라데이션색 hex(단색이면 bg와 동일)",
   "text":"글자색 hex", "accent":"표지 큰 글씨의 포인트색 hex(핑크 등 — 없으면 #F9A8C9)",
   "label_bg":"표지의 작은 라벨(태그) 배경 파스텔색 hex(없으면 #FFD9E3)", "align":"center|left",
@@ -232,6 +233,10 @@ def convert_script(cfg, script, topic, profile=None):
                                ("flow", "hook_style", "card_count", "head_chars",
                                 "body_chars", "cta_style", "tone")},
                               ensure_ascii=False) + "\n")
+        ex = [str(x).strip() for x in (profile.get("examples") or []) if str(x).strip()]
+        if ex:
+            guide += ("[이 계정 카드의 실제 문구 예시 — 이 말투·호흡·어미를 그대로 흉내내라]\n"
+                      + "\n".join(f"- {x}" for x in ex[:8]) + "\n")
     else:
         guide = "[기본 전개] 1번 훅(표지) → 내용 카드 3~6장 → 마지막 CTA 카드.\n"
     prompt = (f"""너는 인스타 카드뉴스 작가다. 아래 '쇼츠 대본'의 내용을 그대로 살려서
@@ -421,7 +426,7 @@ def _crop_45(img):
     return img
 
 
-def render_card_photo_one(base, card, visual, out_path, frame_path, handle="", cover=False):
+def render_card_photo_one(base, card, visual, out_path, frame_path, handle="", cover=False, cta=False):
     """카드 1장 렌더(표지/내지) — 리롤·일괄 공용."""
     v = visual or {}
     accent = _hex(v.get("accent"), "#F9A8C9")
@@ -482,6 +487,52 @@ def render_card_photo_one(base, card, visual, out_path, frame_path, handle="", c
             else:
                 _mixed_draw(d, margin, ys[k], ln, bf, hsize, (255, 255, 255), ef,
                             stroke=2, stroke_fill=(90, 90, 90))
+    elif cta:
+        # ── CTA 전용: 중앙 큰 흰 패널 + 파스텔 띠 + 포인트색 라운드볼드 + 핸들
+        small = _cleanws(card.get("body") or "")
+        big_lines = [_cleanws(x) for x in re.split(r"[|\n]", str(card.get("head") or "")) if _cleanws(x)][:2]
+        if not big_lines:
+            big_lines = ["저장하고 팔로우!"]
+        bsize = 74
+        bf = ImageFont.truetype(bold_path, bsize)
+        ef = _emoji_font(bsize)
+        while bsize > 46 and any(_mixed_w(d, ln, bf, bsize, ef) > W - 280 for ln in big_lines):
+            bsize -= 4
+            bf = ImageFont.truetype(bold_path, bsize)
+            ef = _emoji_font(bsize)
+        sf = ImageFont.truetype(hand_path, 40)
+        sef = _emoji_font(40)
+        hf3 = ImageFont.truetype(hand_path, 38)
+        blh = int(bsize * 1.24)
+        inner = (int(40 * 1.55) if small else 0) + len(big_lines) * blh + 20 + int(38 * 1.35)
+        wmax = max([_mixed_w(d, ln, bf, bsize, ef) for ln in big_lines]
+                   + ([_mixed_w(d, small, sf, 40, sef)] if small else [0]))
+        bw = min(W - 110, int(wmax) + 160)
+        bh = inner + 108
+        x0, y0 = (W - bw) // 2, (H - bh) // 2
+        lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(lay)
+        ld.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], radius=34, fill=(255, 255, 255, 210))
+        lb = _rgb(label_bg)
+        ld.rounded_rectangle([x0 + 26, y0, x0 + bw - 26, y0 + 12], radius=6,
+                             fill=(lb[0], lb[1], lb[2], 255))     # 상단 파스텔 띠
+        img = Image.alpha_composite(img, lay)
+        d = ImageDraw.Draw(img)
+        y = y0 + 50
+        if small:
+            lw = _mixed_w(d, small, sf, 40, sef)
+            _mixed_draw(d, int((W - lw) // 2), y, small, sf, 40, (95, 95, 95), sef)
+            y += int(40 * 1.55)
+        for ln in big_lines:
+            lw = _mixed_w(d, ln, bf, bsize, ef)
+            _mixed_draw(d, int((W - lw) // 2), y, ln, bf, bsize, _rgb(accent), ef,
+                        stroke=max(4, bsize // 18), stroke_fill=(255, 255, 255))
+            y += blh
+        y += 18
+        s2 = ("@" + str(handle).lstrip("@")) if handle else ""
+        if s2:
+            lw = d.textlength(s2, font=hf3)
+            d.text((int((W - lw) // 2), y), s2, font=hf3, fill=_rgb(accent))
     else:
         lines = [_cleanws(card.get("head") or ""), _cleanws(card.get("body") or "")]
         lines = [x for x in lines if x][:2] or [""]
@@ -510,7 +561,7 @@ def render_card_photo_one(base, card, visual, out_path, frame_path, handle="", c
             lw = _mixed_w(d, ln, hf, size, ef, TR)
             _mixed_draw(d, int((W - lw) // 2), y, ln, hf, size, (52, 52, 52), ef, track=TR)
             y += lh
-    if handle:
+    if handle and not cta:
         hf2 = ImageFont.truetype(hand_path, 32)
         s = "@" + str(handle).lstrip("@")
         d.text(((W - d.textlength(s, font=hf2)) // 2, H - 56), s, font=hf2,
@@ -526,7 +577,8 @@ def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
         fp = frame_paths[min(i - 1, len(frame_paths) - 1)] if frame_paths else None
         name = f"{i:02d}.jpg"
         render_card_photo_one(base, c, visual, Path(out_dir) / name, fp,
-                              handle=handle, cover=(i == 1))
+                              handle=handle, cover=(i == 1),
+                              cta=(i == len(cards) and len(cards) > 1))
         out.append(name)
     return out
 

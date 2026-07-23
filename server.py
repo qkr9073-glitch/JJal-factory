@@ -1783,6 +1783,7 @@ def _pack_payload(result):
         "cards_ko": meta.get("cards_ko", []),    # 카드별 본문 한국어 해석
         "srcs": [f"/packs/{rel}/{s}" for s in srcs],  # 커버 교체용 원본사진
         "thumb_src": meta.get("thumb_src", ""),
+        "cards": meta.get("cards", []),
     }
 
 
@@ -6551,11 +6552,54 @@ def api_pack_cardframe():
         return jsonify(ok=False, error="후보 프레임 파일이 없어요"), 400
     cardgen.render_card_photo_one(BASE, cards[idx - 1], meta.get("visual"),
                                   d / f"{idx:02d}.jpg", frame,
-                                  handle=meta.get("handle", ""), cover=(idx == 1))
+                                  handle=meta.get("handle", ""), cover=(idx == 1),
+                                  cta=(idx == len(cards) and len(cards) > 1))
     meta["frame_used"] = used
     (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1),
                                  encoding="utf-8")
     return jsonify(ok=True, pos=pos + 1, total=len(cands[idx - 1]))
+
+
+@app.post("/api/pack/cardtext")
+def api_pack_cardtext():
+    """카드 변환팩: 특정 장의 문구(label/head/body) 수정 → 같은 배경으로 즉시 재렌더."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    d = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not d.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    try:
+        idx = int(data.get("idx") or 0)
+    except (TypeError, ValueError):
+        idx = 0
+    try:
+        meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        return jsonify(ok=False, error="meta.json 없음"), 400
+    cards = meta.get("cards") or []
+    if not (1 <= idx <= len(cards)):
+        return jsonify(ok=False, error="이 장은 문구 데이터가 없어요 (구버전 팩 — 재변환 필요)"), 400
+    c = cards[idx - 1]
+    for k in ("label", "head", "body"):
+        if k in data:
+            c[k] = str(data.get(k) or "").strip()
+    frame = None
+    cands = meta.get("frame_cands") or []
+    used = meta.get("frame_used") or []
+    if idx <= len(cands) and cands[idx - 1]:
+        f = d / "frames" / cands[idx - 1][int(used[idx - 1]) % len(cands[idx - 1])]
+        if f.exists():
+            frame = f
+    cardgen.render_card_photo_one(BASE, c, meta.get("visual"), d / f"{idx:02d}.jpg", frame,
+                                  handle=meta.get("handle", ""), cover=(idx == 1),
+                                  cta=(idx == len(cards) and len(cards) > 1))
+    meta["cards"] = cards
+    (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1),
+                                 encoding="utf-8")
+    return jsonify(ok=True)
 
 
 @app.post("/api/admin/collected_dump")

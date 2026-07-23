@@ -464,6 +464,7 @@
         <div class="pvnote">← → 키로 넘기기 · 모든 장 미리 로드 → 즉시 전환</div>
         <div id="cardFrameRow" style="display:none;text-align:center;margin-top:8px">
           <button class="btn" onclick="cardFrameReroll()">🖼 이 장 배경 리롤</button>
+          <button class="btn" onclick="cardTextEdit()">✏️ 문구 수정</button>
           <span id="cardFrameInfo" style="font-size:11.5px;color:var(--faint);margin-left:6px"></span></div>
       </div>
       <div class="edit">
@@ -3383,6 +3384,40 @@
     }).join('')||'<div class="caphint">대표 썸네일 없음</div>';
   }
   function pickLead(fn){LEAD=fn;paintThumbs();updateLead();renderTrack();}
+  function cardTextEdit(){
+    if(!PK)return;
+    const idx=IDX+1, c=(PK.cards||[])[idx-1];
+    if(!c){flash('이 팩엔 문구 데이터가 없어요 (구버전 — 재변환하면 생겨요)');return;}
+    document.querySelectorAll('[id=cteOv]').forEach(x=>x.remove());
+    const isCover=idx===1, isCta=idx===(PK.cards||[]).length;
+    const ov=document.createElement('div'); ov.id='cteOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:500;display:flex;align-items:center;justify-content:center';
+    ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;width:min(440px,92vw)" onclick="event.stopPropagation()">
+      <b>✏️ ${idx}번 카드 문구 수정</b> <span style="font-size:11.5px;color:var(--faint)">${isCover?'표지':(isCta?'CTA':'내지')}</span>
+      ${isCover?`<label class="fld" style="margin-top:11px">라벨 (파스텔 태그 속 손글씨)</label><input class="in" id="cteLabel" value="${esch(c.label||'')}">`:''}
+      <label class="fld" style="margin-top:11px">${isCover?'큰 글씨 — 두 줄은 | 로 구분':(isCta?'CTA 큰 글씨 (포인트색)':'첫 줄 (손글씨)')}</label>
+      <input class="in" id="cteHead" value="${esch(c.head||'')}">
+      <label class="fld" style="margin-top:11px">${isCover?'(표지는 본문 없음)':(isCta?'작은 안내 줄 (손글씨)':'둘째 줄 (손글씨)')}</label>
+      <input class="in" id="cteBody" value="${esch(c.body||'')}" ${isCover?'disabled':''}>
+      <div style="display:flex;gap:8px;margin-top:15px;justify-content:flex-end">
+        <button class="btn" onclick="document.getElementById('cteOv').remove()">취소</button>
+        <button class="btn primary" onclick="cardTextSave(${idx})">💾 저장·재렌더</button></div></div>`;
+    ov.onclick=()=>ov.remove();
+    document.body.appendChild(ov);
+  }
+  function cardTextSave(idx){
+    const body={code:code(),pack:PK.name,idx,
+      head:($('cteHead')&&$('cteHead').value)||'',
+      body:($('cteBody')&&$('cteBody').value)||''};
+    const lb=$('cteLabel'); if(lb)body.label=lb.value;
+    apiJson('/api/pack/cardtext',body).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      const c=(PK.cards||[])[idx-1];
+      if(c){c.head=body.head;c.body=body.body;if(body.label!==undefined)c.label=body.label;}
+      const o=$('cteOv'); if(o)o.remove();
+      TS=Date.now(); renderTrack(); loadPacks(); flash('✅ 문구 수정·재렌더 완료');
+    }).catch(()=>flash('❌ 통신 오류'));
+  }
   function cardFrameReroll(){
     if(!PK)return;
     const idx=IDX+1;   // 카드팩은 LEAD 없음 → 슬라이드 번호=카드 번호
