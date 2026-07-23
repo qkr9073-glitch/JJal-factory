@@ -2591,8 +2591,10 @@
     IEB.subtab=IEB.subtab||'collect';
     const tabs=`<div class="chips" style="margin-bottom:12px">
       <span class="chip ${IEB.subtab==='collect'?'on':''}" onclick="instaSub('collect')">🧲 수집 결과</span>
-      <span class="chip ${IEB.subtab==='accounts'?'on':''}" onclick="instaSub('accounts')">⭐ 추천 계정</span></div>`;
+      <span class="chip ${IEB.subtab==='accounts'?'on':''}" onclick="instaSub('accounts')">⭐ 추천 계정</span>
+      <span class="chip ${IEB.subtab==='card'?'on':''}" onclick="instaSub('card')">🃏 릴스→카드 변환</span></div>`;
     if(IEB.subtab==='accounts'){ host.innerHTML=tabs+'<div id="recAccBox"></div>'; recAccLoad(); return; }
+    if(IEB.subtab==='card'){ host.innerHTML=tabs+cardConvHTML(); cardConvInit(); return; }
     host.innerHTML=tabs+`
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <b style="font-size:14px">🧲 인스타 수집</b>
@@ -3075,7 +3077,7 @@
           <button class="btn primary" id="rpUp" onclick="togglePop(event,'reelpack')" style="margin-left:auto">📤 업로드</button></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <a class="btn" href="${base}/${d.video||'video.mp4'}" download="${esch(d.name)}.mp4" style="text-decoration:none">⬇ 영상 다운로드</a>
-          <button class="btn" onclick="carouselOpen()" title="릴스 확정 대본을 카드뉴스(캐러셀) 짤로 재구성">🃏 카드뉴스 변환</button>
+          <button class="btn" onclick="carOpenTab(PKR&&PKR.name)" title="릴스 확정 대본을 카드뉴스(캐러셀) 짤로 재구성 — 이슈›인스타›릴스→카드 변환 탭에서 진행">🃏 카드뉴스 변환</button>
           <button class="btn" onclick="reelDelete()" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">🗑 삭제</button></div>
       </div></div>`;
     document.body.appendChild(ov);
@@ -3112,6 +3114,50 @@
     ov.onclick=()=>ov.remove();
     document.body.appendChild(ov);
     carChannelsLoad();
+  }
+  function cardConvHTML(){
+    return `<div style="display:grid;grid-template-columns:minmax(300px,360px) 1fr;gap:18px">
+      <div>
+        <label class="fld">🎬 릴스 완성팩 <span style="color:var(--faint);font-weight:400">(확정 대본 보유분)</span></label>
+        <select class="in" id="carPack"><option value="">불러오는 중…</option></select>
+        <label class="fld" style="margin-top:13px">템플릿</label>
+        <div class="chips" id="carTplChips">
+          <span class="chip ${(window.carTpl||'photo')==='photo'?'on':''}" data-tpl="photo" onclick="carTplSet('photo')">🖼 사진 배경 (영상 프레임)</span>
+          <span class="chip ${window.carTpl==='text'?'on':''}" data-tpl="text" onclick="carTplSet('text')">📝 텍스트 카드</span></div>
+        <div class="caphint" style="margin-top:5px;color:var(--faint)">사진 배경 = 자막 없는 영상 원본(블러 적용분 포함)에서 장면을 뽑아 배경으로 사용</div>
+        <label class="fld" style="margin-top:13px">전개방식 스타일</label>
+        <select class="in" id="carStyle"><option value="">기본 카드뉴스체 (학습 없이)</option></select>
+        <label class="fld" style="margin-top:13px">＋ 새 스타일 학습 (참고 캐러셀 계정)</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select class="in" id="carCh" style="flex:1"><option value="">수집한 캐러셀 계정 선택…</option></select>
+          <button class="btn" onclick="carLearn()">📚 학습</button></div>
+        <div class="caphint" style="margin-top:6px;color:var(--faint)">참고 계정 프로필에서 수집확장을 켜고 게시물을 몇 개 <b>열어서 카드를 넘겨보면</b> 표지뿐 아니라 전체 카드가 학습에 담겨요.</div>
+        <label class="fld" style="margin-top:13px">올릴 계정 (워터마크)</label>
+        <select class="in" id="carAcct">${(typeof ACCTS!=='undefined'?ACCTS:[]).map(a=>`<option value="${a}">@${a}</option>`).join('')}</select>
+        <div id="carMsg" class="caphint" style="margin-top:10px;color:var(--gold)"></div>
+        <button class="go" style="margin-top:12px" id="carGo" onclick="carConvert()">🃏 변환 시작</button>
+      </div>
+      <div>
+        <div style="font-weight:800;font-size:14px;margin-bottom:8px">🃏 결과 미리보기</div>
+        <div id="carPreview"><div class="caphint">변환하면 완성된 카드들이 여기 떠요. 완성팩은 결과물 탭에도 생깁니다 (업로드·예약 가능).</div></div>
+      </div></div>`;
+  }
+  function cardConvInit(){
+    carChannelsLoad();
+    apiJson('/api/packs',{code:code()}).then(d=>{
+      const sel=$('carPack'); if(!sel||!d.ok)return;
+      const reels=(d.packs||[]).filter(p=>p.video);
+      sel.innerHTML=reels.length?reels.map(p=>`<option value="${esch(p.name)}">${esch(p.title||p.name)}</option>`).join('')
+        :'<option value="">릴스 완성팩이 없어요 (제작소→릴스에서 먼저 제작)</option>';
+      if(window._carPackPre){sel.value=window._carPackPre;window._carPackPre='';}
+    }).catch(()=>{});
+  }
+  function carOpenTab(pack){    // 릴스 모달 → 변환 탭으로 이동(팩 미리 선택)
+    window._carPackPre=pack||'';
+    closeReelModal();
+    IEB.subtab='card'; jState.issue='insta';
+    setActive('jjal');
+    setTimeout(()=>{ if($('issue'))issueTab('insta'); },450);   // 탭 슬라이드 렌더 완료 후
   }
   window.carTpl='photo';
   function carTplSet(t){
@@ -3155,17 +3201,27 @@
     }).catch(()=>{if($('carMsg'))$('carMsg').textContent='❌ 통신 오류';});
   }
   function carConvert(){
-    if(!PKR)return;
+    const pack=($('carPack')&&$('carPack').value)||(PKR&&PKR.name)||'';
+    if(!pack){flash('릴스 완성팩을 고르세요');return;}
     const g=$('carGo'); if(g)g.disabled=true;
     if($('carMsg'))$('carMsg').textContent='🃏 카드 구성 중…';
-    apiJson('/api/pack/to_carousel',{code:code(),pack:PKR.name,
+    apiJson('/api/pack/to_carousel',{code:code(),pack,
       style:($('carStyle')&&$('carStyle').value)||'',
       template:window.carTpl||'photo',
-      account:($('rpAcct')&&$('rpAcct').value)||''}).then(d=>{
+      account:($('carAcct')&&$('carAcct').value)||($('rpAcct')&&$('rpAcct').value)||''}).then(d=>{
       if(!d.ok){if($('carMsg'))$('carMsg').textContent='❌ '+d.error;if(g)g.disabled=false;return;}
       carPoll(d.job,r=>{
+        if(g)g.disabled=false;
+        if($('carMsg'))$('carMsg').textContent='✅ 완성 — 카드 '+(r.cards||0)+'장 → 결과물 탭에 저장됨';
         flash('✅ 카드뉴스 팩 생성: '+(r.pack||''));
         const o=$('carOv'); if(o)o.remove();
+        const pv=$('carPreview');
+        if(pv&&r.pack&&r.cards){
+          const ts=Date.now();
+          pv.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">'
+            +Array.from({length:r.cards},(_,i)=>`<img src="/packs/${encodeURIComponent(r.pack)}/${String(i+1).padStart(2,'0')}.jpg?${ts}" loading="lazy" style="width:100%;border-radius:10px;border:1px solid var(--line)">`).join('')
+            +'</div>';
+        }
         loadPacks();
       });
     }).catch(()=>{if($('carMsg'))$('carMsg').textContent='❌ 통신 오류';if(g)g.disabled=false;});
