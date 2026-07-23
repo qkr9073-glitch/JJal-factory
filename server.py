@@ -3140,13 +3140,13 @@ def api_cover_preset_learn():
                                             "temperature": 0.2, "maxOutputTokens": 512}},
                  timeout=120)
     if r.status_code != 200:
-        return jsonify(ok=False, error=f"Gemini 오류 {r.status_code}: {r.text[:120]}"), 502
+        return jsonify(ok=False, error=f"Gemini 오류 {r.status_code}: {r.text[:120]}"), 400
     try:
         cand = r.json()["candidates"][0]
         raw = "".join(x.get("text", "") for x in cand.get("content", {}).get("parts", []))
         j = brain._parse_json(raw)
     except Exception as e:
-        return jsonify(ok=False, error=f"분석 결과 파싱 실패: {str(e)[:80]}"), 502
+        return jsonify(ok=False, error=f"분석 결과 파싱 실패: {str(e)[:80]}"), 400
     style = {}
     for k in ("color1", "color2"):
         v = str(j.get(k) or "").strip()
@@ -3155,7 +3155,7 @@ def api_cover_preset_learn():
     if str(j.get("pos") or "") in ("top", "center", "bottom"):
         style["pos"] = str(j["pos"])
     if not style:
-        return jsonify(ok=False, error="분석에서 스타일을 못 뽑았어요"), 502
+        return jsonify(ok=False, error="분석에서 스타일을 못 뽑았어요"), 400
     _cover_preset_save(acct, style)
     return jsonify(ok=True, preset=_cover_presets_load().get(acct) or {}, analyzed=len(imgs))
 
@@ -3194,14 +3194,14 @@ def api_pack_comment():
     try:
         cmt = _gen_auto_comment(cfg, kind, str(meta.get("title") or ""), text, kw)
         if not cmt:
-            return jsonify(ok=False, error="댓글 문구 생성 실패"), 502
+            return jsonify(ok=False, error="댓글 문구 생성 실패"), 400
         insta.post_comment(cfg, rec["media_id"], cmt, account=rec.get("account"))
         rec["auto_comment"] = "ok"
         (BASE / "published.json").write_text(json.dumps(pub, ensure_ascii=False, indent=2),
                                              encoding="utf-8")
         return jsonify(ok=True, comment=cmt)
     except Exception as e:
-        return jsonify(ok=False, error=str(e)[:160]), 502
+        return jsonify(ok=False, error=str(e)[:160]), 400
 
 
 @app.post("/api/pack/covertext")
@@ -3235,9 +3235,9 @@ def api_pack_covertext():
                   "line2": str(c.get("line2", "")).strip()[:12]}
                  for c in (r.get("cands") or [])][:3]
     except Exception as e:
-        return jsonify(ok=False, error=f"문구 생성 실패: {str(e)[:120]}"), 502
+        return jsonify(ok=False, error=f"문구 생성 실패: {str(e)[:120]}"), 400
     if not cands:
-        return jsonify(ok=False, error="문구가 비었어요, 다시 시도하세요"), 502
+        return jsonify(ok=False, error="문구가 비었어요, 다시 시도하세요"), 400
     return jsonify(ok=True, cands=cands)
 
 
@@ -4510,7 +4510,7 @@ def api_admin_ig_comment_perm():
     r = _rq.get(f"{base}/{uid}/media", params={"fields": "id", "limit": 1, "access_token": token}, timeout=30)
     media = (r.json().get("data") or []) if r.status_code == 200 else []
     if not media:
-        return jsonify(ok=False, error=f"게시물 조회 실패({r.status_code}): {r.text[:120]}"), 502
+        return jsonify(ok=False, error=f"게시물 조회 실패({r.status_code}): {r.text[:120]}"), 400
     mid = media[0]["id"]
     r2 = _rq.get(f"{base}/{mid}/comments", params={"limit": 1, "access_token": token}, timeout=30)
     if r2.status_code == 200:
@@ -5438,10 +5438,10 @@ def api_fonts_google():
         return jsonify(ok=False, error=f"구글 폰트에 '{family}' 가 없어요 (fonts.google.com의 영문 이름 그대로)"), 404
     m = re.search(r"url\((https://fonts\.gstatic\.com[^)]+\.ttf)\)", r.text)
     if not m:
-        return jsonify(ok=False, error="ttf 주소를 못 찾았어요 — 다른 폰트로 시도"), 502
+        return jsonify(ok=False, error="ttf 주소를 못 찾았어요 — 다른 폰트로 시도"), 400
     fr = _rq.get(m.group(1), timeout=60)
     if fr.status_code != 200 or len(fr.content) < 10000:
-        return jsonify(ok=False, error="폰트 다운로드 실패"), 502
+        return jsonify(ok=False, error="폰트 다운로드 실패"), 400
     safe = re.sub(r"[^A-Za-z0-9]+", "", family) or "GoogleFont"
     fonts.save_upload(BASE, f"{safe}.ttf", fr.content)
     return jsonify(ok=True, fonts=fonts.list_fonts(BASE), added=f"{safe}.ttf")
@@ -6004,12 +6004,26 @@ def api_reelproj_search_terms():
     purl = (data.get("product_url") or "").strip()
     product = ""
     if purl:
-        if "coupang.com" not in purl:
-            return jsonify(ok=False, error="쿠팡 상품 링크를 넣어주세요 (coupang.com / link.coupang.com)"), 400
-        try:
-            product = _coupang_title(purl)
-        except Exception as e:
-            return jsonify(ok=False, error=f"쿠팡 상품 분석 실패: {str(e)[:80]}"), 502
+        # 붙여넣은 내용에서 상품명 추출: ①링크 밖 텍스트(쿠팡 '공유' 복사 텍스트/직접 입력 상품명)
+        # 우선 ②링크만 있으면 페이지에서 시도(쿠팡이 서버 접근을 자주 차단해 실패할 수 있음)
+        urls = re.findall(r"https?://\S+", purl)
+        text = purl
+        for u in urls:
+            text = text.replace(u, " ")
+        text = re.sub(r"\[쿠팡\]|쿠팡에서 만나요!?", " ", text)
+        text = re.sub(r"\s+", " ", text).strip(" -|,·:~!")
+        if len(text) >= 4:
+            product = text[:120]
+        elif urls:
+            if "coupang.com" not in urls[0]:
+                return jsonify(ok=False, error="쿠팡 링크를 넣어주세요 (coupang.com / link.coupang.com)"), 400
+            try:
+                product = _coupang_title(urls[0])
+            except Exception:
+                return jsonify(ok=False, error="쿠팡이 서버 접근을 차단했어요 — 쿠팡 상품페이지의 [공유] 버튼으로 "
+                                               "복사한 텍스트(상품명+링크)를 통째로 붙여넣거나, 상품명을 입력해 주세요"), 400
+        else:
+            return jsonify(ok=False, error="상품명이 너무 짧아요 — 쿠팡 공유 텍스트나 상품명을 붙여넣어 주세요"), 400
     if not topic and not script and not product:
         return jsonify(ok=False, error="소재가 없어요 (①에서 소재/대본 먼저, 또는 쿠팡 링크)"), 400
     subject = product or topic
@@ -6026,12 +6040,12 @@ def api_reelproj_search_terms():
     try:
         r = reelproj._gjson(cfg, prompt, maxtok=1024)
     except Exception as e:
-        return jsonify(ok=False, error=f"생성 실패: {str(e)[:120]}"), 502
+        return jsonify(ok=False, error=f"생성 실패: {str(e)[:120]}"), 400
     out = {}
     for k in ("en", "zh", "ja"):
         out[k] = [str(x).strip() for x in (r.get(k) or []) if str(x).strip()][:6]
     if not any(out.values()):
-        return jsonify(ok=False, error="검색어가 비었어요, 다시 시도하세요"), 502
+        return jsonify(ok=False, error="검색어가 비었어요, 다시 시도하세요"), 400
     return jsonify(ok=True, terms=out, topic=subject, product=product)
 
 
@@ -6103,7 +6117,7 @@ def api_learn_genscript():
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:180]), 400
     if not vers:
-        return jsonify(ok=False, error="생성 결과가 비었어요, 다시 시도해 주세요"), 502
+        return jsonify(ok=False, error="생성 결과가 비었어요, 다시 시도해 주세요"), 400
     return jsonify(ok=True, versions=vers)
 
 
@@ -6464,7 +6478,7 @@ def api_ie_insta_collect_make():
             _Img.open(_io.BytesIO(r.content)).convert("RGB").save(p, "JPEG", quality=90)
             paths.append(str(p))
     except Exception as e:
-        return jsonify(ok=False, error=f"이미지 내려받기 실패: {str(e)[:100]}"), 502
+        return jsonify(ok=False, error=f"이미지 내려받기 실패: {str(e)[:100]}"), 400
     now = time.time()
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
@@ -6604,7 +6618,7 @@ def api_ie_insta_import():
                 "caption": caption or (p.caption or ""), "url": f"https://www.instagram.com/p/{shortcode}/",
                 "likes": int(p.likes or 0)}
     except Exception as e:
-        return jsonify(ok=False, error=f"게시물 조회 실패: {str(e)[:120]}"), 502
+        return jsonify(ok=False, error=f"게시물 조회 실패: {str(e)[:120]}"), 400
     now = time.time()
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",
