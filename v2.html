@@ -409,6 +409,27 @@
     .view{flex-direction:column}
     .mbody{flex-direction:column}.preview{flex:0 0 auto;border-right:0;border-bottom:1px solid var(--line)}
   }
+  /* ===== 스레드 탭 ===== */
+  .thtik{display:flex;gap:6px;margin-top:8px}
+  .thtik .btn{flex:1;padding:9px 4px;font-size:12.5px}
+  .thbasket{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
+  .thchip{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--gold);color:var(--gold);border-radius:16px;padding:5px 10px;font-size:12px}
+  .thchip b{cursor:pointer;color:var(--muted)}
+  .thgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:6px 0}
+  .thcard{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden;cursor:pointer}
+  .thcard.on{border:2px solid var(--gold)}
+  .thcard img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block}
+  .thci{padding:7px 9px}
+  .thct{font-size:12.5px;font-weight:700;line-height:1.35;max-height:52px;overflow:hidden}
+  .thcm{font-size:11px;color:var(--faint);margin-top:3px}
+  .thpick{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:1px solid var(--line);text-align:center;line-height:21px;font-size:13px}
+  .thcard.on .thpick{background:var(--gold);color:#1a1a2e;border-color:var(--gold)}
+  .thopen{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);color:#fff;border-radius:7px;font-size:12px;padding:2px 7px;text-decoration:none}
+  .thout{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px;margin:10px 0}
+  .thlbl{font-size:12px;font-weight:800;color:var(--gold);margin-bottom:5px}
+  .thibx{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin:8px 0}
+  .thibt{font-weight:800;font-size:14px}
+  .thpre{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.5;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px;margin:6px 0}
 </style>
 
 <div class="app">
@@ -422,7 +443,7 @@
           <button type="button" data-t="card">🗂 <span>카드뉴스</span></button>
           <button type="button" data-t="autoreel">🎬 <span>릴스</span></button>
           <button type="button" data-t="reel">🗓 <span>릴스 예약</span></button>
-          <button type="button" onclick="location.href='/hunt'">🧲 <span>주제헌터</span></button>
+          <button type="button" data-t="thread">🧵 <span>스레드</span></button>
         </div>
       </div>
       <button type="button" data-t="ie">🔄 <span>수입·수출</span></button>
@@ -549,8 +570,8 @@
 
   /* ============ TAB ROUTER (제작소 드롭다운 통합) ============ */
   const tabsEl=$('tabs');
-  const STUDIO=['jjal','card','autoreel','reel'];
-  const STUDIO_LABEL={jjal:'짤',card:'카드뉴스',autoreel:'릴스',reel:'릴스 예약'};
+  const STUDIO=['jjal','card','autoreel','reel','thread'];
+  const STUDIO_LABEL={jjal:'짤',card:'카드뉴스',autoreel:'릴스',reel:'릴스 예약',thread:'스레드'};
   let STUDIO_CUR='jjal';
   tabsEl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
     if(b.id==='studioBtn'){setActive(STUDIO_CUR);return;}
@@ -576,10 +597,10 @@
     if(!_booted||prev===t){_booted=true;route(t);return;}    // 최초 로드/같은 탭은 애니 없이
     slideEl($('view'),()=>route(t),tabIdx(t)-tabIdx(prev));   // 탭 순서로 좌우 방향 결정
   }
-  function route(t){({jjal:renderJjal,card:renderCard,autoreel:renderAutoReel,reel:renderReel,ie:renderIE,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
+  function route(t){({jjal:renderJjal,card:renderCard,autoreel:renderAutoReel,reel:renderReel,thread:renderThread,ie:renderIE,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
 
   /* ===== 좌우 슬라이딩 전환 (탭 · 위저드 단계, 버튼만) ===== */
-  const TAB_ORDER=['jjal','card','autoreel','reel','ie','sched','result','members'];
+  const TAB_ORDER=['jjal','card','autoreel','reel','thread','ie','sched','result','members'];
   const tabIdx=t=>{const i=TAB_ORDER.indexOf(t);return i<0?0:i;};
   const reducedMotion=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
   let _slideActive=null;   // 진행 중 애니 {el, cancel} — 새 전환이 오면 이전 걸 즉시 종료
@@ -712,6 +733,141 @@
     box.prepend(div);
   }
   function gotoTab(t){setActive(t);}
+
+  /* ============ 스레드 (Threads 소재 헌터) ============ */
+  let THF={topic:'',region:'KR',product:'',link:'',lang:'ko',extra:''};
+  let THCANDS=[], THBASKET=[], THLAST=null, THINBOX=[];
+  function renderThread(){
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">주제로 발굴</span><span class="sd">틱톡·유튜브</span></div>
+          <input class="in" id="thTopic" placeholder="주제 (예: 홈트 허리라인)" value="${esch(THF.topic)}" oninput="THF.topic=this.value">
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <select class="in" id="thRegion" style="width:auto" onchange="THF.region=this.value">
+              <option value="KR"${THF.region==='KR'?' selected':''}>🇰🇷 한국</option>
+              <option value="JP"${THF.region==='JP'?' selected':''}>🇯🇵 일본</option>
+              <option value="US"${THF.region==='US'?' selected':''}>🇺🇸 미국</option></select>
+            <button class="btn" style="flex:1" onclick="thSearch()">🎬 유튜브 자동</button></div>
+          <div class="thtik">
+            <button class="btn" onclick="thTikOpen('search')">🎵 틱톡</button>
+            <button class="btn" onclick="thTikOpen('cc')">🔥 트렌드</button>
+            <button class="btn" onclick="thTikOpen('shop')">🛒 틱톡샵</button></div>
+          <div class="caphint" style="margin-top:8px">틱톡은 새 탭으로 열려요 — 맘에 드는 영상 <b>주소 복사</b>해 아래 ②에 붙여넣으면 소재가 됩니다. ⚡틱톡 자동수집은 유료 API 키 연결 시 켜져요.</div></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">소재 담기</span></div>
+          <div style="display:flex;gap:8px">
+            <input class="in" id="thUrl" placeholder="틱톡/유튜브 주소 붙여넣기" style="flex:1">
+            <button class="btn" onclick="thAddUrl()">담기</button></div>
+          <div id="thBasket" class="thbasket"></div></div>
+        <div class="step"><div class="sh"><span class="num">3</span><span class="st">스레드 설정</span></div>
+          <input class="in" id="thProduct" placeholder="제품명 (예: 논슬립 요가매트 10mm)" value="${esch(THF.product)}" oninput="THF.product=this.value">
+          <input class="in" id="thLink" placeholder="쿠팡 파트너스 링크 (2편 끝에 붙어요)" value="${esch(THF.link)}" oninput="THF.link=this.value" style="margin-top:8px">
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <select class="in" id="thLang" style="width:auto" onchange="THF.lang=this.value">
+              <option value="ko"${THF.lang==='ko'?' selected':''}>🇰🇷 한국어</option>
+              <option value="ja"${THF.lang==='ja'?' selected':''}>🇯🇵 일본어</option></select>
+            <input class="in" id="thExtra" placeholder="방향 지시(선택)" style="flex:1" value="${esch(THF.extra)}" oninput="THF.extra=this.value"></div>
+          <button class="btn primary" style="width:100%;margin-top:10px" onclick="thMake()">✨ 스레드 분할 생성</button></div>
+      </aside>
+      <main class="mainpane">
+        <div class="panehead"><h2>🧵 스레드</h2><span class="n">주제 → 소재 발굴 → 2단(후킹/제품) 자동 작성</span></div>
+        <div id="thStatus" class="caphint" style="color:var(--gold);min-height:18px"></div>
+        <div id="thGrid" class="thgrid"></div>
+        <div id="thOut"></div>
+        <div class="panehead" style="margin-top:22px"><h2>📥 소재 인박스</h2><span class="n">저장한 스레드</span></div>
+        <div id="thInbox"></div>
+      </main>
+    </div>`;
+    thRenderBasket(); thRenderGrid(); thRenderOut(); thLoadInbox();
+  }
+  function thTikOpen(kind){
+    const t=(THF.topic||'').trim(), rg=THF.region, e=encodeURIComponent(t||'shorts');
+    const u = kind==='search' ? 'https://www.tiktok.com/search/video?q='+e
+      : kind==='cc' ? 'https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en?region='+rg
+      : 'https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en?region='+rg;
+    window.open(u,'_blank');
+  }
+  function thViews(n){n=n||0;if(n>=10000)return Math.round(n/1000)/10+'만';if(n>=1000)return Math.round(n/100)/10+'천';return String(n);}
+  async function thSearch(){
+    const t=(THF.topic||'').trim();
+    if(!t){flash('주제를 먼저 입력하세요');return;}
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    $('thStatus').textContent='🎬 유튜브에서 인기 쇼츠 찾는 중...';
+    let d; try{d=await apiJson('/api/youtube/search',{code:code(),query:t,count:30});}catch(e){$('thStatus').textContent='❌ 통신 오류';return;}
+    if(!d.ok){$('thStatus').textContent='❌ '+d.error;return;}
+    THCANDS=d.items||[];
+    $('thStatus').textContent=THCANDS.length?('후보 '+THCANDS.length+'개 — 눌러서 소재로 담기'):'결과가 없어요';
+    thRenderGrid();
+  }
+  function thRenderGrid(){
+    const g=$('thGrid'); if(!g)return;
+    if(!THCANDS.length){g.innerHTML='<div class="caphint">주제 입력 후 🎬 유튜브 자동 또는 틱톡 버튼으로 소재를 찾으세요.</div>';return;}
+    g.innerHTML=THCANDS.map((c,i)=>{
+      const on=THBASKET.some(b=>b.url===c.url);
+      return `<div class="thcard${on?' on':''}" onclick="thToggle(${i})">
+        <div class="thpick">${on?'✓':'+'}</div>
+        <a class="thopen" href="${c.url}" target="_blank" onclick="event.stopPropagation()">▶</a>
+        ${c.thumb?`<img src="${c.thumb}" loading="lazy" onerror="this.remove()">`:''}
+        <div class="thci"><div class="thct">${esch(c.title)}</div>
+        <div class="thcm">${esch(c.channel)} · ${thViews(c.views)}</div></div></div>`;
+    }).join('');
+  }
+  function thToggle(i){const c=THCANDS[i],at=THBASKET.findIndex(b=>b.url===c.url);
+    if(at>=0)THBASKET.splice(at,1); else THBASKET.push({url:c.url,title:c.title,channel:c.channel});
+    thRenderGrid(); thRenderBasket();}
+  function thAddUrl(){const el=$('thUrl'),u=(el.value||'').trim();if(!u)return;
+    THBASKET.push({url:u,title:'(붙여넣은 소재)',channel:''});el.value='';thRenderBasket();thRenderGrid();}
+  function thRenderBasket(){const b=$('thBasket');if(!b)return;
+    b.innerHTML=THBASKET.length?THBASKET.map((x,i)=>`<span class="thchip">${esch((x.title||x.url).slice(0,24))}<b onclick="thRm(${i})">✕</b></span>`).join(''):'<div class="caphint">담긴 소재 없음</div>';}
+  function thRm(i){THBASKET.splice(i,1);thRenderBasket();thRenderGrid();}
+  async function thMake(){
+    if(!THBASKET.length){flash('소재를 1개 이상 담아주세요');return;}
+    if(!code()){flash('접속코드를 입력하세요');return;}
+    const srcs=THBASKET.map((b,i)=>`${i+1}. ${b.title||''} (${b.channel||''}) ${b.url}`).join('\n');
+    $('thStatus').textContent='✨ 스레드 쓰는 중... (10~20초)';
+    let d; try{d=await apiJson('/api/hunt/thread',{code:code(),sources:srcs,product:(THF.product||'').trim(),lang:THF.lang,extra:(THF.extra||'').trim()});}catch(e){$('thStatus').textContent='❌ 통신 오류';return;}
+    if(!d.ok){$('thStatus').textContent='❌ '+d.error;return;}
+    $('thStatus').textContent='';THLAST={title:d.title,part1:d.part1,part2:d.part2};thRenderOut();
+  }
+  function thLink2(){const l=(THF.link||'').trim();return l?('\n'+l):'';}
+  function thRenderOut(){
+    const o=$('thOut'); if(!o)return;
+    if(!THLAST){o.innerHTML='';return;}
+    const p2=THLAST.part2+thLink2();
+    o.innerHTML=`
+      <div class="thout"><div class="thlbl">1편 (후킹) · 1/2</div>
+        <textarea class="in" id="thP1" style="min-height:110px">${esch(THLAST.part1)}</textarea>
+        <button class="btn" style="margin-top:6px" onclick="thCp('thP1')">📋 1편 복사</button></div>
+      <div class="thout"><div class="thlbl">2편 (제품+링크) · 2/2</div>
+        <textarea class="in" id="thP2" style="min-height:110px">${esch(p2)}</textarea>
+        <button class="btn" style="margin-top:6px" onclick="thCp('thP2')">📋 2편 복사</button></div>
+      <button class="btn primary" style="margin-top:8px" onclick="thSave()">💾 소재 인박스에 저장</button>`;
+  }
+  function thCp(id){const t=$(id);if(!t)return;navigator.clipboard.writeText(t.value).then(()=>flash('📋 복사됐어요'));}
+  async function thSave(){
+    if(!THLAST)return;
+    const item={title:THLAST.title,part1:$('thP1')?$('thP1').value:THLAST.part1,part2:$('thP2')?$('thP2').value:THLAST.part2,product:(THF.product||'').trim(),link:''};
+    let d; try{d=await apiJson('/api/hunt/save',{code:code(),item});}catch(e){flash('❌ 통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    flash('✅ 인박스에 저장됨');thLoadInbox();
+  }
+  async function thLoadInbox(){
+    const box=$('thInbox'); if(!box)return;
+    if(!code()){box.innerHTML='<div class="caphint">접속코드를 입력하면 인박스가 보여요</div>';return;}
+    let d; try{d=await apiJson('/api/hunt/inbox',{code:code()});}catch(e){return;}
+    if(!d.ok)return; THINBOX=d.items||[];
+    box.innerHTML=THINBOX.length?THINBOX.map((x,i)=>`
+      <div class="thibx"><div class="thibt">${esch(x.title||'(제목 없음)')}</div>
+      ${x.product?`<div class="caphint">제품: ${esch(x.product)}</div>`:''}
+      <pre class="thpre">${esch(x.part1||'')}</pre>
+      <pre class="thpre">${esch(x.part2||'')}</pre>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="thCpI(${i},1)">📋 1편</button>
+        <button class="btn" onclick="thCpI(${i},2)">📋 2편</button>
+        <button class="btn" onclick="thDelI(${i})">🗑 삭제</button></div></div>`).join(''):'<div class="caphint">아직 저장된 스레드가 없어요. 위에서 만들어 저장하면 여기 쌓여요.</div>';
+  }
+  function thCpI(i,w){const x=THINBOX[i];if(!x)return;navigator.clipboard.writeText(w===1?(x.part1||''):(x.part2||'')).then(()=>flash('📋 복사됐어요'));}
+  async function thDelI(i){const x=THINBOX[i];if(!x)return;if(!confirm('이 스레드를 삭제할까요?'))return;await apiJson('/api/hunt/del',{code:code(),id:x.id});thLoadInbox();}
 
   /* ============ 릴스(자동 쇼츠 제작) - 단계별 위저드 ============ */
   let arState={token:null,fname:'',pid:null};   // v1 상태(후속 단계에서 재사용)
@@ -4041,7 +4197,7 @@
     r.setAttribute('data-theme',cur==='dark'?'light':'dark');}
 
   // 마지막으로 보던 탭 복원(없으면 짤). 관리자 탭은 관리자일 때만.
-  const VALID_TABS=['jjal','card','reel','ie','sched','result','members'];
+  const VALID_TABS=['jjal','card','reel','thread','ie','sched','result','members'];
   refreshMe().then(()=>{
     let t=localStorage.getItem('mftab')||'jjal';
     if(!VALID_TABS.includes(t)) t='jjal';
