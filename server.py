@@ -4420,6 +4420,33 @@ def api_admin_config_set():
     return jsonify(ok=True, saved=sorted(updates.keys()))
 
 
+@app.post("/api/admin/ig/comment_perm")
+def api_admin_ig_comment_perm():
+    """(관리자) 계정 토큰에 댓글 권한(manage_comments)이 있는지 비파괴 확인.
+    최근 게시물 1개의 댓글 목록을 읽어봄 — 읽기도 같은 권한 필요."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    acct = (data.get("account") or "").strip().lstrip("@")
+    accs = (cfg.get("ig_accounts") or {})
+    a = accs.get(acct) or {}
+    uid, token = str(a.get("user_id") or "").strip(), str(a.get("access_token") or "").strip()
+    if not uid or not token:
+        return jsonify(ok=False, error=f"@{acct} user_id/token 없음"), 400
+    import requests as _rq
+    base = (cfg.get("ig_api_base") or "https://graph.instagram.com") + "/" + insta.API_VER
+    r = _rq.get(f"{base}/{uid}/media", params={"fields": "id", "limit": 1, "access_token": token}, timeout=30)
+    media = (r.json().get("data") or []) if r.status_code == 200 else []
+    if not media:
+        return jsonify(ok=False, error=f"게시물 조회 실패({r.status_code}): {r.text[:120]}"), 502
+    mid = media[0]["id"]
+    r2 = _rq.get(f"{base}/{mid}/comments", params={"limit": 1, "access_token": token}, timeout=30)
+    if r2.status_code == 200:
+        return jsonify(ok=True, has_permission=True, media_id=mid)
+    return jsonify(ok=True, has_permission=False, detail=r2.text[:200])
+
+
 @app.post("/api/admin/update_deps")
 def api_admin_update_deps():
     """(관리자) yt-dlp 업데이트 후 서버 자동 재시작(감시견이 새 모듈로 부활).
