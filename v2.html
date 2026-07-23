@@ -2535,7 +2535,7 @@
     const mine=document.documentElement.getAttribute('data-jjal-ext')||'';
     if(mine===latest){flash('✅ 확장 최신 버전입니다 (v'+mine+')');return;}
     const msg=mine
-      ?('확장이 구버전이에요 (설치 v'+mine+' → 최신 v'+latest+').\n최신 zip을 다운로드할까요?\n(받은 폴더로 덮어쓰고 chrome://extensions에서 ↻)')
+      ?('확장이 구버전이에요 (설치 v'+mine+' → 최신 v'+latest+').\n\n※ 방금 확장을 교체했다면 이 페이지가 옛 도장을 기억하는 것 — 이 페이지를 F5 새로고침하고 다시 확인하세요.\n\n정말 구버전이면 [확인]으로 최신 zip 다운로드 (받은 폴더로 덮어쓰고 chrome://extensions에서 ↻)')
       :('이 브라우저에서 확장을 감지하지 못했어요 (미설치 또는 v1.1 이하 구버전).\n최신 zip(v'+latest+')을 다운로드할까요?');
     if(confirm(msg))window.open('/ext.zip?code='+encodeURIComponent(code()),'_blank');
   }
