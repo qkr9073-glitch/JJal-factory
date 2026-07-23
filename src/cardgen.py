@@ -128,6 +128,7 @@ def convert_script(cfg, script, topic, profile=None):
 """ + guide + """규칙:
 - 내용 창작 금지: 대본에 있는 정보만 재구성(새 사실/과장 추가 금지).
 - head: 카드의 큰 글씨(짧고 강하게), body: 보조 설명(전개방식에 본문이 없으면 빈 문자열).
+- head/body에 이모지·특수문자 금지(한글/숫자/영문/기본 문장부호만 — 렌더러가 이모지를 못 그림).
 - 1번 카드는 표지(훅). 마지막 카드는 CTA(저장/팔로우/댓글 유도).
 - caption: 인스타 캡션 — 훅 1줄 + 핵심 2줄 + CTA 1줄 + 해시태그 5개.
 반드시 JSON만: {"cards":[{"head":"...","body":"..."}],"caption":"..."}""")
@@ -163,9 +164,15 @@ def _font(base, feel, size, bold=True):
     return ImageFont.truetype(str(f), size)
 
 
+_EMOJI = re.compile(
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF"
+    "\u2B00-\u2BFF\u2190-\u21FF\uFE0E\uFE0F\u200D\u200B\u2728\u2764]+")
+
+
 def _clean(s):
-    """문구 공백 정규화 — 연속 공백/탭이 카드에 어색한 틈으로 남지 않게."""
-    return re.sub(r"[ \t\u00a0\u3000]+", " ", str(s or "")).strip()
+    """문구 정리 — 이모지(폰트에 글리프가 없어 투명한 틈으로 렌더됨) 제거 + 공백 정규화."""
+    s = _EMOJI.sub(" ", str(s or ""))
+    return re.sub(r"[^\S\n]+", " ", s).strip()
 
 
 def _wrap(draw, text, font, maxw):
