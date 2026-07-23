@@ -178,6 +178,91 @@ def _wrap(draw, text, font, maxw):
     return [ln for ln in lines if ln.strip()]
 
 
+def _crop_45(img):
+    """세로 영상 프레임 → 4:5(1080x1350) 크롭(살짝 위쪽 중심 — 얼굴/제품이 보통 상단)."""
+    img = img.convert("RGB")
+    w, h = img.size
+    if w != W:
+        nh = max(1, int(h * W / w))
+        img = img.resize((W, nh))
+        w, h = img.size
+    if h > H:
+        top = max(0, int((h - H) * 0.42))
+        img = img.crop((0, top, W, top + H))
+    elif h < H:
+        canvas = Image.new("RGB", (W, H), (14, 16, 20))
+        canvas.paste(img, (0, (H - h) // 2))
+        img = canvas
+    return img
+
+
+def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
+    """영상 프레임(무자막·블러 반영 원본) 배경 + 하단 그라데이션 + 학습 스타일 문구.
+    쇼핑 캐러셀 표준 스타일: 하단 2줄 큰 글씨(1줄 흰색, 2줄부터 강조색) + 보조 설명."""
+    v = visual or {}
+    acc = _hex(v.get("accent"), "#FFD34D")
+    feel = str(v.get("font_feel") or "고딕굵게")
+    deco = str(v.get("deco") or "")
+    out = []
+    n = len(cards)
+    for i, c in enumerate(cards, 1):
+        fp = frame_paths[min(i - 1, len(frame_paths) - 1)] if frame_paths else None
+        try:
+            img = _crop_45(Image.open(fp)) if fp else Image.new("RGB", (W, H), (18, 20, 26))
+        except Exception:
+            img = Image.new("RGB", (W, H), (18, 20, 26))
+        img = img.convert("RGBA")
+        # 하단 그라데이션(가독) — 반투명은 레이어+alpha_composite (RGB 직드로잉 금지)
+        cover = (i == 1)
+        gh = 700 if cover else 620
+        grad = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        gd = ImageDraw.Draw(grad)
+        for y in range(gh):
+            a = int(215 * (y / gh) ** 1.4)
+            gd.line([(0, H - gh + y), (W, H - gh + y)], fill=(0, 0, 0, a))
+        img = Image.alpha_composite(img, grad)
+        d = ImageDraw.Draw(img)
+        head = str(c.get("head") or "").strip()
+        body = str(c.get("body") or "").strip()
+        hsize = 84 if cover else 70
+        hf = _font(base, feel, hsize, bold=True)
+        bf = _font(base, feel, 40, bold=False)
+        maxw = W - 130
+        hl = _wrap(d, head, hf, maxw) if head else []
+        bl = _wrap(d, body, bf, maxw) if body else []
+        hlh, blh = int(hsize * 1.26), int(40 * 1.5)
+        total = len(hl) * hlh + (24 if hl and bl else 0) + len(bl) * blh
+        y = H - 110 - total
+        stroke = max(3, hsize // 28)
+        for k, ln in enumerate(hl):
+            x = (W - d.textlength(ln, font=hf)) // 2
+            fill = (255, 255, 255) if k == 0 else _rgb(acc)
+            d.text((x, y), ln, font=hf, fill=fill,
+                   stroke_width=stroke, stroke_fill=(18, 18, 18))
+            y += hlh
+        if hl and bl:
+            y += 24
+        for ln in bl:
+            x = (W - d.textlength(ln, font=bf)) // 2
+            d.text((x, y), ln, font=bf, fill=(242, 242, 242),
+                   stroke_width=2, stroke_fill=(18, 18, 18))
+            y += blh
+        if not cover and ("번호" in deco or "페이지" in deco):
+            sf = _font(base, "", 30, bold=False)
+            s = f"{i} / {n}"
+            d.text(((W - d.textlength(s, font=sf)) // 2, H - 92), s,
+                   font=sf, fill=(235, 235, 235), stroke_width=2, stroke_fill=(18, 18, 18))
+        if handle:
+            sf = _font(base, "", 28, bold=False)
+            s = "@" + str(handle).lstrip("@")
+            d.text(((W - d.textlength(s, font=sf)) // 2, H - 50), s,
+                   font=sf, fill=_rgb(acc), stroke_width=2, stroke_fill=(18, 18, 18))
+        name = f"{i:02d}.jpg"
+        img.convert("RGB").save(str(Path(out_dir) / name), quality=92)
+        out.append(name)
+    return out
+
+
 def render_cards(base, cards, visual, out_dir, handle=""):
     """카드 텍스트 목록 → out_dir/01..NN.jpg. 반환: 파일명 리스트."""
     v = visual or {}

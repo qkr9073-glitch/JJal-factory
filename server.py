@@ -5275,6 +5275,7 @@ def api_reelproj_to_results():
             "subs_style": st.get("subs_style") or {},
             "bgm": st.get("bgm") or {},
             "source": "autoshort", "type": "reel", "template": "reel", "video": "video.mp4",
+            "pid": pid,
             "reel_thumbs": reel_thumbs, "cover": cover, "script": str(st.get("script", "")),
             "site": "자동 쇼츠", "lang": "ko"}
     (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -6338,7 +6339,24 @@ def api_carousel_learn():
     return jsonify(ok=True, job=jid)
 
 
-def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle):
+def _find_reelproj_pid(pack, meta):
+    """카드 변환용: 팩 → 원본 릴스 프로젝트(pid) 역추적 (meta.pid 우선, 없으면 sent_to_results 스캔)."""
+    pid = str(meta.get("pid") or "").strip()
+    if pid and (BASE / "reelproj" / pid / "state.json").exists():
+        return pid
+    rroot = BASE / "reelproj"
+    if rroot.exists():
+        for sdir in rroot.iterdir():
+            sj = sdir / "state.json"
+            try:
+                if sj.exists() and json.loads(sj.read_text(encoding="utf-8")).get("sent_to_results") == pack:
+                    return sdir.name
+            except Exception:
+                pass
+    return ""
+
+
+def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="photo"):
     job = JOBS[jid]
     try:
         job.update(status="running", pct=8, msg="릴스 대본 읽는 중…")
@@ -6347,13 +6365,22 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle):
         script = str(meta.get("script") or "").strip()
         if not script:
             raise RuntimeError("이 팩엔 저장된 대본이 없어요 (구버전 팩)")
+        vsrc = None
+        if template == "photo":
+            ppid = _find_reelproj_pid(pack, meta)
+            if ppid and (BASE / "reelproj" / ppid / "edit" / "video.mp4").exists():
+                vsrc = BASE / "reelproj" / ppid / "edit" / "video.mp4"   # 무자막+블러 반영 원본
+            elif (pdir / "video.mp4").exists():
+                vsrc = pdir / "video.mp4"    # 프로젝트 정리됨 → 완성본(자막 포함)으로 폴백
+            if not vsrc:
+                raise RuntimeError("배경으로 쓸 영상을 못 찾았어요 — 텍스트 카드 템플릿으로 시도하세요")
         profile = None
         if style_ch:
             profile = cardgen.load_styles(BASE).get(f"{code}:{style_ch}")
-        job.update(pct=30, msg="카드 텍스트 구성 중… (10~20초)")
+        job.update(pct=25, msg="카드 텍스트 구성 중… (10~20초)")
         cards, caption = cardgen.convert_script(
             cfg, script, str(meta.get("title") or ""), profile)
-        job.update(pct=65, msg=f"{len(cards)}장 카드 렌더 중…")
+        job.update(pct=55, msg=f"{len(cards)}장 카드 렌더 중…")
         title = re.sub(r'[\\/:*?"<>|]+', "", str(meta.get("title") or pack))[:22].strip() or "카드"
         name = f"{datetime.now():%y%m%d}_카드_{title}"
         if (OUTPUT / name).exists():
@@ -6361,14 +6388,45 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle):
         ndir = OUTPUT / name
         ndir.mkdir(parents=True)
         visual = (profile or {}).get("visual")
-        files = cardgen.render_cards(BASE, cards, visual, ndir, handle=handle)
+        if template == "photo" and vsrc:
+            dur = 0.0
+            try:
+                pr = autoshorts._run([autoshorts.FFPROBE, "-v", "error", "-show_entries",
+                                      "format=duration", "-of", "csv=p=0", str(vsrc)])
+                dur = float((pr.stdout or "0").strip() or 0)
+            except Exception:
+                dur = 0.0
+            frame_paths = []
+            for i in range(len(cards)):
+                ss = (dur * (i + 0.5) / len(cards)) if dur > 0 else (1.0 + i)
+                fp = ndir / f"_f{i}.jpg"
+                try:
+                    autoshorts._run([autoshorts.FFMPEG, "-hide_banner", "-loglevel", "error",
+                                     "-y", "-ss", f"{ss:.2f}", "-i", str(vsrc),
+                                     "-frames:v", "1", "-vf", "scale=1080:-2", str(fp)])
+                except Exception:
+                    pass
+                frame_paths.append(str(fp) if fp.exists() else None)
+            frame_paths = [f for f in frame_paths if f] or None
+            if frame_paths:
+                files = cardgen.render_cards_photo(BASE, cards, visual, ndir,
+                                                   frame_paths, handle=handle)
+            else:
+                files = cardgen.render_cards(BASE, cards, visual, ndir, handle=handle)
+            for f in ndir.glob("_f*.jpg"):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+        else:
+            files = cardgen.render_cards(BASE, cards, visual, ndir, handle=handle)
         shutil.copyfile(ndir / files[0], ndir / "thumb.jpg")
         (ndir / "caption.txt").write_text(caption or "", encoding="utf-8")
         (ndir / "meta.json").write_text(json.dumps({
             "title": f"카드 · {meta.get('title') or pack}",
             "created": datetime.now().isoformat(timespec="seconds"),
             "type": "cardnews", "source": f"릴스팩 {pack}",
-            "style": style_ch, "script": script,
+            "style": style_ch, "template": template, "script": script,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
         import html as _html
         cards_html = "".join(
@@ -6404,9 +6462,12 @@ def api_pack_to_carousel():
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…", "result": None,
                  "error": None, "ts": time.time()}
+    tpl = (data.get("template") or "photo").strip()
+    if tpl not in ("photo", "text"):
+        tpl = "photo"
     threading.Thread(target=_run_pack_to_carousel,
                      args=(jid, cfg, code, pack, (data.get("style") or "").strip(),
-                           (data.get("account") or "").strip()),
+                           (data.get("account") or "").strip(), tpl),
                      daemon=True).start()
     return jsonify(ok=True, job=jid)
 

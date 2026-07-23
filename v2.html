@@ -3093,6 +3093,11 @@
     ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;width:min(480px,92vw)" onclick="event.stopPropagation()">
       <b>🃏 카드뉴스로 변환</b>
       <div class="caphint" style="margin-top:6px">릴스 확정 대본의 내용을 그대로 살려 캐러셀 카드 짤로 재구성합니다. 완성되면 결과물 탭에 새 팩으로 생깁니다.</div>
+      <label class="fld" style="margin-top:12px">템플릿</label>
+      <div class="chips" id="carTplChips">
+        <span class="chip on" data-tpl="photo" onclick="carTplSet('photo')">🖼 사진 배경 (영상 프레임)</span>
+        <span class="chip" data-tpl="text" onclick="carTplSet('text')">📝 텍스트 카드</span></div>
+      <div class="caphint" style="margin-top:5px;color:var(--faint)">사진 배경 = 자막 없는 영상 원본(블러 적용분 포함)에서 장면을 뽑아 카드 배경으로 사용</div>
       <label class="fld" style="margin-top:12px">전개방식 스타일</label>
       <select class="in" id="carStyle"><option value="">기본 카드뉴스체 (학습 없이)</option></select>
       <label class="fld" style="margin-top:12px">＋ 새 스타일 학습 (참고 캐러셀 계정)</label>
@@ -3107,6 +3112,11 @@
     ov.onclick=()=>ov.remove();
     document.body.appendChild(ov);
     carChannelsLoad();
+  }
+  window.carTpl='photo';
+  function carTplSet(t){
+    window.carTpl=t;
+    document.querySelectorAll('#carTplChips .chip').forEach(c=>c.classList.toggle('on',c.dataset.tpl===t));
   }
   function carChannelsLoad(){
     apiJson('/api/carousel/channels',{code:code()}).then(d=>{
@@ -3150,6 +3160,7 @@
     if($('carMsg'))$('carMsg').textContent='🃏 카드 구성 중…';
     apiJson('/api/pack/to_carousel',{code:code(),pack:PKR.name,
       style:($('carStyle')&&$('carStyle').value)||'',
+      template:window.carTpl||'photo',
       account:($('rpAcct')&&$('rpAcct').value)||''}).then(d=>{
       if(!d.ok){if($('carMsg'))$('carMsg').textContent='❌ '+d.error;if(g)g.disabled=false;return;}
       carPoll(d.job,r=>{
