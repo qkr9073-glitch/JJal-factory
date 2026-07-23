@@ -679,3 +679,77 @@ def caption_video(cfg, video_path, kind="meme", hint="", log=print):
             requests.delete(f"{_FILES_BASE}/{name}", params={"key": key}, timeout=20)
         except Exception:
             pass
+
+
+# ─────────────── 주제 헌터: 스레드(Threads) 2단 분할 카피 ───────────────
+_THREAD_PROMPT = """너는 쿠팡 파트너스로 수익을 내는 스레드(Threads) 계정의 전속 카피라이터다.
+아래 '소재'(틱톡/유튜브 인기 영상·짤)와 '제품'을 엮어, 스레드에 그대로 올릴 2단 분할 게시물을 써라.
+{lang_rule}
+## 성공 공식 (이 톤을 그대로 복제)
+- 1편(후킹): 제품을 절대 팔지 마라. "와 미친.. 일본에서 난리난..", "나 왜 이제 알았냐"처럼
+  발견·충격·자기경험 말투로 소재(영상 내용)를 침 고이게 소개한다. 구어체·반말, 말줄임(;;) 허용.
+  맨 끝 줄에 "1/2".
+- 2편(전환): 첫 줄에 반드시 제휴 고지("쿠팡 파트너스 활동으로 수수료를 제공받아요." 류)를 넣고,
+  이어서 소재를 제품으로 자연스럽게 연결하는 짧은 셀링 2~3줄(집에서 10분·가격 부담 없다 류),
+  제품을 콕 집어준다. 맨 끝 줄에 "2/2". (링크는 넣지 마라 — 사람이 직접 붙인다.)
+
+## 규칙
+- 이모지 0~2개. 해시태그·실명·전화번호 금지.
+- 과장된 확정 의학효과("무조건 낫는다") 금지 — "도움 됨/라인 잡힘" 수준으로.
+- 각 편 3~6줄.
+
+## 출력 (반드시 이 JSON만)
+{{"title":"소재 한 줄 요약(인박스 표시용)","part1":"1편 본문 전체","part2":"2편 본문 전체"}}
+
+## 제품
+{product}
+
+## 소재 (고른 후보)
+{sources}
+"""
+
+
+def write_thread(cfg, sources, product="", lang="ko", extra="", mock=False):
+    """소재(영상/짤 후보) + 제품 → 스레드 2단 분할(1편 후킹 / 2편 제품).
+    반환 {title, part1, part2}. 링크는 넣지 않는다(사람이 붙임)."""
+    if mock:
+        return {"title": "(모의) 소재 요약",
+                "part1": "와 미친.. 이거 일본에서 난리났다는데;;\n나 왜 이제 알았냐\n1/2",
+                "part2": "쿠팡 파트너스 활동으로 수수료를 제공받아요.\n집에서 하루 10분이면 라인 싹 바뀜\n2/2"}
+    key = (cfg.get("gemini_api_key") or "").strip() or os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다 (config.json gemini_api_key)")
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    lang_rule = ""
+    if lang == "ja":
+        lang_rule = "\n[언어] 반드시 자연스러운 일본어 SNS 말투로 작성하라. 제휴 고지도 일본어로.\n"
+    prompt = _THREAD_PROMPT.format(
+        lang_rule=lang_rule,
+        product=(product or "(제품 미지정 — 소재에 맞는 제품 카테고리를 제안)").strip()[:400],
+        sources=(sources or "(소재 없음)").strip()[:2000],
+    )
+    if str(extra).strip():
+        prompt = f"[운영자 방향 — 최우선]: {str(extra).strip()}\n\n" + prompt
+    body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.95, "maxOutputTokens": 2048,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    last_err = None
+    for _ in range(2):
+        resp = requests.post(GEMINI_URL.format(model=model),
+                             params={"key": key}, json=body, timeout=90)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Gemini API 오류 {resp.status_code}: {resp.text[:200]}")
+        try:
+            cand = resp.json()["candidates"][0]
+            raw = "".join(p.get("text", "")
+                          for p in cand.get("content", {}).get("parts", []))
+            j = _parse_json(raw)
+            p1 = str(j.get("part1", "")).strip()
+            p2 = str(j.get("part2", "")).strip()
+            if not p1 or not p2:
+                raise ValueError("part 비어있음")
+            return {"title": str(j.get("title", "")).strip()[:80], "part1": p1, "part2": p2}
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"스레드 생성 실패: {last_err}")

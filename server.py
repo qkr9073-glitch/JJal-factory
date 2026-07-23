@@ -183,7 +183,7 @@ body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 <div class="brand"><img src="/logo-origami.png" alt="logo"><div>
 <h1>짤공장</h1><div class="sub">커뮤니티 인기글 → 인스타 완성팩 (썸네일 3종 + 짤 + 본문)</div>
 </div></div>
-<div class="nav"><a class="on" href="/">🏭 짤공장</a><a href="/card">🗂 카드뉴스</a><a href="/p">📦 결과물</a></div>
+<div class="nav"><a class="on" href="/">🏭 짤공장</a><a href="/card">🗂 카드뉴스</a><a href="/p">📦 결과물</a><a href="/hunt">🧲 주제헌터</a></div>
 <input id="code" placeholder="접속코드" type="password">
 <input id="url" placeholder="링크 붙여넣기 — 커뮤니티(디시/루리웹/에펨) 또는 🎬 유튜브 쇼츠">
 <div style="font-size:14px;font-weight:700;margin:10px 0 2px;color:#f0ead8">🎨 템플릿 <span style="font-weight:400;font-size:12px;color:#9aa3c8">— 눌러서 미리보기로 고르세요</span></div>
@@ -739,7 +739,7 @@ body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 <h1>카드뉴스 공장</h1>
 <div class="sub">주제 한 줄 → 4:5 캐러셀 + 전자책 PDF + 댓글 유도 캡션</div>
 </div></div>
-<div class="nav"><a href="/">🏭 짤공장</a><a class="on" href="/card">🗂 카드뉴스</a><a href="/p">📦 결과물</a></div>
+<div class="nav"><a href="/">🏭 짤공장</a><a class="on" href="/card">🗂 카드뉴스</a><a href="/p">📦 결과물</a><a href="/hunt">🧲 주제헌터</a></div>
 <input id="code" placeholder="접속코드" type="password">
 <input id="topic" placeholder="주제 입력 (예: 쇼츠 조회수 터지는 후킹 문장)">
 <div class="chips" id="modes">
@@ -1209,7 +1209,7 @@ summary{cursor:pointer;color:var(--gold2);font-weight:700;padding:8px 0}
 <div class="brand"><img src="/logo-origami.png" alt="logo"><div>
 <h1>결과물 창고</h1><div class="sub">완성팩 확인 · 썸네일 선택 · 문구 수정 · 인스타 업로드 — 폰에서도 OK</div>
 </div></div>
-<div class="nav"><a href="/">🏭 짤공장</a><a href="/card">🗂 카드뉴스</a><a class="on" href="/p">📦 결과물</a></div>
+<div class="nav"><a href="/">🏭 짤공장</a><a href="/card">🗂 카드뉴스</a><a class="on" href="/p">📦 결과물</a><a href="/hunt">🧲 주제헌터</a></div>
 <div class="row"><input id="code" placeholder="접속코드" type="password"><button class="ghost" style="flex:0 0 110px;margin-top:6px" onclick="loadList()">불러오기</button></div>
 <div id="status"></div>
 <div id="list"></div>
@@ -1652,6 +1652,217 @@ $('code').addEventListener('keydown',e=>{if(e.key==='Enter')loadList();});
 </script></body></html>"""
 
 
+HUNT_HTML = """<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>주제 헌터</title>
+<meta name="theme-color" content="#fdf8f1">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+button,select,.nav a{touch-action:manipulation}
+:root{--tc:#e2683c;--tc2:#c2502a;--ink:#2b2620;--line:#e6d2bd;--soft:#8a7a6c}
+html{-webkit-text-size-adjust:100%}
+body{background:linear-gradient(180deg,#fdf8f1 0%,#f7ece1 100%);min-height:100vh;color:var(--ink);font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:620px;margin:0 auto;padding:20px;-webkit-font-smoothing:antialiased}
+h1{font-size:26px;margin:6px 0 0;color:var(--tc2);font-weight:800}
+.sub{color:var(--soft);font-size:13px;margin:8px 0 0;line-height:1.5}
+input,select,textarea{width:100%;padding:13px 15px;border-radius:12px;border:1px solid var(--line);background:#fff;color:var(--ink);font-size:16px;margin:6px 0;outline:none;font-family:inherit}
+input:focus,select:focus,textarea:focus{border-color:var(--tc);box-shadow:0 0 0 3px rgba(226,104,60,.15)}
+input::placeholder,textarea::placeholder{color:#b8a795}
+button{width:100%;background:linear-gradient(180deg,#ea7a4d,#dd5f33);color:#fff;border:0;padding:15px;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;margin-top:8px;font-family:inherit;box-shadow:0 6px 16px rgba(190,100,50,.24)}
+button:hover{filter:brightness(1.05)} button:active{transform:translateY(1px)}
+button:disabled{background:#d8c7b4;color:#a08d78;box-shadow:none}
+button.ghost{background:#fff;color:#c2502a;border:1px solid var(--line);box-shadow:none;font-weight:700}
+.nav{display:flex;gap:6px;margin:14px 0 16px;background:rgba(255,255,255,.7);padding:6px;border-radius:14px;border:1px solid var(--line)}
+.nav a{flex:1;text-align:center;padding:11px 4px;border-radius:10px;color:#8a6a4e;text-decoration:none;font-size:13px;font-weight:700}
+.nav a.on{background:var(--tc);color:#fff}
+h2{font-size:16px;margin:24px 0 4px;color:var(--tc2);display:flex;align-items:center}
+.step{font-size:12px;font-weight:800;color:#fff;background:var(--tc);border-radius:20px;padding:2px 9px;margin-right:7px}
+.tdim{color:#9a8a7a;font-size:12px;line-height:1.55;margin:4px 0}
+.row{display:flex;gap:8px;align-items:center}.row>*{flex:1}
+.tikrow{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0}
+.tik{flex:1 1 46%;color:#fff;border:0;border-radius:11px;padding:12px 8px;font-size:14px;font-weight:700;cursor:pointer;text-align:center;box-shadow:none;margin:0;background:#111}
+.tik.cc{background:#0a7d5a}.tik.sh{background:#111}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:8px 0}
+.cand{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;position:relative}
+.cand.on{border:2px solid var(--tc);box-shadow:0 3px 12px rgba(194,80,42,.2)}
+.cand img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block;margin:0;border-radius:0}
+.cand .ci{padding:7px 9px}
+.cand .ct{font-size:12.5px;font-weight:700;line-height:1.35;max-height:52px;overflow:hidden;color:#2b2620}
+.cand .cm{font-size:11px;color:#9a8a7a;margin-top:3px}
+.cand .pick{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.92);border:1px solid var(--line);font-size:13px;text-align:center;line-height:21px}
+.cand.on .pick{background:var(--tc);color:#fff;border-color:var(--tc)}
+.cand .open{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);color:#fff;border-radius:8px;font-size:11px;padding:3px 7px;text-decoration:none}
+.basket{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.bchip{background:#fff4ec;border:1px solid var(--tc);color:#a03e22;padding:7px 11px;border-radius:18px;font-size:13px;display:flex;align-items:center;gap:6px}
+.bchip b{cursor:pointer}
+.out{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0}
+.out .lbl{font-size:12px;font-weight:800;color:var(--tc2);margin-bottom:4px}
+.out textarea{min-height:118px;font-size:14px;line-height:1.55;border-color:#eeddcc}
+.mini{width:auto;flex:0 0 auto;padding:9px 13px;font-size:13px;border-radius:10px;margin:0}
+.inbox .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin:8px 0}
+.inbox .ttl{font-size:14px;font-weight:800;color:#2b2620}
+.inbox pre{white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.5;color:#4a4238;background:#faf3ea;border-radius:9px;padding:9px;margin:6px 0;border:1px solid #f0e2d2}
+#status{margin:12px 0;color:var(--tc2);font-size:14px;white-space:pre-wrap;min-height:20px}
+@media(max-width:430px){body{padding:14px}h1{font-size:22px}.nav a{font-size:12px;padding:11px 2px}.tik{flex:1 1 100%}}
+</style></head><body>
+<h1>🧲 주제 헌터</h1>
+<div class="sub">주제 하나 → 틱톡·유튜브에서 소재 발굴 → 스레드 2단(후킹/제품) 자동 작성</div>
+<div class="nav"><a href="/">🏭 짤공장</a><a href="/card">🗂 카드뉴스</a><a href="/p">📦 결과물</a><a class="on" href="/hunt">🧲 주제헌터</a></div>
+<input id="code" placeholder="접속코드" type="password">
+
+<h2><span class="step">1</span>주제로 소재 발굴</h2>
+<input id="topic" placeholder="주제 (예: 홈트 허리라인 / 가을 스카프 코디)">
+<div class="row">
+<select id="region" style="flex:0 0 40%"><option value="KR">🇰🇷 한국</option><option value="JP">🇯🇵 일본</option><option value="US">🇺🇸 미국</option></select>
+<button class="tik" onclick="tikOpen('search')">🎵 틱톡에서 검색</button>
+</div>
+<div class="tikrow">
+<button class="tik cc" onclick="tikOpen('cc')">🔥 크리에이티브센터 트렌드</button>
+<button class="tik sh" onclick="tikOpen('shop')">🛒 틱톡샵 인기상품</button>
+</div>
+<div class="tdim">틱톡은 새 탭으로 열려요 — 감성 맞는 영상 골라 <b>주소 복사</b>해서 아래 ②에 붙여넣으면 소재가 됩니다. ⚡틱톡 자동수집은 유료 API 키를 config에 넣으면 켜져요.</div>
+<button onclick="ytSearch()" style="background:#c00;margin-top:10px">🎬 유튜브에서 자동으로 후보 찾기</button>
+<div id="ytgrid" class="grid"></div>
+
+<h2><span class="step">2</span>소재 담기</h2>
+<div class="row">
+<input id="tikurl" placeholder="틱톡/유튜브 영상 주소 붙여넣기" style="margin:0">
+<button class="mini" onclick="addUrl()">담기</button>
+</div>
+<div id="basket" class="basket"></div>
+
+<h2><span class="step">3</span>스레드 만들기</h2>
+<input id="product" placeholder="제품명 (예: 논슬립 요가매트 10mm)">
+<input id="cplink" placeholder="쿠팡 파트너스 링크 (붙여넣기 — 2편 끝에 자동으로 붙어요)">
+<div class="row">
+<select id="lang" style="flex:0 0 45%"><option value="ko">🇰🇷 한국어</option><option value="ja">🇯🇵 일본어</option></select>
+<input id="extra" placeholder="방향 지시(선택)" style="margin:6px 0">
+</div>
+<button onclick="makeThread()">✨ 스레드 분할 생성</button>
+<div id="status"></div>
+<div id="threadout"></div>
+
+<h2>📥 소재 인박스</h2>
+<div id="inbox" class="inbox"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const NL=String.fromCharCode(10);
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+let CANDS=[], BASKET=[], LAST=null, INBOX=[];
+$('code').value=localStorage.getItem('mfcode')||'';
+async function post(path,body){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return r.json();
+}
+function code(){const c=$('code').value.trim(); if(c) localStorage.setItem('mfcode',c); return c;}
+function enc(s){return encodeURIComponent(s||'');}
+function toast(m){$('status').textContent=m; setTimeout(()=>{if($('status').textContent===m)$('status').textContent='';},1600);}
+
+function tikOpen(kind){
+  const t=$('topic').value.trim(), rg=$('region').value;
+  let u='';
+  if(kind==='search') u='https://www.tiktok.com/search/video?q='+enc(t||'shorts');
+  else if(kind==='cc') u='https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en?region='+rg;
+  else u='https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en?region='+rg;
+  window.open(u,'_blank');
+}
+function fmtViews(n){n=n||0; if(n>=10000) return Math.round(n/1000)/10+'만'; if(n>=1000) return Math.round(n/100)/10+'천'; return String(n);}
+
+async function ytSearch(){
+  const t=$('topic').value.trim();
+  if(!t){toast('주제를 먼저 입력하세요');return;}
+  $('status').textContent='🎬 유튜브에서 인기 쇼츠 찾는 중...';
+  const d=await post('/api/youtube/search',{code:code(),query:t,count:30});
+  if(!d.ok){$('status').textContent='❌ '+(d.error||'검색 실패');return;}
+  CANDS=d.items||[];
+  $('status').textContent=CANDS.length?('후보 '+CANDS.length+'개 — 눌러서 소재로 담기'):'결과가 없어요';
+  renderGrid();
+}
+function renderGrid(){
+  $('ytgrid').innerHTML=CANDS.map((c,i)=>{
+    const on=BASKET.some(b=>b.url===c.url);
+    return `<div class="cand${on?' on':''}" onclick="toggleCand(${i})">
+      <div class="pick">${on?'✓':'+'}</div>
+      <a class="open" href="${c.url}" target="_blank" onclick="event.stopPropagation()">▶ 열기</a>
+      ${c.thumb?`<img src="${c.thumb}" loading="lazy">`:''}
+      <div class="ci"><div class="ct">${esc(c.title)}</div>
+      <div class="cm">${esc(c.channel)} · 조회 ${fmtViews(c.views)}</div></div></div>`;
+  }).join('');
+}
+function toggleCand(i){
+  const c=CANDS[i], at=BASKET.findIndex(b=>b.url===c.url);
+  if(at>=0) BASKET.splice(at,1);
+  else BASKET.push({url:c.url,title:c.title,channel:c.channel});
+  renderGrid(); renderBasket();
+}
+function addUrl(){
+  const u=$('tikurl').value.trim();
+  if(!u) return;
+  BASKET.push({url:u,title:'(붙여넣은 소재)',channel:''});
+  $('tikurl').value=''; renderBasket(); renderGrid();
+}
+function renderBasket(){
+  $('basket').innerHTML=BASKET.map((b,i)=>
+    `<span class="bchip">${esc((b.title||b.url).slice(0,26))} <b onclick="rmBasket(${i})">✕</b></span>`).join('');
+}
+function rmBasket(i){BASKET.splice(i,1);renderBasket();renderGrid();}
+
+function link2(){const l=$('cplink').value.trim(); return l?(NL+l):'';}
+async function makeThread(){
+  if(!BASKET.length){toast('소재를 1개 이상 담아주세요 (①발굴 → 담기)');return;}
+  const srcs=BASKET.map((b,i)=>`${i+1}. ${b.title||''} (${b.channel||''}) ${b.url}`).join(NL);
+  $('status').textContent='✨ 스레드 쓰는 중... (10~20초)';
+  const d=await post('/api/hunt/thread',{code:code(),sources:srcs,product:$('product').value.trim(),lang:$('lang').value,extra:$('extra').value.trim()});
+  if(!d.ok){$('status').textContent='❌ '+(d.error||'생성 실패');return;}
+  $('status').textContent='';
+  LAST={title:d.title,part1:d.part1,part2:d.part2};
+  renderOut();
+}
+function renderOut(){
+  const p2=LAST.part2+link2();
+  $('threadout').innerHTML=`
+    <div class="out"><div class="lbl">1편 (후킹) · 1/2</div>
+      <textarea id="op1">${esc(LAST.part1)}</textarea>
+      <button class="ghost mini" onclick="cp('op1')">📋 1편 복사</button></div>
+    <div class="out"><div class="lbl">2편 (제품+링크) · 2/2</div>
+      <textarea id="op2">${esc(p2)}</textarea>
+      <button class="ghost mini" onclick="cp('op2')">📋 2편 복사</button></div>
+    <button onclick="saveInbox()">💾 소재 인박스에 저장</button>`;
+}
+function cp(id){const t=$(id); navigator.clipboard.writeText(t.value).then(()=>toast('📋 복사됐어요'));}
+
+async function saveInbox(){
+  if(!LAST) return;
+  const item={title:LAST.title,part1:$('op1')?$('op1').value:LAST.part1,part2:$('op2')?$('op2').value:LAST.part2,product:$('product').value.trim(),link:''};
+  const d=await post('/api/hunt/save',{code:code(),item:item});
+  if(!d.ok){$('status').textContent='❌ '+(d.error||'저장 실패');return;}
+  toast('✅ 인박스에 저장됐어요'); loadInbox();
+}
+async function loadInbox(){
+  const c=code(); if(!c) return;
+  const d=await post('/api/hunt/inbox',{code:c});
+  if(!d.ok) return;
+  INBOX=d.items||[];
+  $('inbox').innerHTML=INBOX.length?INBOX.map((x,i)=>`
+    <div class="card"><div class="ttl">${esc(x.title||'(제목 없음)')}</div>
+    ${x.product?`<div class="tdim">제품: ${esc(x.product)}</div>`:''}
+    <pre>${esc(x.part1||'')}</pre>
+    <pre>${esc(x.part2||'')}</pre>
+    <div class="row">
+      <button class="ghost mini" onclick="cpInbox(${i},1)">📋 1편</button>
+      <button class="ghost mini" onclick="cpInbox(${i},2)">📋 2편</button>
+      <button class="ghost mini" onclick="delInbox(${i})" style="color:#c2502a">🗑 삭제</button>
+    </div></div>`).join(''):`<div class="tdim">아직 저장된 스레드가 없어요. 위에서 만들어 저장하면 여기 쌓여요.</div>`;
+}
+function cpInbox(i,which){const x=INBOX[i]; const txt=which===1?(x.part1||''):(x.part2||''); navigator.clipboard.writeText(txt).then(()=>toast('📋 복사됐어요'));}
+async function delInbox(i){const x=INBOX[i]; if(!confirm('이 스레드를 삭제할까요?')) return; await post('/api/hunt/del',{code:code(),id:x.id}); loadInbox();}
+
+$('code').addEventListener('change',()=>{localStorage.setItem('mfcode',$('code').value.trim()); loadInbox();});
+if($('code').value) loadInbox();
+</script></body></html>"""
+
+
 IG_ACCOUNTS_FILE = BASE / "ig_accounts.json"     # UI로 추가한 업로드 계정 {name:{user_id,access_token}}
 YTKEYS_FILE = BASE / "youtube_keys.json"          # 회원별 유튜브 키 {code:[{key,label,units_today,units_total,day,last}]}
 _admin_lock = threading.RLock()   # 재진입 가능(사용량 집계가 락 안에서 save 호출 → 데드락 방지)
@@ -2029,6 +2240,11 @@ def card_page():
 @app.get("/p")
 def packs_page():
     return PACKS_HTML
+
+
+@app.get("/hunt")
+def hunt_page():
+    return HUNT_HTML
 
 
 @app.post("/api/card/make")
@@ -2547,6 +2763,89 @@ def api_youtube_search():
     except Exception as e:
         return jsonify(ok=False, error=str(e)), 500
     return jsonify(ok=True, items=items)
+
+
+# ─────────────── 주제 헌터: 스레드 2단 분할 생성 + 소재 인박스 ───────────────
+HUNT_INBOX_F = BASE / "hunt_inbox.json"
+_hunt_lock = threading.Lock()
+
+
+def _hunt_load():
+    try:
+        return json.loads(HUNT_INBOX_F.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _hunt_write(items):
+    HUNT_INBOX_F.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+@app.post("/api/hunt/thread")
+def api_hunt_thread():
+    """고른 소재 + 제품 → 스레드 2단(1편 후킹 / 2편 제품) 생성."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    sources = (data.get("sources") or "").strip()
+    if not sources:
+        return jsonify(ok=False, error="소재를 1개 이상 담아주세요"), 400
+    product = (data.get("product") or "").strip()
+    lang = (data.get("lang") or "ko").strip()
+    extra = (data.get("extra") or "").strip()
+    try:
+        res = brain.write_thread(cfg, sources, product=product, lang=lang, extra=extra)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:300]), 500
+    return jsonify(ok=True, title=res.get("title", ""),
+                   part1=res.get("part1", ""), part2=res.get("part2", ""))
+
+
+@app.post("/api/hunt/save")
+def api_hunt_save():
+    """생성한 스레드를 소재 인박스에 저장."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    item = data.get("item") or {}
+    if not (item.get("part1") or item.get("part2")):
+        return jsonify(ok=False, error="저장할 내용이 없어요"), 400
+    clean = {"id": uuid.uuid4().hex[:10], "ts": time.time(),
+             "title": str(item.get("title", ""))[:120],
+             "part1": str(item.get("part1", "")),
+             "part2": str(item.get("part2", "")),
+             "product": str(item.get("product", ""))[:200],
+             "link": str(item.get("link", ""))[:400]}
+    with _hunt_lock:
+        items = _hunt_load()
+        items.insert(0, clean)
+        _hunt_write(items[:200])
+    return jsonify(ok=True, id=clean["id"])
+
+
+@app.post("/api/hunt/inbox")
+def api_hunt_inbox():
+    """소재 인박스 목록."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    return jsonify(ok=True, items=_hunt_load())
+
+
+@app.post("/api/hunt/del")
+def api_hunt_del():
+    """인박스 항목 삭제."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    rid = (data.get("id") or "").strip()
+    with _hunt_lock:
+        _hunt_write([x for x in _hunt_load() if x.get("id") != rid])
+    return jsonify(ok=True)
 
 
 @app.post("/api/make_images")

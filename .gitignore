@@ -30,6 +30,7 @@ ig_session/
 ig_accounts.json
 youtube_keys.json
 scheduled_reels.json
+hunt_inbox.json
 
 # ── 임시 폴더 ──
 _covertmp/
