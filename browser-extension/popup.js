@@ -60,9 +60,13 @@ async function checkUpdate() {
 
 function loadServerUrl() {
   try {
-    chrome.storage.local.get(["serverUrl", "memberCode"], (r) => {
+    chrome.storage.local.get(["serverUrl", "memberCode", "lastResult"], (r) => {
       if (els.serverUrl) els.serverUrl.value = (r && r.serverUrl) || DEFAULT_SERVER;
       if (els.memberCode) els.memberCode.value = (r && r.memberCode) || "";
+      const lr = r && r.lastResult;
+      if (lr && lr.text && Date.now() - (lr.ts || 0) < 30 * 60 * 1000) {
+        showResultBanner(lr.text, !!lr.ok, lr.ts);
+      }
     });
   } catch {
     if (els.serverUrl) els.serverUrl.value = DEFAULT_SERVER;
@@ -218,23 +222,27 @@ async function sendIgCookies() {
   if (!memberCode()) return setStatus("회원코드를 먼저 입력하세요");
   setStatus("인스타 쿠키 보내는 중...");
   const r = await send({ type: "SEND_IG_COOKIES", serverUrl: serverUrl(), memberCode: memberCode() });
-  setStatus(r && r.ok ? "🍪 쿠키 전송됨 — 이제 대본 추출이 됩니다" : ((r && r.error) || "쿠키 전송 실패"));
+  if (r && r.ok) setResult("🍪 쿠키 전송됨 — 이제 대본 추출이 됩니다", true);
+  else setResult((r && r.error) || "쿠키 전송 실패", false);
 }
 
 async function sendToLocalApp() {
-  const filtered = filteredItems();
-  if (!filtered.length) return setStatus("필터에 맞는 항목 없음");
+  // 보내기는 항상 '전체' 전송 — 조회수 필터로 캐러셀(조회수 0) 등이 몰래 빠지지 않게
+  if (!items.length) return setResult("보낼 수집 항목이 없어요", false);
 
-  const account = cleanAccountName(els.accountInput.value.trim()) || guessAccountFromItems(filtered) || "shortform";
+  const account = cleanAccountName(els.accountInput.value.trim()) || guessAccountFromItems(items) || "shortform";
   setStatus("짤공장으로 전송 중...");
 
-  if (!memberCode()) return setStatus("회원코드(짤공장 접속코드)를 입력하세요");
-  const response = await send({ type: "SEND_TO_LOCAL_APP", items: filtered, account, serverUrl: serverUrl(), memberCode: memberCode() });
-  if (!response || (response.error && !response.fallback)) return setStatus((response && response.error) || "응답 없음 — 확장 새로고침 후 재시도");
-  if (response.fallback) return setStatus(response.error || "URL만 전달됨");
+  if (!memberCode()) return setResult("회원코드(짤공장 접속코드)를 입력하세요", false);
+  const response = await send({ type: "SEND_TO_LOCAL_APP", items, account, serverUrl: serverUrl(), memberCode: memberCode() });
+  if (!response || (response.error && !response.fallback)) return setResult((response && response.error) || "응답 없음 — 확장 새로고침 후 재시도", false);
+  if (response.fallback) return setResult(response.error || "URL만 전달됨", false);
 
-  const sent = response.count || filtered.length;
-  setStatus(response.total ? `✅ 짤공장으로 보냄 ${sent}개 (창고 누적 ${response.total})` : `✅ 짤공장으로 보냄 ${sent}개`);
+  const sent = response.count || items.length;
+  const extra = (typeof response.added === "number")
+    ? ` (신규 ${response.added} · 창고 누적 ${response.total})`
+    : (response.total ? ` (창고 누적 ${response.total})` : "");
+  setResult(`✅ 전송 완료 — 전체 ${sent}개${extra} → 짤공장 · 수입·수출 · 인스타 수집에서 확인`, true);
 }
 
 function currentMode(url) {
@@ -274,6 +282,23 @@ function send(message) {
 
 function setStatus(value) {
   els.status.textContent = value;
+}
+
+/* 전송 결과 배너 — 새로고침 루프가 덮어쓰지 않는 전용 표시. 30분간 유지(팝업 다시 열어도 보임) */
+function showResultBanner(text, ok, ts) {
+  const b = document.getElementById("resultBanner");
+  if (!b) return;
+  const d = new Date(ts || Date.now());
+  const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  b.style.display = "block";
+  b.style.background = ok ? "#1e4635" : "#4a2328";
+  b.style.color = ok ? "#7ef0c0" : "#ffb3b8";
+  b.textContent = `${text}  (${hhmm})`;
+}
+
+function setResult(text, ok) {
+  showResultBanner(text, ok, Date.now());
+  try { chrome.storage.local.set({ lastResult: { text, ok, ts: Date.now() } }); } catch { /* 무시 */ }
 }
 
 function downloadText(filename, text, type) {
