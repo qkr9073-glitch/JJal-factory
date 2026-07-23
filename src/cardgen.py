@@ -42,12 +42,12 @@ def save_styles(base, data):
 
 
 # ── 학습 ─────────────────────────────────────────────────────
-def _img_part_bytes(data, max_side=1024):
+def _img_part_bytes(data, max_side=768):
     img = Image.open(io.BytesIO(data)).convert("RGB")
     if max(img.size) > max_side:
         img.thumbnail((max_side, max_side))
     buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=80)
+    img.save(buf, "JPEG", quality=72)
     return {"inline_data": {"mime_type": "image/jpeg",
                             "data": base64.b64encode(buf.getvalue()).decode()}}
 
@@ -87,12 +87,25 @@ LEARN_PROMPT = """이 이미지들은 한 인스타그램 카드뉴스(캐러셀
 
 
 def learn_style(cfg, images, log=print):
-    """카드 이미지 bytes 목록 → 전개+비주얼 프로파일 dict."""
-    parts = [{"text": LEARN_PROMPT}] + [_img_part_bytes(b) for b in images[:80]]
-    prof = cbrain._call_parts(cfg, parts, max_tokens=2048, temperature=0.3, thinking=0)
-    if not isinstance(prof, dict) or not str(prof.get("flow") or "").strip():
-        raise RuntimeError("스타일 분석 결과가 비었어요 — 카드 이미지가 더 필요해요")
-    return prof
+    """카드 이미지 bytes 목록 → 전개+비주얼 프로파일 dict.
+    장수가 많아 빈 응답이 오면 절반으로 줄여 재시도(40→20→10)."""
+    last = None
+    for cap in (40, 20, 10):
+        batch = images[:cap]
+        parts = [{"text": LEARN_PROMPT}] + [_img_part_bytes(b) for b in batch]
+        try:
+            prof = cbrain._call_parts(cfg, parts, max_tokens=4096,
+                                      temperature=0.3, thinking=0)
+        except Exception as e:
+            last = e
+            log(f"      학습 호출 실패({len(batch)}장): {str(e)[:80]} — 줄여서 재시도")
+            continue
+        if isinstance(prof, dict) and str(prof.get("flow") or "").strip():
+            prof["cards_used"] = len(batch)
+            return prof
+        log(f"      결과 비어있음({len(batch)}장) — 줄여서 재시도")
+    raise RuntimeError(f"스타일 분석 실패 — 카드 이미지를 줄여도 안 됐어요"
+                       + (f" ({str(last)[:60]})" if last else ""))
 
 
 # ── 변환 ─────────────────────────────────────────────────────
