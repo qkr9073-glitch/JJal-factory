@@ -205,13 +205,35 @@ function scrapeInstagramPostsFromPage() {
   // 화면(DOM)에 보이는 모든 게시물 링크(/p/, /reel/)를 수집. 조회수는 API 인터셉트가 채움.
   const out = [];
   const seen = new Set();
+  // 게시물이 아닌 예약 경로(/reels/audio/ 등)가 shortcode로 오인되지 않게 차단
+  const RESERVED = new Set(["audio", "explore", "tags", "locations", "direct", "create", "stories", "highlights"]);
+  // 그리드 타일에 겹쳐 보이는 조회수(30.2만 / 1.2M / 9,032) 파싱 — 클릭 없이 필터 가능
+  const parseViews = (raw) => {
+    const s = String(raw || "").replace(/\s+/g, " ");
+    let m = s.match(/([\d.,]+)\s*억/);
+    if (m) return Math.round(parseFloat(m[1].replace(/,/g, "")) * 100000000);
+    m = s.match(/([\d.,]+)\s*만/);
+    if (m) return Math.round(parseFloat(m[1].replace(/,/g, "")) * 10000);
+    m = s.match(/([\d.,]+)\s*천/);
+    if (m) return Math.round(parseFloat(m[1].replace(/,/g, "")) * 1000);
+    m = s.match(/([\d.,]+)\s*([KMB])(?![a-z])/i);
+    if (m) {
+      const mult = { K: 1e3, M: 1e6, B: 1e9 }[m[2].toUpperCase()] || 1;
+      return Math.round(parseFloat(m[1].replace(/,/g, "")) * mult);
+    }
+    m = s.match(/(?:^|\s)([\d,]{1,12})(?:\s|$)/);
+    if (m) return parseInt(m[1].replace(/,/g, ""), 10) || 0;
+    return 0;
+  };
   const anchors = Array.from(document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"], a[href*="/reels/"]'));
   for (const a of anchors) {
     let href = "";
     try { href = new URL(a.getAttribute("href") || a.href, location.origin).href; } catch { continue; }
+    if (/\/reels?\/audio\//.test(href)) continue;
     const m = href.match(/instagram\.com\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
     if (!m) continue;
     const shortcode = m[1];
+    if (RESERVED.has(shortcode)) continue;
     if (seen.has(shortcode)) continue;
     seen.add(shortcode);
     const isReel = /\/(reel|reels)\//.test(href);
@@ -223,13 +245,13 @@ function scrapeInstagramPostsFromPage() {
       kind: isReel ? "reel" : "image",
       url: isReel ? `https://www.instagram.com/reel/${shortcode}/` : `https://www.instagram.com/p/${shortcode}/`,
       shortcode, title: "", channel: "",
-      viewCount: 0, likeCount: 0, commentCount: 0, takenAt: "",
+      viewCount: parseViews(a.innerText), likeCount: 0, commentCount: 0, takenAt: "",
       caption: "", imageUrls: [], thumbUrl: thumb
     });
   }
   // 지금 보고 있는 단독 게시물 페이지 자체(목록에 링크가 없어 못 읽던 경우)
   const cm = location.href.match(/instagram\.com\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
-  if (cm && !seen.has(cm[1])) {
+  if (cm && !seen.has(cm[1]) && !RESERVED.has(cm[1])) {
     const isReel = /\/(reel|reels)\//.test(location.href);
     const og = (k) => (document.querySelector(`meta[property="${k}"]`) || {}).content || "";
     out.push({
@@ -475,7 +497,12 @@ async function sendToLocalAppFromBackground(message) {
         headers: { "content-type": "application/json" },
         body
       }, 8000);
-      if (!response.ok) { lastErr = `HTTP ${response.status} (${base})`; continue; }
+      if (!response.ok) {
+        let msg = `HTTP ${response.status}`;
+        try { const j = await response.json(); if (j && j.error) msg = j.error; } catch { /* 무시 */ }
+        lastErr = `${msg} (${base})`;
+        continue;
+      }
       let info = {};
       try { info = await response.json(); } catch { /* 무시 */ }
       // 짤공장은 이미 열려 있으므로 새 탭을 띄우지 않는다
