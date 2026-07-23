@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 import requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageStat
 
 from cardnews import brain as cbrain
 
@@ -163,6 +163,11 @@ def _font(base, feel, size, bold=True):
     return ImageFont.truetype(str(f), size)
 
 
+def _clean(s):
+    """문구 공백 정규화 — 연속 공백/탭이 카드에 어색한 틈으로 남지 않게."""
+    return re.sub(r"[ \t\u00a0\u3000]+", " ", str(s or "")).strip()
+
+
 def _wrap(draw, text, font, maxw):
     lines = []
     for para in str(text).split("\n"):
@@ -203,6 +208,19 @@ def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
     acc = _hex(v.get("accent"), "#FFD34D")
     feel = str(v.get("font_feel") or "고딕굵게")
     deco = str(v.get("deco") or "")
+    frame_paths = list(frame_paths or [])
+    if len(frame_paths) > 1:      # 표지(1번)가 어두운 인트로 장면이면 가장 밝은 프레임으로 교체
+        def _lum(path):
+            try:
+                im = Image.open(path).convert("L")
+                im.thumbnail((64, 64))
+                return ImageStat.Stat(im).mean[0]
+            except Exception:
+                return 0.0
+        lums = [_lum(f) for f in frame_paths]
+        if lums[0] < 50:
+            k = max(range(len(lums)), key=lambda j: lums[j])
+            frame_paths[0], frame_paths[k] = frame_paths[k], frame_paths[0]
     out = []
     n = len(cards)
     for i, c in enumerate(cards, 1):
@@ -222,8 +240,8 @@ def render_cards_photo(base, cards, visual, out_dir, frame_paths, handle=""):
             gd.line([(0, H - gh + y), (W, H - gh + y)], fill=(0, 0, 0, a))
         img = Image.alpha_composite(img, grad)
         d = ImageDraw.Draw(img)
-        head = str(c.get("head") or "").strip()
-        body = str(c.get("body") or "").strip()
+        head = _clean(c.get("head"))
+        body = _clean(c.get("body"))
         hsize = 84 if cover else 70
         hf = _font(base, feel, hsize, bold=True)
         bf = _font(base, feel, 40, bold=False)
@@ -284,8 +302,8 @@ def render_cards(base, cards, visual, out_dir, handle=""):
                 t = y / (H - 1)
                 d.line([(0, y), (W, y)],
                        fill=tuple(int(c1[k] + (c2[k] - c1[k]) * t) for k in range(3)))
-        head = str(c.get("head") or "").strip()
-        body = str(c.get("body") or "").strip()
+        head = _clean(c.get("head"))
+        body = _clean(c.get("body"))
         cover = (i == 1)
         hsize = 96 if cover else 74
         hf = _font(base, feel, hsize, bold=True)
