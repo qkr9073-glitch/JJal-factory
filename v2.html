@@ -1124,7 +1124,7 @@
               <label class="fld" style="margin:0">외곽굵기 <input type="range" id="sfOw" min="0" max="8" step="1" oninput="subApply()" style="width:90px;vertical-align:middle"></label>
             </div>
             <label class="fld" style="margin-top:13px">위치</label>
-            <div class="chips" id="sfPos"><span class="chip" data-al="8" onclick="subPos(8)">상단</span><span class="chip" data-al="5" onclick="subPos(5)">중앙</span><span class="chip" data-al="2" onclick="subPos(2)">하단</span></div>
+            <div class="chips" id="sfPos"><span class="chip" data-al="8" onclick="subPos(8)">살짝 위</span><span class="chip" data-al="5" onclick="subPos(5)">중앙</span><span class="chip" data-al="2" onclick="subPos(2)">살짝 아래</span></div>
             <label class="ck" style="margin-top:12px"><input type="checkbox" id="sfBold" onchange="subApply()"> <span>굵게</span></label>
             <label class="ck" style="margin-top:8px"><input type="checkbox" id="sfPop" onchange="subApply()"> <span>🫧 뿅 튀어나오는 효과</span></label>
             <div id="subAcctUsage" style="margin-top:10px;font-size:12px;color:var(--faint)"></div>
@@ -1239,7 +1239,7 @@
     const file=$('sfFont').value, f=subState.fonts.find(x=>x.file===file);
     const family=f?f.family:'Malgun Gothic';
     const size=+$('sfSize').value, primary=$('sfPrimary').value, outline=$('sfOutline').value, ow=+$('sfOw').value, bold=$('sfBold').checked, pop=$('sfPop').checked, al=subState._al||2;
-    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,pop,margin_v:al===2?450:(al===8?230:0)};
+    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,pop,margin_v:al===5?0:700};
     $('sfSizeV').textContent=size+'px';
     const box=$('sfPrev'), t=$('sfPrevText'); if(!box||!t)return;
     const paint=()=>{
@@ -1252,8 +1252,8 @@
       // CSS stroke는 안팎 절반씩 + 글자가 안쪽을 덮어 체감 절반 → 실제(ASS, 바깥 전체) 느낌에 맞게 2배 보정
       t.style.webkitTextStroke=ow>0?((ow*scale*2).toFixed(2)+'px '+outline):'0';
       t.style.fontWeight=bold?'800':'400';
-      t.style.top=al===8?'12%':(al===5?'44%':'auto');
-      t.style.bottom=al===2?'22%':'auto';
+      t.style.top=al===8?'34%':(al===5?'44%':'auto');
+      t.style.bottom=al===2?'34%':'auto';
       t.style.transformOrigin='center';
       t.style.animation=pop?'subpop 1.6s ease-in-out infinite':'none';
     };
