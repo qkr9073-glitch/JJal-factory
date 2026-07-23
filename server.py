@@ -6577,6 +6577,30 @@ def api_pack_cardframe():
     return jsonify(ok=True, pos=pos + 1, total=len(cands[idx - 1]))
 
 
+@app.get("/api/pack/zip")
+def api_pack_zip():
+    """팩 zip 즉석 생성(카드/캡션 최신 상태 반영) — zip 파일이 없는 팩용."""
+    cfg = load_config()
+    if not _check_code(cfg, request.args.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (request.args.get("pack") or "").strip()
+    d = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not d.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    import io as _io
+    import zipfile as _zf
+    buf = _io.BytesIO()
+    with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as z:
+        for f in sorted(d.iterdir()):
+            if f.is_file() and (re.fullmatch(r"[0-9][0-9]\.jpg", f.name)
+                                or f.name in ("caption.txt", "thumb.jpg", "video.mp4")):
+                z.write(str(f), f.name)
+    buf.seek(0)
+    from flask import send_file
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name=f"{pack}.zip")
+
+
 @app.post("/api/pack/cardregen")
 def api_pack_cardregen():
     """카드 변환팩: 특정 장 문구 AI 재생성(렌더는 안 함 — 검토 후 저장 시 반영)."""

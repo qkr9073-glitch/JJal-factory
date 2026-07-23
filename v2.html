@@ -3022,7 +3022,7 @@
     $('capta').value=swapHandle(d.caption||'','@'+a0);
     paintThumbs(); updateLead(); renderStrip(); renderTrack();
     const zb=$('mZip'), db=$('mDel'), eb=$('mEbook');
-    if(zb) zb.onclick=()=>{ if(d.zip) window.open(`${packBase(d.name)}/${encodeURIComponent(d.zip)}`,'_blank'); else flash('zip 없음'); };
+    if(zb) zb.onclick=()=>{ if(d.zip) window.open(`${packBase(d.name)}/${encodeURIComponent(d.zip)}`,'_blank'); else window.open(`/api/pack/zip?code=${encodeURIComponent(code())}&pack=${encodeURIComponent(d.name)}`,'_blank'); };
     if(db) db.onclick=()=>delPack(d.name);
     if(eb){ eb.style.display=d.ebook?'':'none'; eb.onclick=()=>window.open(`${packBase(d.name)}/ebook.pdf`,'_blank'); }
     const dv=$('mDrive'); if(dv){ dv.style.display=d.ebook?'':'none'; dv.onclick=()=>uploadDrive(); }
