@@ -6392,6 +6392,7 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="phot
         ndir = OUTPUT / name
         ndir.mkdir(parents=True)
         visual = (profile or {}).get("visual")
+        frame_cands = frame_used = None
         if template == "photo" and vsrc:
             dur = 0.0
             try:
@@ -6400,28 +6401,35 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="phot
                 dur = float((pr.stdout or "0").strip() or 0)
             except Exception:
                 dur = 0.0
-            frame_paths = []
-            for i in range(len(cards)):
-                ss = (dur * (i + 0.5) / len(cards)) if dur > 0 else (1.0 + i)
-                fp = ndir / f"_f{i}.jpg"
+            nfr = min(36, max(24, len(cards) * 3))    # 후보 프레임 대량 추출
+            job.update(pct=60, msg=f"배경 후보 프레임 {nfr}장 추출 중…")
+            fdir = ndir / "frames"
+            fdir.mkdir(exist_ok=True)
+            frame_files = []
+            for i in range(nfr):
+                ss = (dur * (i + 0.5) / nfr) if dur > 0 else (0.5 + i)
+                fp = fdir / f"f{i:02d}.jpg"
                 try:
                     autoshorts._run([autoshorts.FFMPEG, "-hide_banner", "-loglevel", "error",
                                      "-y", "-ss", f"{ss:.2f}", "-i", str(vsrc),
                                      "-frames:v", "1", "-vf", "scale=1080:-2", str(fp)])
                 except Exception:
                     pass
-                frame_paths.append(str(fp) if fp.exists() else None)
-            frame_paths = [f for f in frame_paths if f] or None
-            if frame_paths:
+                if fp.exists():
+                    frame_files.append(str(fp))
+            if frame_files:
+                job.update(pct=72, msg="장면-대본 비전 매칭 중… (10~30초)")
+                cands = cardgen.match_frames(cfg, cards, frame_files,
+                                             log=lambda m: job.__setitem__("msg", str(m)))
+                names = [Path(f).name for f in frame_files]
+                frame_cands = [[names[j] for j in c] for c in cands]
+                frame_used = [0] * len(cards)
+                picked = [str(fdir / frame_cands[i][0]) for i in range(len(cards))]
+                job.update(pct=82, msg=f"{len(cards)}장 카드 렌더 중…")
                 files = cardgen.render_cards_photo(BASE, cards, visual, ndir,
-                                                   frame_paths, handle=handle)
+                                                   picked, handle=handle)
             else:
                 files = cardgen.render_cards(BASE, cards, visual, ndir, handle=handle)
-            for f in ndir.glob("_f*.jpg"):
-                try:
-                    f.unlink()
-                except OSError:
-                    pass
         else:
             files = cardgen.render_cards(BASE, cards, visual, ndir, handle=handle)
         # thumb.jpg는 만들지 않음 — 1번 카드 복사본이라 캐러셀/발행에서 첫 장이 중복됨
@@ -6432,6 +6440,8 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="phot
             "created": datetime.now().isoformat(timespec="seconds"),
             "type": "cardnews", "source": f"릴스팩 {pack}",
             "style": style_ch, "template": template, "script": script,
+            "cards": cards, "visual": visual, "handle": handle,
+            "frame_cands": frame_cands, "frame_used": frame_used,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
         import html as _html
         cards_html = "".join(
@@ -6507,6 +6517,44 @@ def api_ie_insta_cookies():
 
 _RESERVED_SC = {"audio", "explore", "tags", "locations", "direct", "create",
                 "stories", "highlights"}   # 게시물 shortcode로 오인되는 예약 경로
+
+
+@app.post("/api/pack/cardframe")
+def api_pack_cardframe():
+    """카드 변환팩: 특정 장의 배경 프레임을 다음 후보로 교체(리롤) — 1장만 즉시 재렌더."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    d = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not d.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    try:
+        idx = int(data.get("idx") or 0)      # 1-based 카드 번호
+    except (TypeError, ValueError):
+        idx = 0
+    try:
+        meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        return jsonify(ok=False, error="meta.json 없음"), 400
+    cards = meta.get("cards") or []
+    cands = meta.get("frame_cands") or []
+    used = meta.get("frame_used") or []
+    if not (1 <= idx <= len(cards)) or idx > len(cands) or not cands[idx - 1]:
+        return jsonify(ok=False, error="이 장은 배경 후보가 없어요 (구버전 팩 — 재변환 필요)"), 400
+    pos = (int(used[idx - 1]) + 1) % len(cands[idx - 1])
+    used[idx - 1] = pos
+    frame = d / "frames" / cands[idx - 1][pos]
+    if not frame.exists():
+        return jsonify(ok=False, error="후보 프레임 파일이 없어요"), 400
+    cardgen.render_card_photo_one(BASE, cards[idx - 1], meta.get("visual"),
+                                  d / f"{idx:02d}.jpg", frame,
+                                  handle=meta.get("handle", ""), cover=(idx == 1))
+    meta["frame_used"] = used
+    (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1),
+                                 encoding="utf-8")
+    return jsonify(ok=True, pos=pos + 1, total=len(cands[idx - 1]))
 
 
 @app.post("/api/admin/collected_dump")

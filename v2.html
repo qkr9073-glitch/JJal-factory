@@ -462,6 +462,9 @@
           <div class="pvdots" id="pvdots"></div>
         </div>
         <div class="pvnote">← → 키로 넘기기 · 모든 장 미리 로드 → 즉시 전환</div>
+        <div id="cardFrameRow" style="display:none;text-align:center;margin-top:8px">
+          <button class="btn" onclick="cardFrameReroll()">🖼 이 장 배경 리롤</button>
+          <span id="cardFrameInfo" style="font-size:11.5px;color:var(--faint);margin-left:6px"></span></div>
       </div>
       <div class="edit">
         <div class="escroll">
@@ -3003,6 +3006,8 @@
     PK=d; TS=Date.now(); IDX=0; ORDERDIRTY=false;
     LEAD=(d.thumbs&&d.thumbs.length)?d.thumbs[0]:null;
     if(d.type==='cardnews'&&d.source&&d.source.indexOf('릴스팩')===0)LEAD=null;   // 카드 변환팩: thumb=1번 카드 복사본이라 중복 방지
+    const cfr=$('cardFrameRow'); if(cfr)cfr.style.display=(d.type==='cardnews'&&d.source&&d.source.indexOf('릴스팩')===0)?'block':'none';
+    if($('cardFrameInfo'))$('cardFrameInfo').textContent='';
     ORDER=(d.images||[]).map(fn=>({fn,ex:false}));
     $('mTitle').textContent=iconOf(d)+' '+d.title;
     const st=$('mStat'); st.textContent=d.published?'📤 업로드완료':'🆕 미업로드'; st.className='mstat '+(d.published?'up':'no');
@@ -3378,6 +3383,16 @@
     }).join('')||'<div class="caphint">대표 썸네일 없음</div>';
   }
   function pickLead(fn){LEAD=fn;paintThumbs();updateLead();renderTrack();}
+  function cardFrameReroll(){
+    if(!PK)return;
+    const idx=IDX+1;   // 카드팩은 LEAD 없음 → 슬라이드 번호=카드 번호
+    const info=$('cardFrameInfo'); if(info)info.textContent='🖼 배경 교체 중…';
+    apiJson('/api/pack/cardframe',{code:code(),pack:PK.name,idx}).then(d=>{
+      if(!d.ok){if(info)info.textContent='❌ '+d.error;return;}
+      TS=Date.now(); renderTrack(); loadPacks();
+      if(info)info.textContent=`배경 후보 ${d.pos}/${d.total}`;
+    }).catch(()=>{if(info)info.textContent='❌ 통신 오류';});
+  }
   function updateLead(){const el=$('mFootLead'); if(el)el.textContent=LEAD?LEAD.replace('.jpg',''):'-';}
 
   function renderTrack(){
