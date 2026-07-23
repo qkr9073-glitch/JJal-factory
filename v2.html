@@ -3001,6 +3001,7 @@
     if(!d.ok){flash('❌ '+d.error);return;}
     PK=d; TS=Date.now(); IDX=0; ORDERDIRTY=false;
     LEAD=(d.thumbs&&d.thumbs.length)?d.thumbs[0]:null;
+    if(d.type==='cardnews'&&d.source&&d.source.indexOf('릴스팩')===0)LEAD=null;   // 카드 변환팩: thumb=1번 카드 복사본이라 중복 방지
     ORDER=(d.images||[]).map(fn=>({fn,ex:false}));
     $('mTitle').textContent=iconOf(d)+' '+d.title;
     const st=$('mStat'); st.textContent=d.published?'📤 업로드완료':'🆕 미업로드'; st.className='mstat '+(d.published?'up':'no');

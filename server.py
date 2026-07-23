@@ -6420,7 +6420,8 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle, template="phot
                     pass
         else:
             files = cardgen.render_cards(BASE, cards, visual, ndir, handle=handle)
-        shutil.copyfile(ndir / files[0], ndir / "thumb.jpg")
+        # thumb.jpg는 만들지 않음 — 1번 카드 복사본이라 캐러셀/발행에서 첫 장이 중복됨
+        # (결과물 목록은 thumb.jpg 없으면 01.jpg로 폴백)
         (ndir / "caption.txt").write_text(caption or "", encoding="utf-8")
         (ndir / "meta.json").write_text(json.dumps({
             "title": f"카드 · {meta.get('title') or pack}",
