@@ -52,11 +52,12 @@ def _img_part_bytes(data, max_side=1024):
                             "data": base64.b64encode(buf.getvalue()).decode()}}
 
 
-def fetch_card_images(posts, max_total=14, log=print):
-    """수집 항목들에서 카드 이미지 bytes 다운로드(만료/실패는 건너뜀)."""
+def fetch_card_images(posts, max_total=80, log=print):
+    """수집 항목들에서 카드 이미지 bytes 다운로드(만료/실패는 건너뜀).
+    게시물당 제한 없이 담긴 카드 전부(안전 상한 max_total)."""
     out = []
     for it in posts:
-        urls = list(it.get("imageUrls") or [])[:4] or \
+        urls = list(it.get("imageUrls") or []) or \
             ([it["thumbUrl"]] if it.get("thumbUrl") else [])
         for u in urls:
             if len(out) >= max_total:
@@ -87,7 +88,7 @@ LEARN_PROMPT = """이 이미지들은 한 인스타그램 카드뉴스(캐러셀
 
 def learn_style(cfg, images, log=print):
     """카드 이미지 bytes 목록 → 전개+비주얼 프로파일 dict."""
-    parts = [{"text": LEARN_PROMPT}] + [_img_part_bytes(b) for b in images[:20]]
+    parts = [{"text": LEARN_PROMPT}] + [_img_part_bytes(b) for b in images[:80]]
     prof = cbrain._call_parts(cfg, parts, max_tokens=2048, temperature=0.3, thinking=0)
     if not isinstance(prof, dict) or not str(prof.get("flow") or "").strip():
         raise RuntimeError("스타일 분석 결과가 비었어요 — 카드 이미지가 더 필요해요")

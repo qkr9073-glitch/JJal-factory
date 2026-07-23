@@ -6299,12 +6299,12 @@ def _run_carousel_learn(jid, cfg, code, channel):
                  if it.get("kind") in ("image", "carousel")
                  and (it.get("channel") or "").strip() == channel]
         posts.sort(key=lambda x: -len(x.get("imageUrls") or []))
-        imgs = cardgen.fetch_card_images(posts[:12], max_total=20,
+        imgs = cardgen.fetch_card_images(posts[:10], max_total=80,
                                          log=lambda m: job.__setitem__("msg", str(m)))
         if len(imgs) < 3:
             raise RuntimeError("읽을 카드 이미지가 부족해요 — 확장 수집을 켜고 그 계정 "
                                "게시물을 몇 개 열어본 뒤(이미지가 쌓임) 다시 학습하세요")
-        job.update(pct=45, msg=f"{len(imgs)}장 비전 분석 중… (20~40초)")
+        job.update(pct=45, msg=f"{len(imgs)}장 비전 분석 중… (장수에 따라 30초~2분)")
         prof = cardgen.learn_style(cfg, imgs)
         prof["learned"] = datetime.now().isoformat(timespec="seconds")
         prof["channel"] = channel
