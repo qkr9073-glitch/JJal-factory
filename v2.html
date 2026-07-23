@@ -2961,7 +2961,7 @@
       if(pkind(p)==='reel'){                 // 자동쇼츠(세로영상): 잘림없이(contain) + 호버 재생
         const vsrc=`${base}/${p.video||'video.mp4'}`;
         card.innerHTML=`<div class="thumb" style="background:#000">
-          <img class="cimg" src="${base}/${p.thumb}?t=${Date.now()}" loading="lazy" style="width:100%;height:100%;object-fit:contain;display:block">
+          <img class="cimg" src="${base}/${p.thumb}?v=${encodeURIComponent(p.created||'')}" loading="lazy" style="width:100%;height:100%;object-fit:contain;display:block">
           <video class="cvid" src="${vsrc}" muted loop playsinline preload="none" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;transition:opacity .2s"></video>
           <div class="cchips"><span class="mchip count">🎬 릴스</span>${stat}</div>
           <div class="hovercta"><span>클릭해서 편집·대표컷 →</span></div></div>
@@ -2973,8 +2973,9 @@
         card.addEventListener('keydown',e=>{if(e.key==='Enter')openReelModal(p.name);});
         g.appendChild(card); return;
       }
+      const pv=encodeURIComponent(p.created||'');
       card.innerHTML=`<div class="thumb">
-        <img class="cimg" src="${base}/${p.thumb}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">
+        <img class="cimg" src="${base}/${p.thumb}?v=${pv}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">
         <div class="cchips"><span class="mchip count">🖼 ${p.n||0}장</span>${jp}${stat}</div>
         <div class="dots">${Array.from({length:Math.max(1,p.n||1)},(_,i)=>`<i class="${i===0?'on':''}"></i>`).join('')}</div>
         <div class="hovercta"><span>클릭해서 편집·업로드 →</span></div></div>
@@ -2982,10 +2983,10 @@
       const img=card.querySelector('.cimg'), dots=[...card.querySelectorAll('.dots i')];
       if((p.n||0)>1){
         card.addEventListener('mouseenter',()=>{let i=1;
-          const tm=setInterval(()=>{img.src=`${base}/${String(i).padStart(2,'0')}.jpg`;
+          const tm=setInterval(()=>{img.src=`${base}/${String(i).padStart(2,'0')}.jpg?v=${pv}`;
             dots.forEach((d,di)=>d.classList.toggle('on',di===(i-1))); i=i%p.n+1;},640);
           hoverTimers.set(card,tm);});
-        card.addEventListener('mouseleave',()=>{clearInterval(hoverTimers.get(card));img.src=`${base}/${p.thumb}`;
+        card.addEventListener('mouseleave',()=>{clearInterval(hoverTimers.get(card));img.src=`${base}/${p.thumb}?v=${pv}`;
           dots.forEach((d,di)=>d.classList.toggle('on',di===0));});
       }
       card.addEventListener('click',()=>openModal(p.name));
