@@ -5088,6 +5088,10 @@ def api_reelproj_collect():
         script = (data.get("script") or "").strip()
         if not script:
             return jsonify(ok=False, error="먼저 ② 대본을 확정하세요"), 400
+        try:
+            scriptlearn.add_own_script(BASE, code, (data.get("category") or "").strip(), script)
+        except Exception:
+            pass
         pid = reelproj.new_project(BASE, code, script,
                                    (data.get("topic") or "").strip(), (data.get("category") or "").strip())
     jid = uuid.uuid4().hex[:10]
@@ -5475,6 +5479,11 @@ def api_reelproj_script_set():
     st = reelproj.load(BASE, pid)
     st["script"] = script
     reelproj.save(BASE, pid, st)
+    try:   # 확정 대본은 내 스타일 프로파일에도 누적(다음 대본 생성이 이 스타일을 따라감)
+        scriptlearn.add_own_script(BASE, (data.get("code") or "").strip(),
+                                   st.get("category") or "", script)
+    except Exception:
+        pass
     return jsonify(ok=True)
 
 

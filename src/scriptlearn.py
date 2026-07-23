@@ -115,6 +115,28 @@ def load(base, code):
         return {"learned_ids": [], "categories": {}}
 
 
+def add_own_script(base, code, category, text):
+    """② 최종 확정 대본을 스타일 프로파일에 누적 학습(중복 방지).
+    generate_scripts의 예시 대본으로 바로 쓰여 다음 대본이 내 확정 스타일을 따라간다."""
+    import hashlib
+    from datetime import datetime as _dt
+    text = (text or "").strip()
+    if not text or len(text) < 30:
+        return False
+    data = load(base, code)
+    sid = "own_" + hashlib.md5(text.encode("utf-8")).hexdigest()[:12]
+    if sid in (data.get("learned_ids") or []):
+        return False
+    cat = (category or "").strip() or "내 대본"
+    c = data["categories"].setdefault(cat, {"scripts": [], "profile": {}, "updated": ""})
+    c.setdefault("scripts", []).append({"text": text, "src": "own_final"})
+    c["scripts"] = c["scripts"][-60:]
+    c["updated"] = _dt.now().isoformat(timespec="seconds")
+    data["learned_ids"].append(sid)
+    save(base, code, data)
+    return True
+
+
 def save(base, code, data):
     _path(base, code).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
