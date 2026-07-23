@@ -2682,6 +2682,10 @@ def api_reel_caption():
     cfg = load_config()
     if not _check_code(cfg, request.form.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    acct_chk = (request.form.get("account") or "").strip()
+    dn = _sched_day_count(acct_chk, ts)
+    if dn >= 25:
+        return jsonify(ok=False, error=f"인스타 API 제한(계정당 하루 25개): 그 날짜에 이미 {dn}건 있어요 — 다른 날짜로 분산하세요"), 400
     now = time.time()
     name, err = _stage_reel_video(now)
     if err:
@@ -4160,6 +4164,26 @@ def _scheduler_loop():
         time.sleep(45)
 
 
+def _sched_day_count(account, ts):
+    """같은 계정·같은 날짜(로컬)의 예약+발행 건수 — 인스타 API 계정당 25개/일 제한 가드."""
+    try:
+        day = datetime.fromtimestamp(float(ts)).date()
+    except (TypeError, ValueError, OSError):
+        return 0
+    n = 0
+    for e in _sched_load():
+        if (e.get("account") or "") != (account or ""):
+            continue
+        if e.get("status") not in ("pending", "await", "done"):
+            continue
+        try:
+            if datetime.fromtimestamp(float(e.get("ts") or 0)).date() == day:
+                n += 1
+        except (TypeError, ValueError, OSError):
+            pass
+    return n
+
+
 @app.post("/api/schedule/add")
 def api_schedule_add():
     data = request.get_json(silent=True) or {}
@@ -4177,6 +4201,9 @@ def api_schedule_add():
         return jsonify(ok=False, error="예약 시간이 올바르지 않습니다"), 400
     if ts <= time.time() + 30:
         return jsonify(ok=False, error="예약 시간은 현재보다 미래여야 합니다"), 400
+    dn = _sched_day_count((data.get("account") or "").strip(), ts)
+    if dn >= 25:
+        return jsonify(ok=False, error=f"인스타 API 제한(계정당 하루 25개): 그 날짜에 이미 {dn}건 있어요"), 400
     who = _member(cfg, data.get("code")) or {}
     admin = who.get("role") == "admin"
     lead = (data.get("lead") or "").strip()
@@ -5941,6 +5968,25 @@ def api_reelproj_voice_usage():
     return jsonify(ok=True, items=out)
 
 
+def _coupang_title(url):
+    """쿠팡 상품 링크 → 상품명. link.coupang.com 단축링크는 리다이렉트 따라감."""
+    import requests as _rq
+    h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+         "Accept-Language": "ko-KR,ko;q=0.9"}
+    r = _rq.get(url, headers=h, timeout=15, allow_redirects=True)
+    if r.status_code != 200:
+        raise RuntimeError(f"상품 페이지 접속 실패({r.status_code})")
+    m = (re.search(r'<meta property="og:title" content="([^"]+)"', r.text)
+         or re.search(r"<title>([^<]+)</title>", r.text))
+    if not m:
+        raise RuntimeError("상품명을 못 찾았어요 — 상품 페이지 링크인지 확인")
+    name = re.sub(r"\s*[|\-]\s*쿠팡.*$", "", m.group(1)).strip()
+    if not name:
+        raise RuntimeError("상품명이 비어있어요")
+    return name[:120]
+
+
 @app.post("/api/reelproj/search_terms")
 def api_reelproj_search_terms():
     """③ 소재 기반 원본 영상 검색어 추천 — 영어/중국어/일본어(현지 실제 표현)."""
@@ -5955,10 +6001,25 @@ def api_reelproj_search_terms():
         st = reelproj.load(BASE, pid)
         topic = topic or str(st.get("topic") or "")
         script = str(st.get("script") or "")[:400]
-    if not topic and not script:
-        return jsonify(ok=False, error="소재가 없어요 (①에서 소재/대본 먼저)"), 400
-    prompt = (f"쇼츠 소재 '{topic}'의 원본(소스) 영상을 틱톡·유튜브·빌리빌리에서 찾으려 한다.\n"
-              "각 언어권에서 실제로 쓰는 현지 표현으로 검색어를 만들어라(직역 금지, 그 나라 쇼핑/리뷰 영상에서 쓰는 말).\n"
+    purl = (data.get("product_url") or "").strip()
+    product = ""
+    if purl:
+        if "coupang.com" not in purl:
+            return jsonify(ok=False, error="쿠팡 상품 링크를 넣어주세요 (coupang.com / link.coupang.com)"), 400
+        try:
+            product = _coupang_title(purl)
+        except Exception as e:
+            return jsonify(ok=False, error=f"쿠팡 상품 분석 실패: {str(e)[:80]}"), 502
+    if not topic and not script and not product:
+        return jsonify(ok=False, error="소재가 없어요 (①에서 소재/대본 먼저, 또는 쿠팡 링크)"), 400
+    subject = product or topic
+    if product:
+        intro = (f"쿠팡에서 파는 상품 '{product}'을 소개하는 쇼츠를 만들려 한다. "
+                 "이 상품(또는 같은 종류 상품)의 원본(소스) 영상을 틱톡·유튜브·빌리빌리에서 찾으려 한다.\n")
+    else:
+        intro = f"쇼츠 소재 '{topic}'의 원본(소스) 영상을 틱톡·유튜브·빌리빌리에서 찾으려 한다.\n"
+    prompt = (intro
+              + "각 언어권에서 실제로 쓰는 현지 표현으로 검색어를 만들어라(직역 금지, 그 나라 쇼핑/리뷰 영상에서 쓰는 말).\n"
               "- en: 영어 5개, zh: 중국어(간체) 5개, ja: 일본어 5개. 각 2~4단어의 짧은 검색어.\n"
               + (f"[대본 참고]\n{script}\n" if script else "")
               + '반드시 JSON만: {"en":["..",".."],"zh":["..",".."],"ja":["..",".."]}')
@@ -5971,7 +6032,7 @@ def api_reelproj_search_terms():
         out[k] = [str(x).strip() for x in (r.get(k) or []) if str(x).strip()][:6]
     if not any(out.values()):
         return jsonify(ok=False, error="검색어가 비었어요, 다시 시도하세요"), 502
-    return jsonify(ok=True, terms=out, topic=topic)
+    return jsonify(ok=True, terms=out, topic=subject, product=product)
 
 
 @app.post("/api/reelproj/voices")
@@ -6188,6 +6249,18 @@ def api_learn_import():
         return jsonify(ok=False, error="가져올 분류를 고르세요"), 400
     n = scriptlearn.import_cats(BASE, code, other, names)
     return jsonify(ok=True, imported=n, categories=scriptlearn.summary(BASE, code))
+
+
+@app.post("/api/admin/profile_merge_imported")
+def api_admin_profile_merge_imported():
+    """예전 가져오기로 생긴 'X (가져옴)' 분류를 'X'에 합치고 제거(관리자)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    target = (data.get("target") or data.get("code") or "").strip()
+    merged = scriptlearn.merge_imported(BASE, target)
+    return jsonify(ok=True, merged=merged, categories=scriptlearn.summary(BASE, target))
 
 
 @app.post("/api/ie/insta/cookies")

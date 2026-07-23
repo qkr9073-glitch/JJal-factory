@@ -227,6 +227,20 @@ function scrapeInstagramPostsFromPage() {
       caption: "", imageUrls: [], thumbUrl: thumb
     });
   }
+  // 지금 보고 있는 단독 게시물 페이지 자체(목록에 링크가 없어 못 읽던 경우)
+  const cm = location.href.match(/instagram\.com\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/);
+  if (cm && !seen.has(cm[1])) {
+    const isReel = /\/(reel|reels)\//.test(location.href);
+    const og = (k) => (document.querySelector(`meta[property="${k}"]`) || {}).content || "";
+    out.push({
+      platform: "instagram",
+      kind: isReel ? "reel" : "image",
+      url: isReel ? `https://www.instagram.com/reel/${cm[1]}/` : `https://www.instagram.com/p/${cm[1]}/`,
+      shortcode: cm[1], title: og("og:title") || document.title || "", channel: "",
+      viewCount: 0, likeCount: 0, commentCount: 0, takenAt: "",
+      caption: "", imageUrls: [], thumbUrl: og("og:image")
+    });
+  }
   return out;
 }
 
@@ -306,6 +320,24 @@ function scrapeYoutubeShortsFromPage() {
     });
   }
 
+  // 지금 보고 있는 쇼츠/영상 페이지 자체(목록에 링크가 없어 못 읽던 경우)
+  const curM = location.pathname.match(/^\/shorts\/([A-Za-z0-9_-]{6,})/);
+  let curId = curM ? curM[1] : "";
+  if (!curId && location.pathname === "/watch") {
+    curId = ((new URLSearchParams(location.search).get("v") || "").match(/^[A-Za-z0-9_-]{6,}/) || [""])[0];
+  }
+  if (curId && !seen.has(curId)) {
+    seen.add(curId);
+    const t0 = ((document.querySelector('meta[name="title"]') || {}).content || document.title || "")
+      .replace(/\s*-\s*YouTube\s*$/, "").trim();
+    found.push({
+      platform: "youtube",
+      kind: curM ? "shorts" : "video",
+      url: `https://www.youtube.com/watch?v=${curId}`,
+      shortcode: curId, title: t0, channel: channelFromPage(),
+      viewCount: 0, likeCount: 0, commentCount: 0, takenAt: "", caption: t0
+    });
+  }
   return found;
 
   // 조회수만 정확히 추출 (제목 속 숫자/구독자수/배속 배지에 속지 않도록)

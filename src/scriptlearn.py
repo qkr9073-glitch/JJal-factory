@@ -324,17 +324,60 @@ def delete(base, code, name):
     save(base, code, data)
 
 
+def _merge_cat(dst_cat, src_cat):
+    """분류 병합: 대본은 텍스트 기준 중복 제외로 합치고, 프로파일은 비어있는 쪽만 채움."""
+    have = {str(s.get("text", ""))[:300] for s in dst_cat.get("scripts", [])}
+    added = 0
+    for s in src_cat.get("scripts", []):
+        k = str(s.get("text", ""))[:300]
+        if k and k not in have:
+            dst_cat.setdefault("scripts", []).append(s)
+            have.add(k)
+            added += 1
+    dst_cat["scripts"] = dst_cat.get("scripts", [])[-500:]
+    if not (dst_cat.get("profile") or {}) and src_cat.get("profile"):
+        dst_cat["profile"] = src_cat["profile"]
+    dst_cat["updated"] = datetime.now().isoformat(timespec="seconds")
+    return added
+
+
 def import_cats(base, my_code, other_code, names):
-    """다른 계정의 분류 프로파일을 내 목록으로 복사(불러오기)."""
+    """다른 계정의 분류 가져오기 — 같은 이름 분류는 따로 만들지 않고 합침(중복 대본 제외)."""
     src = load(base, other_code)
     dst = load(base, my_code)
     scats = src.get("categories", {})
     dcats = dst["categories"]
     n = 0
     for nm in names:
-        if nm in scats:
-            key = nm if nm not in dcats else f"{nm} (가져옴)"
-            dcats[key] = json.loads(json.dumps(scats[nm]))
-            n += 1
+        if nm not in scats:
+            continue
+        inc = json.loads(json.dumps(scats[nm]))
+        if nm in dcats:
+            _merge_cat(dcats[nm], inc)
+        else:
+            dcats[nm] = inc
+        n += 1
     save(base, my_code, dst)
     return n
+
+
+def merge_imported(base, code):
+    """예전 방식으로 생긴 'X (가져옴)' 분류를 'X'에 합치고 제거. 반환: 합쳐진 분류 이름들."""
+    data = load(base, code)
+    cats = data["categories"]
+    suffix = " (가져옴)"
+    merged = []
+    for nm in list(cats.keys()):
+        if not nm.endswith(suffix):
+            continue
+        basenm = nm[:-len(suffix)].strip()
+        if not basenm:
+            continue
+        if basenm in cats:
+            _merge_cat(cats[basenm], cats.pop(nm))
+        else:
+            cats[basenm] = cats.pop(nm)
+        merged.append(basenm)
+    if merged:
+        save(base, code, data)
+    return merged
