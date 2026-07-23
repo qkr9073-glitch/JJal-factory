@@ -5382,6 +5382,34 @@ def api_fonts_import():
     return jsonify(ok=True, imported=n, fonts=fonts.list_fonts(BASE))
 
 
+@app.post("/api/fonts/google")
+def api_fonts_google():
+    """구글 폰트 이름으로 라이브러리에 추가(파일 업로드 불필요).
+    예: Jua, Do Hyeon, Gugi, Sunflower, Nanum Pen Script."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    family = (data.get("family") or "").strip()
+    if not family or len(family) > 40:
+        return jsonify(ok=False, error="폰트 이름을 입력하세요 (예: Jua)"), 400
+    import requests as _rq
+    url = "https://fonts.googleapis.com/css2?family=" + family.replace(" ", "+")
+    # 구형 UA로 요청하면 woff2 대신 truetype(ttf) URL을 내려줌
+    r = _rq.get(url, headers={"User-Agent": "Mozilla/4.0"}, timeout=20)
+    if r.status_code != 200:
+        return jsonify(ok=False, error=f"구글 폰트에 '{family}' 가 없어요 (fonts.google.com의 영문 이름 그대로)"), 404
+    m = re.search(r"url\((https://fonts\.gstatic\.com[^)]+\.ttf)\)", r.text)
+    if not m:
+        return jsonify(ok=False, error="ttf 주소를 못 찾았어요 — 다른 폰트로 시도"), 502
+    fr = _rq.get(m.group(1), timeout=60)
+    if fr.status_code != 200 or len(fr.content) < 10000:
+        return jsonify(ok=False, error="폰트 다운로드 실패"), 502
+    safe = re.sub(r"[^A-Za-z0-9]+", "", family) or "GoogleFont"
+    fonts.save_upload(BASE, f"{safe}.ttf", fr.content)
+    return jsonify(ok=True, fonts=fonts.list_fonts(BASE), added=f"{safe}.ttf")
+
+
 @app.post("/api/fonts/upload")
 def api_fonts_upload():
     """폰트 업로드(전 계정 공유 저장)."""

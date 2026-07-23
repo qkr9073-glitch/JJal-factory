@@ -640,6 +640,16 @@
     refreshMe().then(()=>{ if(CURTAB) route(CURTAB); });
     flash('🔑 접속코드 적용됨');});
   const esch=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function ensureFontFaces(fonts){
+    let st=document.getElementById('libFontFaces');
+    if(!st){st=document.createElement('style');st.id='libFontFaces';document.head.appendChild(st);}
+    st.textContent=(fonts||[]).map(f=>`@font-face{font-family:'${f.family}';src:url('/fonts/${encodeURIComponent(f.file)}')}`).join('');
+  }
+  function fontGalleryHTML(fonts,pickFn,selected){
+    return (fonts||[]).map(f=>`<div onclick="${pickFn}('${esch(f.file)}')" style="cursor:pointer;padding:7px 10px;border:1px solid ${f.file===selected?'var(--gold)':'var(--line)'};border-radius:9px;margin-bottom:5px;background:${f.file===selected?'color-mix(in srgb,var(--gold) 8%,transparent)':'var(--panel2)'}">
+      <span style="font-family:'${esch(f.family)}','Malgun Gothic',sans-serif;font-size:17px">${esch(f.name)} — 다람쥐 헌 쳇바퀴 ABC 123</span></div>`).join('')
+      ||'<div style="color:var(--faint);font-size:12px">폰트 없음</div>';
+  }
   async function apiJson(path,body){
     const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     return r.json();
@@ -1102,6 +1112,10 @@
               <button class="btn" onclick="document.getElementById('sfUp').click()" title="폰트 업로드">＋</button>
               <button class="btn collmini" onclick="subFontDelCur()" title="선택한 폰트 삭제">🗑</button></div>
             <input id="sfUp" type="file" accept=".ttf,.otf,.ttc" style="display:none" onchange="subFontUpload(this)">
+            <div id="sfGallery" style="margin-top:8px;max-height:170px;overflow:auto"></div>
+            <div style="display:flex;gap:6px;margin-top:7px">
+              <input class="in" id="gfName" placeholder="구글 폰트 이름 (예: Jua, Do Hyeon, Gugi)" style="flex:1;padding:7px 9px;font-size:12.5px" onkeydown="if(event.key==='Enter')gfAdd()">
+              <button class="btn" onclick="gfAdd()">🌐 추가</button></div>
             <label class="fld" style="margin-top:13px">크기 <b id="sfSizeV" style="color:var(--ink)"></b></label>
             <input type="range" id="sfSize" min="40" max="110" step="2" oninput="subApply()" style="width:100%">
             <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;align-items:center">
@@ -1180,6 +1194,7 @@
         }
         // @font-face 주입(미리보기용)
         $('sfFaces').textContent=subState.fonts.map(x=>`@font-face{font-family:'${x.family}';src:url('/fonts/${encodeURIComponent(x.file)}')}`).join('');
+        ensureFontFaces(subState.fonts);
         // 폰트 셀렉트
         const st=subState.style;
         $('sfFont').innerHTML=`<option value="">기본 (맑은 고딕)</option>`+subState.fonts.map(x=>`<option value="${esch(x.file)}" ${x.file===st.font_file?'selected':''}>${esch(x.name)}</option>`).join('');
@@ -1187,7 +1202,30 @@
         $('sfOw').value=(st.outline_w!=null?st.outline_w:5); $('sfBold').checked=st.bold!==false; $('sfPop').checked=!!st.pop;
         subPos(st.align||2,true);
         subApply();
+        sfGalleryPaint();
       });
+  }
+  function sfGalleryPaint(){
+    const g=$('sfGallery'); if(!g)return;
+    g.innerHTML=fontGalleryHTML(subState.fonts,'sfGalleryPick',($('sfFont')&&$('sfFont').value)||'');
+  }
+  function sfGalleryPick(file){
+    if($('sfFont'))$('sfFont').value=file;
+    subApply(); sfGalleryPaint();
+  }
+  function gfAdd(){
+    const fam=($('gfName')&&$('gfName').value.trim())||'';
+    if(!fam){flash('구글 폰트 이름을 입력하세요 (fonts.google.com 영문 이름)');return;}
+    flash('🌐 구글 폰트 받는 중… '+fam);
+    apiJson('/api/fonts/google',{code:code(),family:fam}).then(d=>{
+      if(!d.ok){flash('❌ '+d.error);return;}
+      subState.fonts=d.fonts||[];
+      if($('sfFaces'))$('sfFaces').textContent=subState.fonts.map(x=>`@font-face{font-family:'${x.family}';src:url('/fonts/${encodeURIComponent(x.file)}')}`).join('');
+      ensureFontFaces(subState.fonts);
+      if($('sfFont')){const cur=$('sfFont').value;$('sfFont').innerHTML=`<option value="">기본 (맑은 고딕)</option>`+subState.fonts.map(x=>`<option value="${esch(x.file)}">${esch(x.name)}</option>`).join('');$('sfFont').value=cur;}
+      sfGalleryPaint(); if($('gfName'))$('gfName').value='';
+      flash('✅ 추가됨: '+fam+' — 자막·썸네일 어디서나 사용 가능');
+    }).catch(()=>flash('❌ 통신 오류'));
   }
   function subFontDelCur(){
     const file=$('sfFont').value; if(!file){flash('삭제할 폰트를 선택하세요 (기본 폰트는 삭제 불가)');return;}
@@ -2994,11 +3032,12 @@
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
             <button class="btn" onclick="coverAI()">🤖 문구 자동생성</button>
             <button class="btn" onclick="coverLearn()" title="이 계정으로 업로드된 썸네일들을 분석해 색·위치 프리셋 학습">📊 스타일 학습</button>
-            <select class="in" id="cvFont" style="width:auto;padding:6px 8px;font-size:12px"><option value="">기본(굵은체)</option></select>
+            <select class="in" id="cvFont" style="width:auto;padding:6px 8px;font-size:12px" onchange="cvGalleryPaint()"><option value="">기본(굵은체)</option></select>
             <label style="font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:3px">1줄<input type="color" id="cvC1" value="#FFFFFF" style="width:28px;height:24px;padding:0;border:0;background:none"></label>
             <label style="font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:3px">2줄<input type="color" id="cvC2" value="#FFE24A" style="width:28px;height:24px;padding:0;border:0;background:none"></label>
             <select class="in" id="cvPos" style="width:auto;padding:6px 8px;font-size:12px"><option value="center">가운데</option><option value="top">위쪽</option><option value="bottom">아래쪽</option></select>
           </div>
+          <div id="cvGallery" style="max-height:110px;overflow:auto;margin-bottom:6px"></div>
           <div id="cvCands" style="margin-bottom:6px"></div>
           <input class="in" id="cvL1" placeholder="1줄 — 상황·궁금증 (예: 얼음 넣을 수 있는)" style="margin-bottom:5px">
           <input class="in" id="cvL2" placeholder="2줄 — 핵심·반전 (예: 손선풍기?!)">
@@ -3051,8 +3090,17 @@
     apiJson('/api/fonts/list',{code:code()}).then(d=>{
       if(!d||!d.fonts)return;
       sel.innerHTML='<option value="">기본(굵은체)</option>'+d.fonts.map(f=>`<option value="${esch(f.file)}">${esch(f.name)}</option>`).join('');
+      window._cvFonts=d.fonts; ensureFontFaces(d.fonts); cvGalleryPaint();
       coverPresetApply();          // 폰트 목록 준비 후 계정 프리셋 자동 적용
     }).catch(()=>{});
+  }
+  function cvGalleryPaint(){
+    const g=$('cvGallery'); if(!g)return;
+    g.innerHTML=fontGalleryHTML(window._cvFonts||[],'cvGalleryPick',($('cvFont')&&$('cvFont').value)||'');
+  }
+  function cvGalleryPick(file){
+    if($('cvFont'))$('cvFont').value=file;
+    cvGalleryPaint();
   }
   function coverAI(){
     if(!PKR)return;
