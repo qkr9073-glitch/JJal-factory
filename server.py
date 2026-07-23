@@ -1783,7 +1783,6 @@ def _pack_payload(result):
         "cards_ko": meta.get("cards_ko", []),    # 카드별 본문 한국어 해석
         "srcs": [f"/packs/{rel}/{s}" for s in srcs],  # 커버 교체용 원본사진
         "thumb_src": meta.get("thumb_src", ""),
-        "cards": meta.get("cards", []),
     }
 
 
@@ -2968,6 +2967,7 @@ def api_pack_detail():
         "story": meta.get("template") == "story",
         "srcs": sorted(p.name for p in d.glob("src[0-9][0-9].jpg")),  # 커버 교체용 원본사진
         "thumb_src": meta.get("thumb_src", ""),
+        "cards": meta.get("cards", []),
         "published": insta.load_published(BASE).get(d.name),
         "arch": arch,
         "used_dir": cfg.get("used_dir") or "_사용완료",
