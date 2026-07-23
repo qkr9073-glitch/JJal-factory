@@ -6370,6 +6370,19 @@ def _run_pack_to_carousel(jid, cfg, code, pack, style_ch, handle):
             "type": "cardnews", "source": f"릴스팩 {pack}",
             "style": style_ch, "script": script,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
+        import html as _html
+        cards_html = "".join(
+            f'<img src="{f}" style="width:100%;max-width:420px;display:block;'
+            f'margin:10px auto;border-radius:12px">' for f in files)
+        (ndir / "review.html").write_text(
+            '<!doctype html><html lang="ko"><meta charset="utf-8">'
+            f'<title>{_html.escape(name)}</title>'
+            '<body style="font-family:sans-serif;background:#111;color:#eee;text-align:center;padding:16px">'
+            f'<h2>🃏 {_html.escape(str(meta.get("title") or name))} → 카드뉴스</h2>'
+            '<pre style="white-space:pre-wrap;text-align:left;max-width:420px;margin:10px auto;'
+            'background:#222;padding:12px;border-radius:10px">'
+            f'{_html.escape(caption or "")}</pre>{cards_html}</body></html>',
+            encoding="utf-8")
         _owner_set(name, code)
         job["result"] = {"pack": name, "cards": len(files)}
         job.update(status="done", pct=100, msg=f"완성 — 카드 {len(files)}장")
