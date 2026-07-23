@@ -1984,6 +1984,28 @@ def v2_page():
     return _serve_v2()          # 이관 후에도 유지(기존 /v2 북마크 호환)
 
 
+@app.get("/ext.zip")
+def ext_zip():
+    """수집 확장프로그램 zip 다운로드 — 어느 컴퓨터에서든 /ext.zip?code=접속코드 로 받기.
+    요청 시점에 browser-extension/ 을 즉석 압축(항상 최신)."""
+    cfg = load_config()
+    if not _check_code(cfg, request.args.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다 (?code=코드)"), 403
+    import io as _io
+    src = BASE / "browser-extension"
+    if not src.is_dir():
+        return jsonify(ok=False, error="browser-extension 폴더 없음"), 404
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(src.rglob("*")):
+            if f.is_file() and f.suffix.lower() not in (".zip", ".log", ".tmp"):
+                z.write(str(f), "browser-extension/" + str(f.relative_to(src)).replace("\\", "/"))
+    buf.seek(0)
+    from flask import send_file
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name="jjal-collector-extension.zip")
+
+
 @app.get("/old")
 def index_old():
     return INDEX_HTML           # 구 짤공장 UI(폴백 — v2 문제 시 대비)
