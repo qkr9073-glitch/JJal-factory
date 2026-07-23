@@ -1984,6 +1984,16 @@ def v2_page():
     return _serve_v2()          # 이관 후에도 유지(기존 /v2 북마크 호환)
 
 
+@app.get("/ext.version")
+def ext_version():
+    """확장 최신 버전 번호 — 확장 팝업이 업데이트 여부 확인용."""
+    try:
+        m = json.loads((BASE / "browser-extension" / "manifest.json").read_text(encoding="utf-8"))
+        return jsonify(ok=True, version=str(m.get("version", "")))
+    except Exception:
+        return jsonify(ok=False, version=""), 500
+
+
 @app.get("/ext.zip")
 def ext_zip():
     """수집 확장프로그램 zip 다운로드 — 어느 컴퓨터에서든 /ext.zip?code=접속코드 로 받기.

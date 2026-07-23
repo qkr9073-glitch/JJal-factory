@@ -29,9 +29,27 @@ const DEFAULT_SERVER = "https://jjal.traffic-charger.com";
 function init() {
   bind();
   loadServerUrl();
+  setTimeout(checkUpdate, 600);   // serverUrl/memberCode 로드 후 버전 확인
   detectActiveAccount();
   refresh();
   pollTimer = setInterval(refresh, 1200);
+}
+
+async function checkUpdate() {
+  try {
+    const r = await fetch(serverUrl() + "/ext.version");
+    const j = await r.json();
+    const mine = chrome.runtime.getManifest().version;
+    if (j && j.version && j.version !== mine) {
+      const b = document.getElementById("updateBanner");
+      if (b) {
+        const dl = serverUrl() + "/ext.zip?code=" + encodeURIComponent(memberCode() || "");
+        b.style.display = "block";
+        b.innerHTML = "🔄 새 버전 v" + j.version + " (현재 v" + mine + ") — "
+          + '<a href="' + dl + '" target="_blank" style="color:#b7ffe0">zip 다운로드</a> 후 폴더 덮어쓰기 → chrome://extensions에서 ↻';
+      }
+    }
+  } catch (e) { /* 서버 미접속 등 — 조용히 무시 */ }
 }
 
 function loadServerUrl() {

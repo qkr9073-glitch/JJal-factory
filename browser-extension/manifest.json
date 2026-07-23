@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "짤공장 릴스 헌터 수집기",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "인스타 릴스·이미지 게시물과 유튜브 쇼츠의 URL·조회수·이미지를 수집해 짤공장으로 보냅니다.",
   "action": {
     "default_popup": "popup.html",
