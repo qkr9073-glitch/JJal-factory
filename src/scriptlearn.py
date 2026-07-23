@@ -130,7 +130,7 @@ def add_own_script(base, code, category, text):
     cat = (category or "").strip() or "내 대본"
     c = data["categories"].setdefault(cat, {"scripts": [], "profile": {}, "updated": ""})
     c.setdefault("scripts", []).append({"text": text, "src": "own_final"})
-    c["scripts"] = c["scripts"][-60:]
+    c["scripts"] = c["scripts"][-500:]
     c["updated"] = _dt.now().isoformat(timespec="seconds")
     data["learned_ids"].append(sid)
     save(base, code, data)

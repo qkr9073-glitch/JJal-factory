@@ -4447,6 +4447,28 @@ def api_admin_ig_comment_perm():
     return jsonify(ok=True, has_permission=False, detail=r2.text[:200])
 
 
+@app.post("/api/admin/profile_resync")
+def api_admin_profile_resync():
+    """(관리자) 프로파일 복구: scripts에 실물이 없는 learned_ids를 해제해
+    다음 '학습 시작'이 수집함의 대본으로 다시 채우게 함(60개 컷 사고 복구용)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    target = (data.get("target") or data.get("code") or "").strip()
+    d = scriptlearn.load(BASE, target)
+    have = set()
+    for c in (d.get("categories") or {}).values():
+        for s in (c.get("scripts") or []):
+            have.add(str(s.get("src") or ""))
+    before = len(d.get("learned_ids") or [])
+    d["learned_ids"] = [i for i in (d.get("learned_ids") or [])
+                        if str(i).startswith("own_") or str(i) in have]
+    scriptlearn.save(BASE, target, d)
+    return jsonify(ok=True, released=before - len(d["learned_ids"]),
+                   remaining=len(d["learned_ids"]))
+
+
 @app.post("/api/admin/update_deps")
 def api_admin_update_deps():
     """(관리자) yt-dlp 업데이트 후 서버 자동 재시작(감시견이 새 모듈로 부활).
