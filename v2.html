@@ -1239,7 +1239,7 @@
     const file=$('sfFont').value, f=subState.fonts.find(x=>x.file===file);
     const family=f?f.family:'Malgun Gothic';
     const size=+$('sfSize').value, primary=$('sfPrimary').value, outline=$('sfOutline').value, ow=+$('sfOw').value, bold=$('sfBold').checked, pop=$('sfPop').checked, al=subState._al||2;
-    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,pop,margin_v:al===5?0:700};
+    subState.style={family,font_file:file,size,primary,outline,outline_w:ow,align:al,bold,pop,margin_v:al===8?580:(al===2?700:0)};
     $('sfSizeV').textContent=size+'px';
     const box=$('sfPrev'), t=$('sfPrevText'); if(!box||!t)return;
     const paint=()=>{
@@ -1252,7 +1252,7 @@
       // CSS stroke는 안팎 절반씩 + 글자가 안쪽을 덮어 체감 절반 → 실제(ASS, 바깥 전체) 느낌에 맞게 2배 보정
       t.style.webkitTextStroke=ow>0?((ow*scale*2).toFixed(2)+'px '+outline):'0';
       t.style.fontWeight=bold?'800':'400';
-      t.style.top=al===8?'34%':(al===5?'44%':'auto');
+      t.style.top=al===8?'30%':(al===5?'44%':'auto');
       t.style.bottom=al===2?'34%':'auto';
       t.style.transformOrigin='center';
       t.style.animation=pop?'subpop 1.6s ease-in-out infinite':'none';
