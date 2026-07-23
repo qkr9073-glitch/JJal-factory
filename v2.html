@@ -2522,6 +2522,17 @@
     document.querySelectorAll('#issue .chip[data-kind]').forEach(c=>c.classList.toggle('on',c.dataset.kind===k));
     ieLoadCollected();}
   /* 짤 탭 · 📸 인스타: 브라우저 수집 목록 + 소재→짤 + 대본 추출 (수입탭에서 이리로 이관) */
+  async function extVersionCheck(){
+    let latest='';
+    try{const r=await fetch('/ext.version');const j=await r.json();latest=(j&&j.version)||'';}catch(e){}
+    if(!latest){flash('서버 버전 확인 실패');return;}
+    const mine=document.documentElement.getAttribute('data-jjal-ext')||'';
+    if(mine===latest){flash('✅ 확장 최신 버전입니다 (v'+mine+')');return;}
+    const msg=mine
+      ?('확장이 구버전이에요 (설치 v'+mine+' → 최신 v'+latest+').\n최신 zip을 다운로드할까요?\n(받은 폴더로 덮어쓰고 chrome://extensions에서 ↻)')
+      :('이 브라우저에서 확장을 감지하지 못했어요 (미설치 또는 v1.1 이하 구버전).\n최신 zip(v'+latest+')을 다운로드할까요?');
+    if(confirm(msg))window.open('/ext.zip?code='+encodeURIComponent(code()),'_blank');
+  }
   function instaSub(t){IEB.subtab=t;renderInstaCollect();}
   /* ---- 추천 계정 (전 계정 공유 벤치마크 목록) ---- */
   function recAccLoad(){
@@ -2588,7 +2599,7 @@
         <button class="btn" onclick="ieLoadCollected()">🔄</button>
         <button class="btn" onclick="ieClearExtracted()" title="📝대본✓ 표시된(추출 끝난) 항목만 목록에서 제거">🧹 추출된 것 비우기</button>
         <button class="btn" onclick="ieClearCollected()">🗑 비우기</button>
-        <button class="btn" onclick="window.open('/ext.zip?code='+encodeURIComponent(code()),'_blank')" title="수집 확장프로그램 최신판 zip 다운로드 — 받은 폴더로 덮어쓰고 chrome://extensions에서 ↻">🧩 확장프로그램 버전 체크</button></div>
+        <button class="btn" onclick="extVersionCheck()" title="설치된 수집 확장 버전을 확인하고, 구버전일 때만 최신 zip 다운로드">🧩 확장프로그램 버전 체크</button></div>
       <div class="caphint" style="margin-bottom:12px"><b>짤공장 릴스 헌터</b> 확장으로 인스타를 둘러보면 여기에 자동으로 쌓입니다(로그인 X). <b>이미지</b>는 템플릿 골라 한국판 짤, <b>릴스</b>는 영상 대본을 뽑아 유튜브 짤처럼 생성. 릴스 썸네일의 <b>📝</b>를 눌러 여러 개 고른 뒤 <b>대본 추출</b>로 대본만 한꺼번에 뽑을 수 있어요.</div>
       <div id="ie_collected"><div style="color:var(--faint)">불러오는 중…</div></div>
       <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
