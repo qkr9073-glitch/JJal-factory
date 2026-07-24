@@ -3886,6 +3886,34 @@ def api_card_edit():
     return jsonify(ok=True, job=jid)
 
 
+def _is_ja_account(cfg, account):
+    """일본 계정 판정 — ig_route.story(일본 스토리 계정) 또는 핸들이 .jp 로 끝나면 True.
+    일본 계정엔 한글 CTA 대신 일본어 팔로우 유도 댓글을 단다."""
+    acc = str(account or "").strip().lower()
+    if not acc:
+        return False
+    story = str((cfg.get("ig_route") or {}).get("story") or "").strip().lower()
+    return acc == story or acc.endswith(".jp")
+
+
+def _gen_ja_comment(cfg, kind, title, text):
+    """일본 계정용 고정 댓글(일본어 후킹 1줄 + 팔로우 유도 1줄) 생성."""
+    prompt = f"""あなたはInstagramの運営者です。今投稿した内容に「作成者の固定コメント」を1つ、自然な日本語で書いてください。
+- ちょうど2行: 1行目=投稿内容に合った短いフック（絵文字0〜1個）、2行目=フォローを促すCTA。
+- 韓国語は絶対に使わない。誇張・嘘なし、自然な口語。
+例:
+毎日こういう暮らしのアイデア、地味に役立ちます😊
+役立ったら フォロー して見逃さないでね！
+
+[種類] {kind}
+[タイトル] {title}
+[内容]
+{(text or "")[:800]}
+JSONのみで返答: {{"comment":"1行目\\n2行目"}}"""
+    r = reelproj._gjson(cfg, prompt, maxtok=512)
+    return str(r.get("comment", "")).strip()[:500]
+
+
 def _gen_auto_comment(cfg, kind, title, text, keyword=""):
     """게시물 내용 기반 CTA 자동 댓글 1개 생성(후킹 1줄 + 댓글 키워드 CTA 1줄)."""
     kw_line = (f"- CTA 키워드는 반드시 '{keyword}' 를 그대로 사용." if keyword
@@ -3917,10 +3945,14 @@ def _auto_comment(cfg, result, kind, title, text, keyword="", log=print, pack_na
     if not mid:
         return
     status = "ok"
+    account = (result or {}).get("account")
     try:
-        cmt = _gen_auto_comment(cfg, kind, title, text, keyword)
+        if _is_ja_account(cfg, account):       # 일본 계정 → 일본어 팔로우 유도(한글 CTA 금지)
+            cmt = _gen_ja_comment(cfg, kind, title, text)
+        else:
+            cmt = _gen_auto_comment(cfg, kind, title, text, keyword)
         if cmt:
-            insta.post_comment(cfg, mid, cmt, account=(result or {}).get("account"), log=log)
+            insta.post_comment(cfg, mid, cmt, account=account, log=log)
         else:
             status = "failed: 댓글 문구 생성 결과 없음"
     except Exception as e:
