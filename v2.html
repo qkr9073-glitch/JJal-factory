@@ -3255,35 +3255,7 @@
     coverFontsLoad();
   }
   function closeReelModal(){const o=$('reelOv');if(o)o.remove();PKR=null;}
-  /* ---- 릴스 → 카드뉴스(캐러셀) 변환 ---- */
-  function carouselOpen(){
-    if(!PKR)return;
-    document.querySelectorAll('[id=carOv]').forEach(x=>x.remove());
-    const ov=document.createElement('div'); ov.id='carOv';
-    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:400;display:flex;align-items:center;justify-content:center';
-    ov.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;width:min(480px,92vw)" onclick="event.stopPropagation()">
-      <b>🃏 카드뉴스로 변환</b>
-      <div class="caphint" style="margin-top:6px">릴스 확정 대본의 내용을 그대로 살려 캐러셀 카드 짤로 재구성합니다. 완성되면 결과물 탭에 새 팩으로 생깁니다.</div>
-      <label class="fld" style="margin-top:12px">템플릿</label>
-      <div class="chips" id="carTplChips">
-        <span class="chip on" data-tpl="photo" onclick="carTplSet('photo')">🖼 사진 배경 (영상 프레임)</span>
-        <span class="chip" data-tpl="text" onclick="carTplSet('text')">📝 텍스트 카드</span></div>
-      <div class="caphint" style="margin-top:5px;color:var(--faint)">사진 배경 = 자막 없는 영상 원본(블러 적용분 포함)에서 장면을 뽑아 카드 배경으로 사용</div>
-      <label class="fld" style="margin-top:12px">전개방식 스타일</label>
-      <select class="in" id="carStyle"><option value="">기본 카드뉴스체 (학습 없이)</option></select>
-      <label class="fld" style="margin-top:12px">＋ 새 스타일 학습 (참고 캐러셀 계정)</label>
-      <div style="display:flex;gap:6px;align-items:center">
-        <select class="in" id="carCh" style="flex:1"><option value="">수집한 캐러셀 계정 선택…</option></select>
-        <button class="btn" onclick="carLearn()">📚 학습</button></div>
-      <div class="caphint" style="margin-top:6px;color:var(--faint)">참고 계정 프로필에서 수집확장을 켜고 게시물(이미지)을 몇 개 열어보면 목록에 떠요.</div>
-      <div id="carMsg" class="caphint" style="margin-top:10px;color:var(--gold)"></div>
-      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
-        <button class="btn" onclick="document.getElementById('carOv').remove()">닫기</button>
-        <button class="btn primary" id="carGo" onclick="carConvert()">🃏 변환 시작</button></div></div>`;
-    ov.onclick=()=>ov.remove();
-    document.body.appendChild(ov);
-    carChannelsLoad();
-  }
+  /* ---- 릴스 → 카드뉴스(캐러셀) 변환 (이슈›인스타›🃏 탭에서 진행) ---- */
   function cardConvHTML(){
     return `<div style="display:grid;grid-template-columns:minmax(300px,360px) 1fr;gap:18px">
       <div>
@@ -3331,11 +3303,6 @@
     IEB.subtab='card'; jState.issue='insta';
     setActive('jjal');
     setTimeout(()=>{ if($('issue'))issueTab('insta'); },450);   // 탭 슬라이드 렌더 완료 후
-  }
-  window.carTpl='photo';
-  function carTplSet(t){
-    window.carTpl=t;
-    document.querySelectorAll('#carTplChips .chip').forEach(c=>c.classList.toggle('on',c.dataset.tpl===t));
   }
   function carChannelsLoad(){
     apiJson('/api/carousel/channels',{code:code()}).then(d=>{
