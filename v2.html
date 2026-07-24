@@ -3288,12 +3288,7 @@
     return `<div style="display:grid;grid-template-columns:minmax(300px,360px) 1fr;gap:18px">
       <div>
         <label class="fld">🎬 릴스 완성팩 <span style="color:var(--faint);font-weight:400">(확정 대본 보유분)</span></label>
-        <select class="in" id="carPack"><option value="">불러오는 중…</option></select>
-        <label class="fld" style="margin-top:13px">템플릿</label>
-        <div class="chips" id="carTplChips">
-          <span class="chip ${(window.carTpl||'photo')==='photo'?'on':''}" data-tpl="photo" onclick="carTplSet('photo')">🖼 사진 배경 (영상 프레임)</span>
-          <span class="chip ${window.carTpl==='text'?'on':''}" data-tpl="text" onclick="carTplSet('text')">📝 텍스트 카드</span></div>
-        <div class="caphint" style="margin-top:5px;color:var(--faint)">사진 배경 = 자막 없는 영상 원본(블러 적용분 포함)에서 장면을 뽑아 배경으로 사용</div>
+        <select class="in" id="carPack" onchange="carAcctSync()"><option value="">불러오는 중…</option></select>
         <label class="fld" style="margin-top:13px">전개방식 스타일</label>
         <select class="in" id="carStyle"><option value="">기본 카드뉴스체 (학습 없이)</option></select>
         <label class="fld" style="margin-top:13px">＋ 새 스타일 학습 (참고 캐러셀 계정)</label>
@@ -3302,7 +3297,7 @@
           <button class="btn" onclick="carLearn()">📚 학습</button></div>
         <div class="caphint" style="margin-top:6px;color:var(--faint)">참고 계정 프로필에서 수집확장을 켜고 게시물을 몇 개 <b>열어서 카드를 넘겨보면</b> 표지뿐 아니라 전체 카드가 학습에 담겨요.</div>
         <label class="fld" style="margin-top:13px">올릴 계정 (워터마크)</label>
-        <select class="in" id="carAcct">${(typeof ACCTS!=='undefined'?ACCTS:[]).map(a=>`<option value="${a}">@${a}</option>`).join('')}</select>
+        <select class="in" id="carAcct"><option value="">자동 — 결과물탭 설정/릴스 계정 따라감</option>${(typeof ACCTS!=='undefined'?ACCTS:[]).map(a=>`<option value="${a}">@${a}</option>`).join('')}</select>
         <div id="carMsg" class="caphint" style="margin-top:10px;color:var(--gold)"></div>
         <button class="go" style="margin-top:12px" id="carGo" onclick="carConvert()">🃏 변환 시작</button>
       </div>
@@ -3319,7 +3314,16 @@
       sel.innerHTML=reels.length?reels.map(p=>`<option value="${esch(p.name)}">${esch(p.title||p.name)}</option>`).join('')
         :'<option value="">릴스 완성팩이 없어요 (제작소→릴스에서 먼저 제작)</option>';
       if(window._carPackPre){sel.value=window._carPackPre;window._carPackPre='';}
+      carAcctSync();
     }).catch(()=>{});
+  }
+  function carAcctSync(){   // 결과물탭(릴스 모달)에서 그 팩에 지정한 계정을 자동 반영
+    const pk=($('carPack')&&$('carPack').value)||'';
+    const sel=$('carAcct'); if(!sel)return;
+    let v='';
+    try{const kv=localStorage.getItem('rpacct_'+pk);
+      if(kv&&[...sel.options].some(o=>o.value===kv))v=kv;}catch(e){}
+    sel.value=v;   // 저장값 없으면 '자동'(서버가 발행/예약 계정으로 결정)
   }
   function carOpenTab(pack){    // 릴스 모달 → 변환 탭으로 이동(팩 미리 선택)
     window._carPackPre=pack||'';
@@ -3376,8 +3380,8 @@
     if($('carMsg'))$('carMsg').textContent='🃏 카드 구성 중…';
     apiJson('/api/pack/to_carousel',{code:code(),pack,
       style:($('carStyle')&&$('carStyle').value)||'',
-      template:window.carTpl||'photo',
-      account:($('carAcct')&&$('carAcct').value)||($('rpAcct')&&$('rpAcct').value)||''}).then(d=>{
+      template:'photo',
+      account:($('carAcct')&&$('carAcct').value)||''}).then(d=>{
       if(!d.ok){if($('carMsg'))$('carMsg').textContent='❌ '+d.error;if(g)g.disabled=false;return;}
       carPoll(d.job,r=>{
         if(g)g.disabled=false;
