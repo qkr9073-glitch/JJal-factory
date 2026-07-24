@@ -922,6 +922,14 @@
   }
   function wizNew(){wiz={step:'learn',_restored:true};wizSave();renderAutoReel();}
   function wizPrev(){const i=wizIdx(wiz.step);if(i>0)wizGo(WIZ_STEPS[i-1][0]);}
+  function wizSkipToScript(){   // ① 건너뛰기 → ② 대본 생성(소재 직접 입력). 학습 스타일은 있어야 생성 가능
+    if(!(learnState.cats&&learnState.cats.length)){
+      flash('대본 생성엔 학습된 스타일이 최소 1개 필요해요 — 먼저 [학습 시작]을 눌러주세요');
+      return;
+    }
+    wiz._pendingTopic=null; wiz._pendingCat=null;   // 소재는 ②에서 직접 입력
+    wizGo('script');
+  }
   function wizProjects(){
     const b=$('wizbody'); if(!b)return;
     apiJson('/api/reelproj/list',{code:code()}).then(d=>{
@@ -1800,6 +1808,12 @@
   function renderLearnStep(b){
     b.innerHTML=`
       <div class="panehead"><h2>① 대본 학습 + 소재 추천</h2><span class="n">모은 대본을 AI가 분류·학습해 스타일 프로파일을 만듭니다</span></div>
+      <div class="lcard" style="border-color:var(--gold);background:color-mix(in srgb,var(--gold) 7%,transparent)">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <b>⏭ 이 단계 건너뛰기</b>
+          <span style="font-size:12.5px;color:var(--muted)">소재를 이미 정했다면 학습·추천 없이 바로 <b>② 대본 생성</b>에서 소재를 직접 입력하세요</span>
+          <button class="btn primary" style="margin-left:auto" onclick="wizSkipToScript()">② 대본 생성으로 →</button></div>
+      </div>
       <div class="lcard">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <b>🎓 대본 학습</b><span id="lavail" style="color:var(--muted);font-size:13px">…</span>
