@@ -3915,12 +3915,13 @@ JSONのみで返答: {{"comment":"1行目\\n2行目"}}"""
 
 
 def _gen_auto_comment(cfg, kind, title, text, keyword=""):
-    """게시물 내용 기반 CTA 자동 댓글 1개 생성(후킹 1줄 + 댓글 키워드 CTA 1줄)."""
-    kw_line = (f"- CTA 키워드는 반드시 '{keyword}' 를 그대로 사용." if keyword
-               else "- CTA 키워드는 소재에 어울리는 짧은 한 단어를 직접 정해라(예: 제품명 일부).")
-    prompt = f"""너는 인스타 운영자다. 방금 올린 게시물에 '작성자 고정 댓글'로 달 CTA 댓글 1개를 써라.
-- 정확히 2줄: 1줄=게시물 내용에 딱 붙는 후킹 한 줄(이모지 0~1개), 2줄=댓글에 '키워드' 남기면 정보를 준다는 CTA.
-{kw_line}
+    """게시물 내용 기반 자동 댓글 1개 생성.
+    - 키워드 있음(쇼핑/정보 퍼널) → 후킹 1줄 + 댓글 키워드 CTA 1줄.
+    - 키워드 없음(유머·이슈·뉴스 등 일반 짤) → 판매/DM 유도 없이 톤에 맞는 참여 유도 댓글."""
+    if keyword:
+        prompt = f"""너는 인스타 운영자다. 방금 올린 게시물에 '작성자 고정 댓글'로 달 CTA 댓글 1개를 써라.
+- 정확히 2줄: 1줄=게시물 내용에 딱 붙는 후킹 한 줄(이모지 0~1개), 2줄=댓글에 '{keyword}' 남기면 정보를 준다는 CTA.
+- CTA 키워드는 반드시 '{keyword}' 를 그대로 사용.
 - 과장·거짓 금지, 자연스러운 구어체.
 예시(쇼핑 릴스):
 손글씨 쓰는 사람들은 이거 진짜 못 빠져나옵니다 😳
@@ -3932,6 +3933,20 @@ def _gen_auto_comment(cfg, kind, title, text, keyword=""):
 {(text or "")[:800]}
 반드시 JSON만: {{"comment":"1줄
 2줄"}}"""
+    else:
+        prompt = f"""너는 인스타 운영자다. 방금 올린 게시물(유머·이슈·뉴스 등 정보성 짤)에 '작성자 고정 댓글' 1개를 써라.
+- 게시물 톤에 자연스럽게 어울리는 한두 줄(후킹·공감·한마디).
+- ⚠️ 구매 링크·상품 홍보·"댓글에 OO 남기면 정보/링크 드려요" 같은 판매·DM 유도는 절대 금지(이건 쇼핑 게시물이 아니다).
+- 가벼운 참여 유도만 OK(예: 여러분 생각은? / 공감되면 저장·팔로우) — 억지 홍보 금지.
+- 이모지 0~2개, 자연스러운 구어체, 과장·거짓 금지.
+예시(이슈/뉴스): 이거 진짜 남 일 같지 않네요 😮 여러분은 어떻게 보세요?
+예시(유머): 아 이건 도저히 못 참지ㅋㅋㅋ 공감되면 저장각!
+
+[게시물 종류] {kind}
+[제목] {title}
+[내용]
+{(text or "")[:800]}
+반드시 JSON만: {{"comment":"댓글 내용"}}"""
     r = reelproj._gjson(cfg, prompt, maxtok=512)
     return str(r.get("comment", "")).strip()[:500]
 
@@ -3950,6 +3965,10 @@ def _auto_comment(cfg, result, kind, title, text, keyword="", log=print, pack_na
         if _is_ja_account(cfg, account):       # 일본 계정 → 일본어 팔로우 유도(한글 CTA 금지)
             cmt = _gen_ja_comment(cfg, kind, title, text)
         else:
+            # 키워드 미지정이면 본문에서 퍼널 키워드 추출 시도 → 있으면 쇼핑 CTA,
+            # 없으면 일반 짤(유머·뉴스)로 보고 톤 맞춤 댓글
+            if not keyword:
+                keyword = _cta_keyword_from_caption(text)
             cmt = _gen_auto_comment(cfg, kind, title, text, keyword)
         if cmt:
             insta.post_comment(cfg, mid, cmt, account=account, log=log)
