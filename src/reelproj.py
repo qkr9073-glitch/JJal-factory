@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import uuid
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 import requests
@@ -161,6 +162,57 @@ def highlight_segments(cfg, video, topic, log=print):
     return out
 
 
+_URL_IN_TEXT = re.compile(r"""https?://[^\s<>"'\\]+""")
+# 링크 뒤에 붙는 검색어·추적 파라미터(그대로 두면 다운로드가 실패하는 경우가 많다)
+_DROP_QS = {
+    "q", "t", "si", "igshid", "fbclid", "gclid", "spm_id_from", "vd_source", "feature",
+    "is_from_webapp", "sender_device", "web_id", "_r", "_t", "share_app_id", "share_link_id",
+    "tt_from", "source", "refer", "share_item_id", "timestamp", "user_id", "sec_user_id",
+    "share_from", "enter_from", "pp", "ab_channel", "utm_source", "utm_medium",
+    "utm_campaign", "utm_term", "utm_content",
+}
+
+
+def clean_url(raw):
+    """붙여넣은 텍스트에서 영상 링크만 뽑고 군더더기 쿼리를 제거.
+    예) .../video/7581083279000947998?q=barber%20kiss&t=1785…  →  .../video/7581083279000947998
+    틱톡·유튜브·빌리빌리·인스타는 영상 ID까지만 남긴다(유튜브는 재생목록까지 받지 않도록 v만)."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    m = _URL_IN_TEXT.search(s)          # 문장 속에 링크가 섞여 있어도 링크만 추출
+    if m:
+        s = m.group(0)
+    s = s.strip().rstrip(").,]}\"'")    # 끝에 붙은 문장부호 제거
+    # http(s) 없이 붙여넣은 경우 보정 (tiktok.com/@u/video/123 → https://…)
+    if not re.match(r"^https?://", s, re.I) and re.match(r"^[\w.-]+\.[a-z]{2,}/", s, re.I):
+        s = "https://" + s
+    try:
+        p = urlsplit(s)
+    except ValueError:
+        return s
+    if not p.scheme or not p.netloc:
+        return s
+    host = re.sub(r"^www\.", "", p.netloc.lower())
+    path = p.path or ""
+    qs = parse_qsl(p.query, keep_blank_values=True)
+    if "tiktok.com" in host:
+        mt = re.search(r"/(@[^/]+)/(video|photo)/(\d+)", path)
+        if mt:                          # /@계정/video/영상ID 까지만
+            path = f"/{mt.group(1)}/{mt.group(2)}/{mt.group(3)}"
+        keep = []
+    elif "youtube.com" in host or host == "youtu.be":
+        keep = [(k, v) for k, v in qs if k == "v"]     # list(재생목록)·t 등 제거
+    elif "bilibili.com" in host:
+        keep = [(k, v) for k, v in qs if k == "p"]     # 분할 영상 페이지만 유지
+    elif "instagram.com" in host:
+        keep = []
+    else:
+        keep = [(k, v) for k, v in qs if k.lower() not in _DROP_QS]
+    return urlunsplit((p.scheme, p.netloc, path, urlencode(keep), ""))
+
+
 def collect_clips(cfg, base, pid, urls, log=print):
     """URL 목록 → 각 영상 다운로드 → AI 러프컷(하이라이트 다중) → 9:16 클립+태그 누적.
     반환: {'clips':[...], 'failed':[url,...]} (실패 영상 표시용)."""
@@ -172,10 +224,11 @@ def collect_clips(cfg, base, pid, urls, log=print):
     failed = []
     skipped = 0
     st.setdefault("src_urls", [])          # 첨부한 영상 링크 기록(프로젝트에 영구 보존)
-    known = {u.get("url", "").split("?")[0] for u in st["src_urls"]}
-    done = {(c.get("src_url", "") or "").split("?")[0] for c in st["clips"]}   # 이미 수집한 영상(쿼리 무시)
-    for ui, url in enumerate(urls):
-        base_url = url.split("?")[0]
+    known = {clean_url(u.get("url", "")) for u in st["src_urls"]}
+    done = {clean_url(c.get("src_url", "") or "") for c in st["clips"]}   # 이미 수집한 영상
+    for ui, raw_url in enumerate(urls):
+        url = clean_url(raw_url) or str(raw_url).strip()   # ?q=검색어 등 군더더기 제거
+        base_url = url
         if base_url not in known:
             st["src_urls"].append({"url": url, "status": "…",
                                    "at": datetime.now().isoformat(timespec="seconds")})
@@ -500,6 +553,100 @@ DEFAULT_STYLE = {"family": "Malgun Gothic", "font_file": "", "size": 72, "primar
 
 # 자막 '뿅' 등장(스케일 바운스): 55% → 108% 오버슈트 → 100%
 _POP = r"{\fscx55\fscy55\t(0,90,\fscx108\fscy108)\t(90,170,\fscx100\fscy100)}"
+_POP_PEAK = 1.08          # 뿅 효과 최대 확대율(이 순간에도 한 줄이 유지돼야 함)
+_PLAY_W = 1080            # ASS PlayResX
+_SIDE_MARGIN = 80         # 스타일 MarginL/MarginR
+_FIT_SAFETY = 0.97        # 합성 볼드·힌팅 오차 여유
+_FIT_MIN_RATIO = 0.72     # 이보다 더 줄여야 하면 폰트 축소 대신 줄바꿈
+
+
+@lru_cache(maxsize=128)
+def _ass_px_size(font_path, ass_size):
+    """ASS Fontsize → PIL 픽셀 size 환산.
+    ⚠️ 같은 숫자라도 단위가 다르다 — libass는 글꼴의 (ascent+descent)가 Fontsize가 되도록
+    줄여 그려서, PIL에 같은 숫자를 주면 30%쯤 크게(넓게) 잰다.
+    폰트 메트릭으로 환산해야 실제 렌더 폭과 맞는다(검증 오차 0.5% 이내)."""
+    from PIL import ImageFont
+    ref = 100
+    a, d = ImageFont.truetype(str(font_path), ref).getmetrics()
+    if a + d <= 0:
+        return max(1, int(ass_size))
+    return max(1, int(round(ass_size * ref / (a + d))))
+
+
+@lru_cache(maxsize=128)
+def _font_for_measure(font_path, ass_size):
+    from PIL import ImageFont
+    return ImageFont.truetype(str(font_path), _ass_px_size(str(font_path), int(ass_size)))
+
+
+def _measure_text(text, font_path, size):
+    """자막 한 줄이 화면에서 차지하는 실제 폭(px). 폰트를 못 읽으면 근사치."""
+    if font_path:
+        try:
+            return float(_font_for_measure(str(font_path), int(size)).getlength(text))
+        except Exception:
+            pass
+    # 근사: ASS 기준 한글 ≈ 0.78em, 그 외 ≈ 0.43em
+    return sum(size * (0.78 if ord(c) > 0x1100 else 0.43) for c in text)
+
+
+def _measure_font_path(style, base=None):
+    """자막 렌더에 쓰이는 실제 폰트 파일 경로(폭 측정용)."""
+    ff = (style or {}).get("font_file") or ""
+    if ff and base:
+        p = Path(base) / "fonts" / Path(ff).name
+        if p.exists():
+            return p
+    cands = [r"C:\Windows\Fonts\malgunbd.ttf", r"C:\Windows\Fonts\malgun.ttf"] \
+        if (style or {}).get("bold") else [r"C:\Windows\Fonts\malgun.ttf"]
+    for c in cands:
+        if Path(c).exists():
+            return Path(c)
+    return None
+
+
+def _split_words(words, n, font_path, size):
+    """어절들을 n줄로 나누되 가장 긴 줄이 최소가 되게(균형 분할). 못 나누면 None."""
+    if n <= 1:
+        return [" ".join(words)]
+    if len(words) < n:
+        return None
+    best = None
+    if n == 2:
+        cuts = [(i,) for i in range(1, len(words))]
+    else:
+        cuts = [(i, j) for i in range(1, len(words) - 1) for j in range(i + 1, len(words))]
+    for cut in cuts:
+        idx = (0,) + cut + (len(words),)
+        lines = [" ".join(words[idx[k]:idx[k + 1]]) for k in range(n)]
+        mx = max(_measure_text(x, font_path, size) for x in lines)
+        if best is None or mx < best[0]:
+            best = (mx, lines)
+    return best[1] if best else None
+
+
+def _fit_sub(text, font_path, size, avail, peak):
+    """'뿅' 최대 확대 시점에도 프레임 안에 들어가는 (표시 폰트크기, 줄 목록)을 계산.
+    ① 그대로 들어가면 그대로 → ② 조금 넘치면 폰트만 살짝 줄여 한 줄 유지
+    → ③ 그래도 넘치면 어절 기준 줄바꿈. 매 프레임 결과가 같아 줄바꿈이 튀지 않는다."""
+    budget = max(1.0, avail / max(1.0, peak))
+    words = [w for w in text.split(" ") if w]
+    if not words:
+        return int(size), [text]
+    for n in (1, 2, 3):
+        lines = _split_words(words, n, font_path, size)
+        if not lines:
+            continue
+        mx = max(_measure_text(x, font_path, size) for x in lines)
+        if mx <= budget:
+            return int(size), lines
+        fs = int(size * budget / mx)
+        if fs >= size * _FIT_MIN_RATIO:
+            return max(12, fs), lines
+    lines = _split_words(words, 3, font_path, size) or [text]
+    mx = max(_measure_text(x, font_path, size) for x in lines) or 1.0
+    return max(12, int(size * budget / mx)), lines
 
 
 def _ass_color(hexstr, default="&H00FFFFFF"):
@@ -531,10 +678,13 @@ def _subs_sig(s):
             s.get("outline_w"), s.get("align"), s.get("bold"), bool(s.get("pop")), s.get("margin_v")]
 
 
-def _subs_ass(path, subs, style=None, wm=None, dur=None):
+def _subs_ass(path, subs, style=None, wm=None, dur=None, base=None):
     s = {**DEFAULT_STYLE, **(style or {})}
     wm = wm or {}
-    head = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
+    # WrapStyle 2 = 자동 줄바꿈 끔(\N 만 인정).
+    # 0(스마트 줄바꿈)이면 libass가 '매 프레임 현재 배율로' 줄바꿈을 다시 계산해서,
+    # 뿅 효과가 108%로 튀는 순간에만 한 줄이 두 줄로 갈라진다(1~2프레임 깜빡임).
+    head = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\n\n"
             "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, "
             "Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV\n"
             f"Style: Default,{s['family']},{int(s['size'])},{_ass_color(s['primary'])},"
@@ -552,8 +702,21 @@ def _subs_ass(path, subs, style=None, wm=None, dur=None):
         nxt = items[i + 1]["s"]
         if items[i]["e"] > nxt - 0.03:
             items[i]["e"] = max(items[i]["s"] + 0.1, nxt - 0.03)
-    ev = [f"Dialogue: 0,{autoshorts._ass_ts(x['s'])},{autoshorts._ass_ts(x['e'])},Default,,0,0,0,,{pop}{_ass_text(x['t'])}"
-          for x in items if _ass_text(x['t'])]
+    # 프레임 안에 들어가도록 미리 맞춤(뿅 최대 배율 기준) — 줄바꿈을 우리가 확정해 흔들림 제거
+    fpath = _measure_font_path(s, base)
+    avail = (_PLAY_W - _SIDE_MARGIN * 2 - int(s.get("outline_w") or 0) * 2) * _FIT_SAFETY
+    peak = _POP_PEAK if s.get("pop") else 1.0
+    size = int(s["size"])
+    ev = []
+    for x in items:
+        txt = _ass_text(x["t"])
+        if not txt:
+            continue
+        fs, lines = _fit_sub(txt, fpath, size, avail, peak)
+        body = r"\N".join(lines)
+        pre = ("" if fs == size else "{\\fs%d}" % fs) + pop
+        ev.append(f"Dialogue: 0,{autoshorts._ass_ts(x['s'])},{autoshorts._ass_ts(x['e'])},"
+                  f"Default,,0,0,0,,{pre}{body}")
     # 워터마크: 영상 전체 길이 동안 고정 표시
     end_ts = autoshorts._ass_ts(float(dur) + 5.0) if dur else "9:59:59.00"
     acc = str(wm.get("account") or "").strip().lstrip("@")
@@ -727,7 +890,7 @@ def _mux_subs(base, pid, st):
     wm = dict(st.get("wm") or {})
     st["wm_rendered"] = dict(wm)
     _subs_ass(edir / "sub.ass", st["tts"]["subs"], style,
-              wm=wm, dur=(st.get("tts") or {}).get("dur"))
+              wm=wm, dur=(st.get("tts") or {}).get("dur"), base=base)
     # cwd=edir 이므로 상위 tts 폴더는 ../tts 로 참조(절대/상대 base 모두 안전)
     autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", "video.mp4", "-i", "../tts/tts.mp3",
                      "-vf", ff_arg, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",

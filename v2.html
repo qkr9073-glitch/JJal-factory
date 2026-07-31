@@ -1063,7 +1063,7 @@
       </div>
       <div class="lcard">
         <div class="caphint" style="margin-bottom:8px">유튜브·틱톡·빌리빌리·릴스 <b>영상 링크</b>를 붙여넣으세요. 각 영상에서 소재 관련 장면을 여러 개 자동으로 잘라 태그를 답니다. (최대 10개)</div>
-        <div id="urlBoxes">${Array.from({length:boxes},(_,i)=>`<input class="in urlbox" style="margin-bottom:6px" placeholder="🔗 영상 URL ${i+1}">`).join('')}</div>
+        <div id="urlBoxes">${Array.from({length:boxes},(_,i)=>`<input class="in urlbox" style="margin-bottom:6px" placeholder="🔗 영상 URL ${i+1}" oninput="urlTidy(this)" onpaste="setTimeout(()=>urlTidy(this),0)">`).join('')}</div>
         <div style="display:flex;gap:8px;margin-top:6px">
           <button class="btn" onclick="clipAddBox()">＋ 칸 추가</button>
           <button class="btn primary" style="margin-left:auto" onclick="clipCollect()">🎬 영상 수집·컷</button></div>
@@ -1114,10 +1114,40 @@
     const wrap=$('urlBoxes'); if(!wrap)return;
     if(wrap.children.length>=10){flash('최대 10개까지');return;}
     const inp=document.createElement('input'); inp.className='in urlbox'; inp.style.marginBottom='6px'; inp.placeholder='🔗 영상 URL '+(wrap.children.length+1);
+    inp.oninput=()=>urlTidy(inp); inp.onpaste=()=>setTimeout(()=>urlTidy(inp),0);
     wrap.appendChild(inp); wiz._urlBoxes=wrap.children.length;
   }
+  /* 붙여넣은 링크의 군더더기(?q=검색어, &t=…) 자동 제거 — 서버에서도 한 번 더 거른다 */
+  const _DROPQS=['q','t','si','igshid','fbclid','gclid','spm_id_from','vd_source','feature','is_from_webapp',
+    'sender_device','web_id','_r','_t','share_app_id','share_link_id','tt_from','source','refer','share_item_id',
+    'timestamp','user_id','sec_user_id','share_from','enter_from','pp','ab_channel',
+    'utm_source','utm_medium','utm_campaign','utm_term','utm_content'];
+  function cleanVideoUrl(raw){
+    let s=String(raw||'').trim(); if(!s)return '';
+    const m=s.match(/https?:\/\/[^\s<>"'\\]+/); if(m)s=m[0];
+    s=s.replace(/[).,\]}"']+$/,'');
+    if(!/^https?:\/\//i.test(s)&&/^[\w.-]+\.[a-z]{2,}\//i.test(s))s='https://'+s;
+    let u; try{u=new URL(s);}catch(e){return s;}
+    const host=u.hostname.toLowerCase().replace(/^www\./,'');
+    if(host.includes('tiktok.com')){
+      const mt=u.pathname.match(/\/(@[^/]+)\/(video|photo)\/(\d+)/);
+      if(mt)u.pathname=`/${mt[1]}/${mt[2]}/${mt[3]}`;
+      u.search='';
+    }else if(host.includes('youtube.com')||host==='youtu.be'){
+      const v=u.searchParams.get('v'); u.search=v?('?v='+v):'';
+    }else if(host.includes('bilibili.com')){
+      const p=u.searchParams.get('p'); u.search=p?('?p='+p):'';
+    }else if(host.includes('instagram.com')){ u.search='';
+    }else{ _DROPQS.forEach(k=>u.searchParams.delete(k)); }
+    return u.toString();
+  }
+  function urlTidy(inp){
+    const before=inp.value, after=cleanVideoUrl(before);
+    if(after&&after!==before.trim()){ inp.value=after; inp.style.borderColor='var(--gold)';
+      setTimeout(()=>{inp.style.borderColor='';},900); }
+  }
   function clipCollect(){
-    const urls=[...document.querySelectorAll('#urlBoxes .urlbox')].map(x=>x.value.trim()).filter(Boolean);
+    const urls=[...document.querySelectorAll('#urlBoxes .urlbox')].map(x=>cleanVideoUrl(x.value)).filter(Boolean);
     if(!urls.length){flash('영상 URL을 1개 이상 넣으세요');return;}
     const body={code:code(),urls,script:wiz.script,topic:wiz.topic||'',category:wiz.category||''};
     if(wiz.pid)body.pid=wiz.pid;
@@ -3864,8 +3894,8 @@
 
   /* ============ 예약·승인 TAB (계정 선택 → 월간 캘린더 + 승인) ============ */
   let SVIEW={acct:undefined, ym:null, items:[], admin:false};
-  const ST_C={await:'#f59e0b',pending:'var(--gold)',done:'var(--insta)',failed:'var(--danger)',missed:'var(--pend)',rejected:'var(--faint)'};
-  const ST_L={await:'⏳ 승인대기',pending:'🕒 예약확정',done:'✅ 게시됨',failed:'❌ 실패',missed:'⏭ 놓침(서버 꺼짐)',rejected:'🚫 반려'};
+  const ST_C={await:'#f59e0b',pending:'var(--gold)',posting:'#3b82f6',done:'var(--insta)',failed:'var(--danger)',missed:'var(--pend)',hold:'#f59e0b',rejected:'var(--faint)'};
+  const ST_L={await:'⏳ 승인대기',pending:'🕒 예약확정',posting:'📤 발행 중…',done:'✅ 게시됨',failed:'❌ 실패',missed:'⏭ 놓침(서버 꺼짐)',hold:'⏸ 보류(시간 지남)',rejected:'🚫 반려'};
   function renderSchedule(){
     $('view').innerHTML=`
     <div class="view">

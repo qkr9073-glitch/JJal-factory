@@ -2846,9 +2846,7 @@ def api_reel_schedule():
              "by_code": (code or "").strip(), "by_name": who.get("name", ""),
              "by_role": who.get("role", "user"),
              "created": datetime.now().isoformat(timespec="seconds")}
-    items = _sched_load()
-    items.append(entry)
-    _sched_save(items)
+    _sched_mutate(lambda items: items.append(entry))   # 원자적 추가(다른 변경 유실 방지)
     return jsonify(ok=True, id=entry["id"], status=entry["status"])
 
 
@@ -4147,7 +4145,8 @@ def packs(subpath):
 
 # ──────────────────── 예약 업로드 스케줄러 ────────────────────
 SCHED_FILE = BASE / "schedule.json"
-_sched_lock = threading.Lock()
+_sched_lock = threading.RLock()   # 재진입 가능(_sched_mutate 안에서 _sched_save 호출)
+_POSTING_STALE = 1800             # 30분 넘게 'posting'이면 발행 중 서버가 죽은 것으로 간주
 
 
 def _sched_load():
@@ -4163,8 +4162,54 @@ def _sched_save(items):
                               encoding="utf-8")
 
 
+def _sched_mutate(fn):
+    """schedule.json 원자적 갱신 — 락 안에서 '최신본'을 읽어 fn(items)로 고친 뒤 저장.
+    ⚠️ 오래된 스냅샷을 통째로 덮어쓰면 다른 곳의 변경이 되돌아가(=중복 게시 원인) 금지.
+    fn 이 False 를 반환하면 저장하지 않는다."""
+    with _sched_lock:
+        items = _sched_load()
+        res = fn(items)
+        if res is not False:
+            _sched_save(items)
+        return res
+
+
+def _sched_claim(sid):
+    """발행 직전 '선점': pending/await/... → posting 으로 원자적 전환.
+    이미 다른 스케줄러·즉시발행이 처리 중(posting)이거나 끝난(done) 건은 False.
+    → 서버가 두 개 떠 있어도, 즉시발행과 예약시간이 겹쳐도 두 번 올라가지 않는다."""
+    def _f(items):
+        for e in items:
+            if e.get("id") != sid:
+                continue
+            stt = e.get("status")
+            if stt == "done":
+                return False                     # 이미 게시됨
+            if stt == "posting":
+                started = float(e.get("posting_at") or 0)
+                if time.time() - started < _POSTING_STALE:
+                    return False                 # 다른 쪽이 발행 중
+            e["status"] = "posting"
+            e["posting_at"] = time.time()
+            return True
+        return False
+    return _sched_mutate(_f)
+
+
+def _sched_finish(sid, entry):
+    """발행 결과를 해당 항목에만 병합 저장(전체 덮어쓰기 금지)."""
+    def _f(items):
+        for i, x in enumerate(items):
+            if x.get("id") == sid:
+                items[i] = entry
+                return True
+        return False
+    return _sched_mutate(_f)
+
+
 def _sched_autohold(items, now, grace=600):
-    """상태 자동 정리: 시간 지난 승인대기(await)=보류(hold), 시간 지난 pending=놓침(missed).
+    """상태 자동 정리: 시간 지난 승인대기(await)=보류(hold), 시간 지난 pending=놓침(missed),
+    발행 중 서버가 죽어 멈춘 posting=실패(재시도 가능).
     데이터는 그대로 두고 status만 바꿔 재예약 가능하게. 변경 여부 반환."""
     ch = False
     for e in items:
@@ -4177,12 +4222,21 @@ def _sched_autohold(items, now, grace=600):
         elif stt == "pending" and ts < now - grace:   # 승인됐지만 게시 못 함 → 놓침
             e["status"] = "missed"
             ch = True
+        elif stt == "posting" and (now - float(e.get("posting_at") or 0)) > _POSTING_STALE:
+            # 발행 도중 서버가 꺼진 건 — 자동 재발행하면 중복 위험이라 '실패'로 두고 사람이 확인
+            e["status"] = "failed"
+            e["error"] = "발행 중 서버가 중단됐어요 — 인스타에 올라갔는지 확인 후 재시도하세요"
+            ch = True
     return ch
 
 
 def _sched_publish_entry(cfg, e):
-    """예약 항목 1건 발행(성공/실패 상태를 항목에 기록). 스케줄러·즉시발행 공용."""
+    """예약 항목 1건 발행(성공/실패 상태를 항목에 기록). 스케줄러·즉시발행 공용.
+    ⚠️ 릴스는 insta.publish_reel 자체에 중복 방지가 없어서(팩과 달리) 여기서 장부로 막는다."""
+    ledger_key = f"sched:{e.get('id','')}"
     try:
+        if e.get("id") and ledger_key in insta.load_published(BASE):
+            raise RuntimeError("이미 게시된 예약이에요 (중복 게시를 막았습니다)")
         if e.get("type") == "reel" and e.get("video_pack"):
             # 릴스 완성팩 예약: 팩의 video.mp4를 릴스로 발행(커버=선택 대표컷)
             pack_dir = OUTPUT / e["video_pack"]
@@ -4221,6 +4275,11 @@ def _sched_publish_entry(cfg, e):
                                    lead=e.get("lead") or None,
                                    account=e.get("account") or None)
             _auto_comment_pack(cfg, pack_dir, r)
+        if e.get("id"):
+            try:
+                insta.mark_published(BASE, ledger_key, r)   # 재발행 차단 장부
+            except Exception:
+                pass
         e["status"] = "done"
         e["permalink"] = r.get("permalink", "")
         e["error"] = ""
@@ -4238,14 +4297,13 @@ def _run_sched_publish_now(jid, cfg, sid):
     if e is None:
         job.update(status="error", error="예약을 찾을 수 없어요")
         return
+    # 선점 실패 = 예약 스케줄러가 이미 같은 건을 발행 중이거나 이미 게시됨 → 중복 게시 방지
+    if not _sched_claim(sid):
+        job.update(status="error",
+                   error="이미 발행 중이거나 게시된 예약이에요 (중복 게시를 막았습니다)")
+        return
     _sched_publish_entry(cfg, e)
-    with _sched_lock:
-        cur = _sched_load()               # 그 사이 변경 병합: 해당 항목만 갱신
-        for i, x in enumerate(cur):
-            if x.get("id") == sid:
-                cur[i] = e
-                break
-        _sched_save(cur)
+    _sched_finish(sid, e)
     if e.get("status") == "done":
         job.update(status="done", pct=100, msg="게시 완료",
                    result={"permalink": e.get("permalink", "")})
@@ -4276,26 +4334,23 @@ def _scheduler_loop():
     """예약 큐 주기 확인 → 시간 되면 자동 게시. 서버 꺼져 놓친 건 시작 시 '놓침' 처리."""
     grace = 600   # 10분 이상 지난 pending = (서버 꺼졌던 것) → 놓침
     try:
-        items = _sched_load()
-        now = time.time()
-        if _sched_autohold(items, now, grace):
-            _sched_save(items)
+        _sched_mutate(lambda items: _sched_autohold(items, time.time(), grace) or False)
     except Exception:
         pass
     while True:
         try:
-            items = _sched_load()
+            _sched_mutate(lambda items: _sched_autohold(items, time.time(), grace) or False)
             now = time.time()
-            ch = _sched_autohold(items, now, grace)
-            if ch:
-                _sched_save(items)
-            due = [e for e in items
+            due = [e for e in _sched_load()
                    if e.get("status") == "pending" and e.get("ts", 0) <= now]
             if due:
                 cfg = load_config()
                 for e in due:
+                    # 선점 실패 = 다른 스케줄러/즉시발행이 이미 처리 중 → 건너뜀(중복 방지)
+                    if not _sched_claim(e.get("id")):
+                        continue
                     _sched_publish_entry(cfg, e)
-                _sched_save(items)
+                    _sched_finish(e.get("id"), e)
         except Exception:
             pass
         time.sleep(45)
@@ -4358,9 +4413,13 @@ def api_schedule_add():
     if _is_reel_pack(OUTPUT / pack):     # 릴스 완성팩 예약 → 영상 릴스로 발행하도록 표시
         entry["type"] = "reel"
         entry["video_pack"] = pack       # _videos 복사본이 아니라 팩의 video.mp4를 사용
-    items = _sched_load()
-    items.append(entry)
-    _sched_save(items)
+    # 같은 팩이 이미 예약 대기 중이면 중복 예약 차단(실수로 두 번 눌러 2개 올라가는 것 방지)
+    dup = next((x for x in _sched_load()
+                if x.get("pack") == pack and x.get("status") in ("pending", "await", "posting")), None)
+    if dup:
+        return jsonify(ok=False,
+                       error=f"이미 예약돼 있어요 ({dup.get('when','')}) — 예약·승인 탭에서 확인하세요"), 400
+    _sched_mutate(lambda items: items.append(entry))   # 원자적 추가(다른 변경 유실 방지)
     return jsonify(ok=True, id=entry["id"], status=entry["status"])
 
 
@@ -4370,9 +4429,10 @@ def api_schedule_list():
     cfg = load_config()
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    # 목록 조회 시점에 지난 예약 정리 — 반드시 원자적 병합으로(통째 저장 시 발행상태가
+    # 되돌아가 같은 건이 두 번 올라갈 수 있음)
+    _sched_mutate(lambda its: _sched_autohold(its, time.time()) or False)
     items = _sched_load()
-    if _sched_autohold(items, time.time()):     # 목록 조회 시점에 지난 예약 즉시 정리
-        _sched_save(items)
     # 일반 회원은 본인이 만든 예약만, 관리자는 전체
     if not _is_admin(cfg, data.get("code")):
         mycode = (data.get("code") or "").strip()
@@ -4429,15 +4489,16 @@ def api_schedule_approve():
     if not _is_admin(cfg, data.get("code")):
         return jsonify(ok=False, error="관리자만 승인할 수 있습니다"), 403
     sid = (data.get("id") or "").strip()
-    items = _sched_load()
-    hit = False
-    for e in items:
-        if e.get("id") == sid and e.get("status") == "await":
-            e["status"] = "pending"
-            e["approved_at"] = datetime.now().isoformat(timespec="seconds")
-            hit = True
-    _sched_save(items)
-    return jsonify(ok=True, changed=hit)
+
+    def _approve(items):
+        hit = False
+        for e in items:
+            if e.get("id") == sid and e.get("status") == "await":
+                e["status"] = "pending"
+                e["approved_at"] = datetime.now().isoformat(timespec="seconds")
+                hit = True
+        return hit or False
+    return jsonify(ok=True, changed=bool(_sched_mutate(_approve)))
 
 
 @app.post("/api/schedule/reject")
@@ -4448,14 +4509,18 @@ def api_schedule_reject():
     if not _is_admin(cfg, data.get("code")):
         return jsonify(ok=False, error="관리자만 반려할 수 있습니다"), 403
     sid = (data.get("id") or "").strip()
-    items = _sched_load()
-    for e in items:
-        if e.get("id") == sid and e.get("status") == "await":
-            e["status"] = "rejected"
-            e["reject_reason"] = (data.get("reason") or "").strip()
-            e["rejected_at"] = datetime.now().isoformat(timespec="seconds")
-            _cleanup_reel_video(e)        # 반려된 릴스 영상 정리
-    _sched_save(items)
+
+    def _reject(items):
+        hit = False
+        for e in items:
+            if e.get("id") == sid and e.get("status") == "await":
+                e["status"] = "rejected"
+                e["reject_reason"] = (data.get("reason") or "").strip()
+                e["rejected_at"] = datetime.now().isoformat(timespec="seconds")
+                _cleanup_reel_video(e)    # 반려된 릴스 영상 정리
+                hit = True
+        return hit or False
+    _sched_mutate(_reject)
     return jsonify(ok=True)
 
 
@@ -4474,23 +4539,29 @@ def api_schedule_reschedule():
         ts = 0
     if ts <= time.time() + 30:
         return jsonify(ok=False, error="예약 시간은 현재보다 미래여야 합니다"), 400
-    items = _sched_load()
-    hit = False
-    for e in items:
-        if e.get("id") == sid:
+    def _resched(items):
+        for e in items:
+            if e.get("id") != sid:
+                continue
             if not _is_admin(cfg, mycode) and e.get("by_code") != mycode:
-                return jsonify(ok=False, error="본인 예약만 변경할 수 있습니다"), 403
-            if e.get("status") not in ("pending", "await", "hold", "missed"):
-                return jsonify(ok=False, error="이미 처리된 예약은 변경할 수 없습니다"), 400
-            # 보류/놓침 건을 재예약하면 다시 승인 대기(관리자면 바로 확정)
-            if e.get("status") in ("hold", "missed"):
+                return "forbidden"
+            if e.get("status") not in ("pending", "await", "hold", "missed", "failed"):
+                return "locked"
+            # 보류/놓침/실패 건을 재예약하면 다시 승인 대기(관리자면 바로 확정)
+            if e.get("status") in ("hold", "missed", "failed"):
                 e["status"] = "pending" if _is_admin(cfg, mycode) else "await"
                 e.pop("held_at", None)
+                e["error"] = ""
             e["ts"] = ts
             e["when"] = (data.get("when") or "").strip()
-            hit = True
-    _sched_save(items)
-    return jsonify(ok=hit, error=None if hit else "예약을 찾을 수 없습니다")
+            return "ok"
+        return False           # 못 찾음 → 저장 안 함
+    res = _sched_mutate(_resched)
+    if res == "forbidden":
+        return jsonify(ok=False, error="본인 예약만 변경할 수 있습니다"), 403
+    if res == "locked":
+        return jsonify(ok=False, error="이미 처리된 예약은 변경할 수 없습니다"), 400
+    return jsonify(ok=res == "ok", error=None if res == "ok" else "예약을 찾을 수 없습니다")
 
 
 def _cleanup_reel_video(entry):
@@ -4511,11 +4582,20 @@ def api_schedule_cancel():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     sid = (data.get("id") or "").strip()
-    items = _sched_load()
-    for e in items:                       # 취소되는 릴스 예약 영상 정리
-        if e.get("id") == sid:
-            _cleanup_reel_video(e)
-    _sched_save([e for e in items if e.get("id") != sid])
+
+    def _cancel(items):
+        keep = []
+        for e in items:
+            if e.get("id") == sid:
+                if e.get("status") == "posting":
+                    return "posting"      # 발행 중인 건은 지우지 않음(중복/유실 방지)
+                _cleanup_reel_video(e)    # 취소되는 릴스 예약 영상 정리
+                continue
+            keep.append(e)
+        items[:] = keep
+        return True
+    if _sched_mutate(_cancel) == "posting":
+        return jsonify(ok=False, error="지금 발행 중이라 취소할 수 없어요 (잠시 후 다시 시도)"), 400
     return jsonify(ok=True)
 
 
@@ -5307,7 +5387,13 @@ def api_reelproj_collect():
     code = (data.get("code") or "").strip()
     if not _check_code(cfg, code):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
-    urls = [str(u).strip() for u in (data.get("urls") or []) if str(u).strip()]
+    # 붙여넣은 링크의 군더더기(?q=검색어, &t=… 등) 자동 제거 + 같은 영상 중복 입력 정리
+    urls, _seen = [], set()
+    for u in (data.get("urls") or []):
+        cu = reelproj.clean_url(u)
+        if cu and cu not in _seen:
+            _seen.add(cu)
+            urls.append(cu)
     if not urls:
         return jsonify(ok=False, error="영상 URL을 1개 이상 넣으세요"), 400
     urls = urls[:10]
@@ -5361,13 +5447,20 @@ def api_reelproj_to_results():
     title = (st.get("topic") or "자동 쇼츠").strip()[:40]
     OUTPUT.mkdir(parents=True, exist_ok=True)
     from datetime import datetime as _dt
-    base_name = f"{_dt.now():%Y%m%d_%H%M}_" + re.sub(r"[^\w가-힣]+", "_", title).strip("_")[:30]
-    pack = OUTPUT / base_name
-    n = 1
-    while pack.exists():
-        n += 1
-        pack = OUTPUT / f"{base_name}_{n}"
-    pack.mkdir(parents=True)
+    # 이미 보낸 프로젝트면 같은 팩을 갱신(누를 때마다 팩이 늘어 같은 영상이 중복 게시되는 것 방지)
+    prev = st.get("sent_to_results") or ""
+    if prev and (OUTPUT / prev).is_dir():
+        pack = OUTPUT / prev
+        reused = True
+    else:
+        reused = False
+        base_name = f"{_dt.now():%Y%m%d_%H%M}_" + re.sub(r"[^\w가-힣]+", "_", title).strip("_")[:30]
+        pack = OUTPUT / base_name
+        n = 1
+        while pack.exists():
+            n += 1
+            pack = OUTPUT / f"{base_name}_{n}"
+    pack.mkdir(parents=True, exist_ok=True)
     ff = autoshorts.FFMPEG
     shutil.copy(str(final), str(pack / "video.mp4"))
     # 대표컷 후보 3장 추출(영상 길이의 20/50/80% 지점) → 인스타 썸네일 선택용
@@ -5425,7 +5518,7 @@ def api_reelproj_to_results():
     _owner_set(pack.name, code)
     st["sent_to_results"] = pack.name
     reelproj.save(BASE, pid, st)
-    return jsonify(ok=True, pack=pack.name)
+    return jsonify(ok=True, pack=pack.name, reused=reused)
 
 
 @app.post("/api/reelproj/list")
