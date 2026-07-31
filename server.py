@@ -7177,6 +7177,19 @@ def api_ie_insta_import():
 
 
 if __name__ == "__main__":
+    import socket as _socket
+    # ── 단일 인스턴스 잠금 (중복 게시 방지) ─────────────────────────────
+    # 감시견 재시작 경합 + Windows SO_REUSEADDR(같은 포트 중복 바인딩 허용) 탓에
+    # 서버가 2개 이상 떠서 예약 스케줄러(_scheduler_loop)가 여러 벌 돌면 중복 게시가 난다.
+    # 8776을 독점(SO_REUSEADDR 미설정)해, 두 번째 인스턴스는 스케줄러 시작 전에 즉시 자결한다.
+    try:
+        _singleton = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        _singleton.bind(("127.0.0.1", 8776))
+        _singleton.listen(1)
+    except OSError:
+        # 이미 다른 서버가 돌고 있음 → 즉시 자결. os._exit는 모듈 로드 때 뜬
+        # 데몬/백그라운드 스레드를 안 기다리고 바로 종료(sys.exit는 늦게 죽을 수 있음).
+        os._exit(0)
     import logging
     (BASE / "logs").mkdir(exist_ok=True)
     _h = logging.FileHandler(BASE / "logs" / "server.log", encoding="utf-8")
