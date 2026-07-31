@@ -2763,10 +2763,8 @@ def api_reel_caption():
     cfg = load_config()
     if not _check_code(cfg, request.form.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
-    acct_chk = (request.form.get("account") or "").strip()
-    dn = _sched_day_count(acct_chk, ts)
-    if dn >= 25:
-        return jsonify(ok=False, error=f"인스타 API 제한(계정당 하루 25개): 그 날짜에 이미 {dn}건 있어요 — 다른 날짜로 분산하세요"), 400
+    # (캡션 생성엔 예약 날짜가 없으므로 하루 25개 한도 체크는 여기서 하지 않는다 —
+    #  그 가드는 예약/업로드 엔드포인트에서 ts 기준으로 수행됨)
     now = time.time()
     name, err = _stage_reel_video(now)
     if err:
