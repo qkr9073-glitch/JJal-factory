@@ -4136,6 +4136,53 @@ def api_pack_drive():
         return jsonify(ok=False, error=str(e)), 500
 
 
+# ──────────────── 레퍼런스 스카우트 — 페이스북 OAuth 콜백 (MF-001) ────────────────
+FB_OAUTH_FILE = BASE / "fb_oauth.json"
+
+
+@app.get("/fbcb")
+def fb_oauth_cb():
+    """reference-scout 앱 OAuth 콜백. Explorer 없이 code 수신 →
+    (config에 앱 시크릿 있으면) 장기 토큰까지 자동 교환. 결과는 fb_oauth.json(비공개)."""
+    import requests as _rq
+    err = request.args.get("error_description") or request.args.get("error")
+    if err:
+        return f"<meta charset=utf-8><h3>❌ 로그인 실패: {err}</h3>", 400
+    code = request.args.get("code", "")
+    if not code:
+        return "<meta charset=utf-8><h3>code가 없습니다 — 링크로 다시 시도해주세요</h3>", 400
+    cfg = load_config()
+    app_id = str(cfg.get("fb_app_id", "")).strip()
+    secret = str(cfg.get("fb_app_secret", "")).strip()
+    redirect = ((cfg.get("public_base_url") or "https://jjal.traffic-charger.com")
+                .rstrip("/") + "/fbcb")
+    data = {"time": datetime.now().isoformat(timespec="seconds"), "code": code}
+    if app_id and secret:
+        try:
+            r = _rq.get("https://graph.facebook.com/v23.0/oauth/access_token",
+                        params={"client_id": app_id, "client_secret": secret,
+                                "redirect_uri": redirect, "code": code}, timeout=30)
+            body = r.json()
+            data["short_token"] = body.get("access_token", "")
+            if not data["short_token"]:
+                data["exchange_error"] = body.get("error", {})
+            else:
+                r2 = _rq.get("https://graph.facebook.com/v23.0/oauth/access_token",
+                             params={"grant_type": "fb_exchange_token",
+                                     "client_id": app_id, "client_secret": secret,
+                                     "fb_exchange_token": data["short_token"]},
+                             timeout=30)
+                data["long_token"] = r2.json().get("access_token", "")
+        except Exception as e:
+            data["exchange_exc"] = str(e)
+    FB_OAUTH_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                             encoding="utf-8")
+    msg = ("✅ 연결 성공! 이 창은 닫으셔도 됩니다." if data.get("long_token") else
+           "✅ 코드 수신 완료! 이 창은 닫으셔도 됩니다. (Claude가 마무리합니다)")
+    return (f"<meta charset=utf-8><div style='font-family:sans-serif;"
+            f"padding:60px;text-align:center'><h2>{msg}</h2></div>")
+
+
 @app.get("/packs/<path:subpath>")
 def packs(subpath):
     return send_from_directory(OUTPUT, subpath)
