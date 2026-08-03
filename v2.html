@@ -447,6 +447,7 @@
         </div>
       </div>
       <button type="button" data-t="ie">🔄 <span>수입·수출</span></button>
+      <button type="button" data-t="refs">📡 <span>레퍼런스</span></button>
       <button type="button" data-t="sched">🗓 <span>예약·승인</span></button>
       <button type="button" data-t="result">📦 <span>결과물</span></button>
       <button type="button" data-t="members" id="membersTab" style="display:none">🛠 <span>관리자</span></button>
@@ -597,10 +598,10 @@
     if(!_booted||prev===t){_booted=true;route(t);return;}    // 최초 로드/같은 탭은 애니 없이
     slideEl($('view'),()=>route(t),tabIdx(t)-tabIdx(prev));   // 탭 순서로 좌우 방향 결정
   }
-  function route(t){({jjal:renderJjal,card:renderCard,autoreel:renderAutoReel,reel:renderReel,thread:renderThread,ie:renderIE,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
+  function route(t){({jjal:renderJjal,card:renderCard,autoreel:renderAutoReel,reel:renderReel,thread:renderThread,ie:renderIE,refs:renderRefs,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
 
   /* ===== 좌우 슬라이딩 전환 (탭 · 위저드 단계, 버튼만) ===== */
-  const TAB_ORDER=['jjal','card','autoreel','reel','thread','ie','sched','result','members'];
+  const TAB_ORDER=['jjal','card','autoreel','reel','thread','ie','refs','sched','result','members'];
   const tabIdx=t=>{const i=TAB_ORDER.indexOf(t);return i<0?0:i;};
   const reducedMotion=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
   let _slideActive=null;   // 진행 중 애니 {el, cancel} — 새 전환이 오면 이전 걸 즉시 종료
@@ -4064,6 +4065,125 @@
   async function cancelSched(id){const r=await apiJson('/api/schedule/cancel',{code:code(),id});if(!r.ok){flash('❌ '+(r.error||'실패'));return;}flash('🗑 예약 취소됨');loadSched();}
 
   /* ============ 회원 관리 TAB (관리자 전용) ============ */
+  /* ============ 📡 레퍼런스 (MF-001: 핸들→수집→형식 학습→역수출 소재) ============ */
+  let REFS=[], KRJP_ITEMS=[];
+  function renderRefs(){
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">채널 등록·형식 학습</span></div>
+          <input class="in" id="refHandle" placeholder="@핸들 (예: selectionmgz)">
+          <button class="go" style="margin-top:8px" onclick="refUpdate()">📡 수집 + 형식 학습 (2~4분)</button>
+          <div class="caphint" style="margin-top:8px">공식 API(business_discovery)만 사용 — 계정 안전.<br>조회 대상은 <b>프로페셔널 계정</b>만 가능.<br>결과는 카드뉴스 <b>스타일/템플릿 프리셋</b>으로 자동 등록돼요 (재실행 = 형식 최신화).</div></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">역수출 소재 (일본 타겟)</span></div>
+          <button class="btn" style="width:100%" onclick="refKrjp(false)">🔎 한국 소재 스캔</button>
+          <div class="caphint" style="margin-top:8px">커뮤 8곳+뉴스를 4축(🛍한정템/🎭인물/📰사건미담/✅팩트체크)으로 선별.<br>논쟁 수위는 유지하되 혐오·정치 소재는 자동 배제.</div></div>
+      </aside>
+      <main class="mainpane">
+        <div id="jjobs"></div>
+        <div class="panehead"><h2>📡 레퍼런스 채널</h2><span class="n">벤치마크 형식 학습 + 소재 소싱</span></div>
+        <div id="refList" style="display:flex;flex-direction:column;gap:10px"><div style="color:var(--faint)">불러오는 중…</div></div>
+        <div id="refReport" style="display:none;margin-top:14px"></div>
+        <div id="refKrjpBox" style="margin-top:14px"></div>
+      </main>
+    </div>`;
+    refLoad();
+  }
+  async function refLoad(){
+    const box=$('refList'); if(!box)return;
+    let d; try{d=await apiJson('/api/ref/list',{code:code()});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
+    REFS=d.refs||[];
+    if(!d.ready){box.innerHTML='<div class="caphint">⚠️ 레퍼런스 토큰이 없어요 — REFERENCE-SETUP.md 세팅 후 사용할 수 있어요.</div>';return;}
+    if(!REFS.length){box.innerHTML='<div class="caphint">등록된 채널이 아직 없어요 — 왼쪽에서 핸들을 등록해보세요.</div>';return;}
+    box.innerHTML=REFS.map(r=>{
+      const s=r.stats||{};
+      return `<div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <b style="font-size:15px">@${esch(r.handle)}</b>
+          <span style="color:var(--muted);font-size:12.5px">${esch(r.name||'')}</span>
+          <span style="color:var(--faint);font-size:12px">팔로워 ${(r.followers||0).toLocaleString()} · 게시물 ${(r.media_count||0).toLocaleString()}</span>
+          <span class="sp"></span>
+          <span style="color:var(--faint);font-size:11.5px">🕐 ${esch((r.last_update||'').slice(0,16).replace('T',' '))}</span></div>
+        <div style="color:var(--muted);font-size:12.5px;margin-top:6px"><b>${esch(r.format_name||'')}</b> — ${esch(r.summary||'')}</div>
+        <div style="color:var(--faint);font-size:12px;margin-top:4px">하루 ${s.per_day??'?'}개 · 캐러셀 ${s.carousel_pages??'?'}장 · 좋아요 중앙값 ${s.like_median??'?'} · 댓글율 ${s.comment_ratio??'?'}%</div>
+        <div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">
+          <button class="btn" onclick="refUpdate('${esch(r.handle)}')">🔄 형식 업데이트</button>
+          <button class="btn" onclick="refReport('${esch(r.handle)}')">📄 리포트</button>
+          ${isAdmin()?`<button class="btn" style="color:var(--danger)" onclick="refDel('${esch(r.handle)}')">🗑</button>`:''}
+        </div></div>`;}).join('');
+  }
+  async function refUpdate(h){
+    const handle=(h||($('refHandle')&&$('refHandle').value)||'').trim().replace(/^@/,'');
+    if(!handle){flash('채널 핸들을 입력하세요');return;}
+    let d; try{d=await apiJson('/api/ref/update',{code:code(),handle});}catch(e){flash('❌ 통신 오류: '+e);return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const box=$('jjobs');
+    if(box){const div=document.createElement('div');div.id='refrow-'+d.job;
+      div.style.cssText='background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:10px 13px;margin-bottom:8px;font-size:13px';
+      div.innerHTML=`<b>📡 @${esch(handle)} 형식 학습</b>
+        <div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
+        <span class="jm" style="color:var(--gold)">접수됨…</span>`;
+      box.prepend(div);}
+    refPoll(d.job);
+  }
+  async function refPoll(jid){
+    const row=$('refrow-'+jid);
+    let d; try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}
+    catch(e){setTimeout(()=>refPoll(jid),2500);return;}
+    const jm=row&&row.querySelector('.jm'), fill=row&&row.querySelector('.jbar>div');
+    if(!d.ok){if(jm)jm.textContent='❌ '+d.error;return;}
+    if(d.status==='queued'){if(jm){const ahead=Math.max(0,(d.pos||1)-1);jm.textContent=ahead?`🕐 대기 중 — 앞에 ${ahead}개`:'🕐 곧 시작…';}}
+    else{if(fill)fill.style.width=(d.pct||5)+'%';if(jm)jm.textContent='⏳ '+(d.msg||'작업 중…');}
+    if(d.status==='error'){if(jm)jm.textContent='❌ '+d.error;return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';
+      const h=d.result&&d.result.ref&&d.result.ref.handle;
+      if(jm)jm.innerHTML='✅ 완료 — 스타일·템플릿 프리셋 등록됨'+(h?` · <a style="color:var(--gold);font-weight:700;cursor:pointer" onclick="refReport('${esch(h)}')">📄 리포트 보기</a>`:'');
+      flash('✅ 형식 업데이트 완료');refLoad();return;}
+    setTimeout(()=>refPoll(jid),1300);
+  }
+  async function refReport(h){
+    let d; try{d=await apiJson('/api/ref/report',{code:code(),handle:h});}catch(e){flash('❌ 통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const box=$('refReport'); if(!box)return;
+    box.style.display='';
+    const imgs=[1,2,3,4].map(i=>`<img src="/refimg/${esch(h)}/top${i}_cover.jpg" onerror="this.remove()" style="height:150px;border-radius:8px;border:1px solid var(--line)">`).join('');
+    box.innerHTML=`<div style="background:var(--panel);border:1px solid var(--gold);border-radius:12px;padding:15px">
+      <div style="display:flex;align-items:center"><b>📄 @${esch(h)} 형식 리포트</b><span class="sp"></span><button class="iconbtn" onclick="$('refReport').style.display='none'">✕</button></div>
+      <div style="display:flex;gap:8px;margin:10px 0;overflow-x:auto">${imgs}</div>
+      <pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.7;color:var(--muted);margin:0">${esch(d.md)}</pre></div>`;
+    box.scrollIntoView({behavior:'smooth'});
+  }
+  async function refDel(h){
+    if(!confirm('@'+h+' 레퍼런스를 삭제할까요? (등록된 스타일·템플릿 프리셋도 함께 제거돼요)'))return;
+    const d=await apiJson('/api/ref/del',{code:code(),handle:h});
+    if(!d.ok){flash('❌ '+d.error);return;}
+    flash('🗑 삭제됨');refLoad();
+  }
+  function refCopy(ix){
+    const it=KRJP_ITEMS[ix]; if(!it)return;
+    navigator.clipboard.writeText(it.topic||'').then(()=>flash('📋 주제 복사됨 — 카드뉴스 탭에 붙여넣어 제작하세요'));
+  }
+  async function refKrjp(refresh){
+    const box=$('refKrjpBox'); if(!box)return;
+    box.innerHTML='<div style="color:var(--gold);font-size:13px;padding:8px 0">🔎 커뮤 8곳+뉴스 스캔 중… (30초~1분, 창 유지)</div>';
+    let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
+    KRJP_ITEMS=d.items||[];
+    const AX={'한정템':'🛍','인물':'🎭','사건미담':'📰','팩트체크':'✅'};
+    box.innerHTML=`<div class="panehead" style="margin-top:4px"><h2>🇯🇵 역수출 소재 후보</h2><span class="n">${d.cached?'30분 캐시':'방금 스캔'} · <a style="cursor:pointer;color:var(--gold)" onclick="refKrjp(true)">🔄 새로 스캔</a></span></div>
+      <div style="display:flex;flex-direction:column;gap:8px">`+
+      KRJP_ITEMS.map((it,ix)=>`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px">
+        <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;font-weight:800;color:var(--gold)">${AX[it.axis]||'•'} ${esch(it.axis||'')}</span>
+          <span style="font-size:12px;color:var(--faint)">반응예상 ${it.score||'?'}/10</span>
+          ${it.src_url?`<a href="${esch(it.src_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--faint)">원문 ↗</a>`:''}</div>
+        <div style="font-weight:700;font-size:13.5px;margin-top:5px">${esch(it.topic||'')}</div>
+        <div style="color:var(--muted);font-size:12.5px;margin-top:3px">${esch(it.why||'')} — <span style="color:var(--gold)">${esch(it.jp_hook||'')}</span></div>
+        <div style="margin-top:7px"><button class="btn" onclick="refCopy(${ix})">📋 주제 복사</button></div>
+      </div>`).join('')+'</div>';
+  }
+
   let adminSec='members';
   function adminTab(s){adminSec=s;renderMembers();}
   function renderMembers(){

@@ -29,7 +29,7 @@ sys.path.insert(0, str(BASE))
 import insta  # noqa: E402
 from cardnews import news as card_news  # noqa: E402
 from cardnews import pipeline as card_pipeline  # noqa: E402
-from src import autoshorts, bgm as bgmlib, brain, cardgen, fonts, hunter, insights, pipeline, reelcover, reelproj, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
+from src import autoshorts, bgm as bgmlib, brain, cardgen, fonts, hunter, insights, pipeline, reelcover, reelproj, reference, scriptlearn, stock, storycard, styles, thumbnail, youtube  # noqa: E402
 from src import insta_import  # noqa: E402
 
 app = Flask(__name__)
@@ -4181,6 +4181,126 @@ def fb_oauth_cb():
            "✅ 코드 수신 완료! 이 창은 닫으셔도 됩니다. (Claude가 마무리합니다)")
     return (f"<meta charset=utf-8><div style='font-family:sans-serif;"
             f"padding:60px;text-align:center'><h2>{msg}</h2></div>")
+
+
+# ──────────────────── 레퍼런스 채널 (MF-001: 핸들→수집→형식 학습) ────────────────────
+KRJP_CACHE = {"time": 0.0, "data": None}   # 역수출 소재 추천 30분 캐시
+
+
+def _run_ref_update(jid, cfg, handle):
+    """레퍼런스 채널 형식 업데이트 잡: 수집→비전분석→스타일·템플릿 프리셋 교체."""
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        step = re.match(r"\[(\d)/4\]", m)
+        if step:
+            job["pct"] = {1: 15, 2: 45, 3: 70, 4: 90}.get(int(step.group(1)), job["pct"])
+
+    try:
+        info = reference.update_channel(cfg, BASE, handle, log=log)
+        job["result"] = {"ref": info}
+        job["pct"] = 100
+        job["status"] = "done"
+    except Exception as e:
+        job["error"] = str(e)
+        job["status"] = "error"
+
+
+@app.post("/api/ref/list")
+def api_ref_list():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    reg = reference.registry_load(BASE)
+    refs = sorted(reg.values(), key=lambda r: r.get("last_update", ""), reverse=True)
+    ready = bool((cfg.get("fb_long_token") or "").strip()
+                 and str(cfg.get("fb_bd_ig_id", "")).strip())
+    return jsonify(ok=True, refs=refs, ready=ready)
+
+
+@app.post("/api/ref/update")
+def api_ref_update():
+    """핸들 등록/형식 업데이트 — 수집→분석은 오래 걸려 작업 큐로."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    handle = re.sub(r"[^A-Za-z0-9._]", "", (data.get("handle") or "").strip().lstrip("@"))
+    if not handle:
+        return jsonify(ok=False, error="채널 핸들을 입력해주세요 (예: selectionmgz)"), 400
+    now = time.time()
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
+                 "result": None, "error": None, "ts": now,
+                 "code": (data.get("code") or "").strip()}
+    JOBQ.put((jid, _run_ref_update, (jid, cfg, handle)))
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/ref/report")
+def api_ref_report():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    handle = re.sub(r"[^A-Za-z0-9._]", "", (data.get("handle") or "").strip().lstrip("@"))
+    d = BASE / reference.REFS_DIRNAME / handle
+    try:
+        md = (d / "report.md").read_text(encoding="utf-8")
+        rep = json.loads((d / "report.json").read_text(encoding="utf-8"))
+    except Exception:
+        return jsonify(ok=False, error="리포트가 아직 없습니다 — 먼저 형식 업데이트를 돌려주세요"), 404
+    return jsonify(ok=True, md=md, report=rep)
+
+
+@app.post("/api/ref/del")
+def api_ref_del():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="삭제는 관리자만 가능합니다"), 403
+    handle = re.sub(r"[^A-Za-z0-9._]", "", (data.get("handle") or "").strip().lstrip("@"))
+    reg = reference.registry_load(BASE)
+    old = reg.pop(handle, None)
+    if old:
+        if old.get("style_id"):
+            styles.delete_style(BASE, old["style_id"])
+        if old.get("template_id"):
+            styles.delete_template(BASE, old["template_id"])
+        reference.registry_save(BASE, reg)
+    return jsonify(ok=True)
+
+
+@app.post("/api/ref/krjp")
+def api_ref_krjp():
+    """역수출(일본 타겟) 한국 소재 추천 — 커뮤 인기글+뉴스RSS를 4축 분류. 30분 캐시."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    now = time.time()
+    if (not data.get("refresh") and KRJP_CACHE["data"]
+            and now - KRJP_CACHE["time"] < 1800):
+        return jsonify(ok=True, items=KRJP_CACHE["data"], cached=True)
+    try:
+        items = reference.suggest_krjp(cfg, BASE, log=lambda m: None)
+    except Exception as e:
+        return jsonify(ok=False, error=f"소재 스캔 실패: {e}"), 500
+    KRJP_CACHE["data"] = items
+    KRJP_CACHE["time"] = now
+    return jsonify(ok=True, items=items, cached=False)
+
+
+@app.get("/refimg/<handle>/<path:fn>")
+def ref_img(handle, fn):
+    """레퍼런스 수집 이미지 서빙 (리포트 미리보기용)."""
+    handle = re.sub(r"[^A-Za-z0-9._]", "", handle or "")
+    return send_from_directory(BASE / reference.REFS_DIRNAME / handle / "img", fn)
 
 
 @app.get("/packs/<path:subpath>")
