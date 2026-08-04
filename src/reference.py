@@ -1146,6 +1146,8 @@ def remake_build(cfg, base, handle, media_id, audience="", log=print):
 
     cfg2, guide = remake_cfg(cfg, base, handle)
     theme = cfg2.get("card_theme", "smag")
+    if not audience and theme == "jmag":
+        audience = "일본 시청자(일본 네티즌)"   # 일본 타겟 채널은 언어와 무관하게 항상 일본 시점
     paths, caption = remake_source(cfg2, base, handle, media_id, log=log)
     key = (cfg2.get("gemini_api_key") or "").strip()
     if not key:
@@ -1160,7 +1162,15 @@ def remake_build(cfg, base, handle, media_id, audience="", log=print):
                 f"그 수요층으로 재중심화하라 — 순위·비교·평가 소재면 그 나라 항목을 후킹의 "
                 f"중심에 놓고(예: 분류표라면 그 나라가 어떻게 그려졌는지부터), 반응 장은 "
                 f"그 수요층 네티즌의 억울함·발끈·부러움으로 쓴다. 원본에 그 나라 정보가 "
-                f"없으면 지어내지 말고 '그 나라에서도 화제'로 소화하라.")
+                f"없으면 지어내지 말고 '그 나라에서도 화제'로 소화하라. "
+                f"원본이 수요층 나라의 제품·문화를 소개하는 글이면(예: 일본 한정품을 "
+                f"한국인에게 소개) 방향을 뒤집어라 — '외국(한국)에서 이게 이렇게 화제다/"
+                f"부러워한다'는 외부 반응 각도로 재중심화하면 수요층에겐 자국 자부심+신기함 "
+                f"후킹이 된다. 단 외국 반응은 원본 캡션·이미지에 실제로 있는 것만 쓴다. "
+                f"⚠️수요층이 아닌 나라의 시점 문장을 표지·본문·CTA 어디에도 남기지 마라 "
+                f"(예: 일본 타겟인데 '한국에서도 팔아줬으면' 같은 한국인 목소리 금지). "
+                f"CTA도 수요층에게 의미 있는 질문이어야 한다 — 일본 타겟이면 '이거 알고 "
+                f"있었냐/신어봤냐/외국인이 부러워하는 거 어떻게 생각하냐'처럼.")
     parts = [{"text": REMAKE_PROMPT.format(guide=gtxt, audience=atxt,
                                            caption=(caption or "(없음)")[:1500])}]
     for p in paths[:3]:
