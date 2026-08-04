@@ -2242,7 +2242,7 @@
   }
 
   /* ============ 카드뉴스 TAB ============ */
-  const THEMES=[['hunter','🎮 유튜브 네온','다크',268],['cream','🧡 크림 클래식','라이트',28],['news','🗞 뉴스 에디토리얼','라이트',210],['punch','💥 다크 강펀치','골드',45],['info','📋 인포그래픽','체크리스트',150],['pastel','🧸 파스텔 소프트','부드럽게',340]];
+  const THEMES=[['hunter','🎮 유튜브 네온','다크',268],['cream','🧡 크림 클래식','라이트',28],['news','🗞 뉴스 에디토리얼','라이트',210],['punch','💥 다크 강펀치','골드',45],['info','📋 인포그래픽','체크리스트',150],['pastel','🧸 파스텔 소프트','부드럽게',340],['smag','📰 매거진 다크','AI실사+인용문',0],['jmag','🗾 매거진 브라이트','AI실사+배지',120]];
   let cState={mode:0,tplKey:'b:hunter'};
   /* ---- 템플릿(이미지 디자인): 내장 테마 + 학습한 커스텀 ---- */
   let CUSTOM_TPLS=[];
@@ -4109,9 +4109,50 @@
         <div style="color:var(--faint);font-size:12px;margin-top:4px">하루 ${s.per_day??'?'}개 · 캐러셀 ${s.carousel_pages??'?'}장 · 좋아요 중앙값 ${s.like_median??'?'} · 댓글율 ${s.comment_ratio??'?'}%</div>
         <div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">
           <button class="btn" onclick="refUpdate('${esch(r.handle)}')">🔄 형식 업데이트</button>
+          <button class="btn primary" onclick="refPosts('${esch(r.handle)}')">🗞 게시물·리메이크</button>
           <button class="btn" onclick="refReport('${esch(r.handle)}')">📄 리포트</button>
           ${isAdmin()?`<button class="btn" style="color:var(--danger)" onclick="refDel('${esch(r.handle)}')">🗑</button>`:''}
         </div></div>`;}).join('');
+  }
+  async function refPosts(h){
+    const box=$('refReport'); if(!box)return;
+    box.style.display='';
+    box.innerHTML='<div style="color:var(--gold);font-size:13px;padding:8px 0">게시물 불러오는 중…</div>';
+    let d; try{d=await apiJson('/api/ref/posts',{code:code(),handle:h});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
+    const rows=(d.posts||[]).map(p=>{
+      const img=p.img?`<img src="/refimg/${esch(h)}/${esch(p.img)}" style="width:96px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none">`
+                     :`<div style="width:96px;height:120px;border-radius:8px;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--faint);flex:none">${p.type==='VIDEO'?'🎬':'🖼'}</div>`;
+      const canRemake=p.type!=='VIDEO';
+      return `<div style="display:flex;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px">
+        ${img}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:var(--faint)">♥${(p.like||0).toLocaleString()} · 💬${(p.comments||0).toLocaleString()} · ${esch(p.ts||'')}${p.pages?` · ${p.pages}장`:''} ${p.permalink?`· <a href="${esch(p.permalink)}" target="_blank" rel="noopener" style="color:var(--faint)">원본 ↗</a>`:''}</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esch(p.caption||'(캡션 없음)')}</div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            ${canRemake?`<button class="btn" onclick="refRemake('${esch(h)}','${esch(p.id)}','ko')">🔁 한국판 리메이크</button>
+            <button class="btn" onclick="refRemake('${esch(h)}','${esch(p.id)}','ja')">🇯🇵 +일본어판</button>`
+            :`<span style="font-size:12px;color:var(--faint)">영상 게시물 — 리메이크 미지원</span>`}
+          </div></div></div>`;}).join('');
+    box.innerHTML=`<div style="background:var(--panel);border:1px solid var(--gold);border-radius:12px;padding:15px">
+      <div style="display:flex;align-items:center;margin-bottom:10px"><b>🗞 @${esch(h)} 게시물 (좋아요순)</b>
+        <span style="color:var(--faint);font-size:12px;margin-left:10px">중심내용 유지 · 후킹/표현 재창조 · 썸네일 AI 신규 생성</span>
+        <span class="sp"></span><button class="iconbtn" onclick="$('refReport').style.display='none'">✕</button></div>
+      <div style="display:flex;flex-direction:column;gap:8px;max-height:640px;overflow-y:auto">${rows}</div></div>`;
+    box.scrollIntoView({behavior:'smooth'});
+  }
+  async function refRemake(h,pid,lang){
+    let d; try{d=await apiJson('/api/ref/remake',{code:code(),handle:h,post:pid,lang});}catch(e){flash('❌ 통신 오류: '+e);return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const box=$('jjobs');
+    if(box){const div=document.createElement('div');div.id='refrow-'+d.job;
+      div.style.cssText='background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:10px 13px;margin-bottom:8px;font-size:13px';
+      div.innerHTML=`<b>🔁 @${esch(h)} 리메이크${lang==='ja'?' +🇯🇵':''}</b>
+        <div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
+        <span class="jm" style="color:var(--gold)">접수됨…</span>`;
+      box.prepend(div);}
+    window.scrollTo({top:0,behavior:'smooth'});
+    refPoll(d.job);
   }
   async function refUpdate(h){
     const handle=(h||($('refHandle')&&$('refHandle').value)||'').trim().replace(/^@/,'');
@@ -4137,7 +4178,13 @@
     else{if(fill)fill.style.width=(d.pct||5)+'%';if(jm)jm.textContent='⏳ '+(d.msg||'작업 중…');}
     if(d.status==='error'){if(jm)jm.textContent='❌ '+d.error;return;}
     if(d.status==='done'){if(fill)fill.style.width='100%';
-      const h=d.result&&d.result.ref&&d.result.ref.handle;
+      const r=d.result||{};
+      if(r.pack){   // 리메이크 결과 — 완성팩 링크(+일본어판)
+        let html=`✅ 완성 — <a href="/packs/${encodeURIComponent(r.pack)}/review.html" target="_blank" style="color:var(--gold);font-weight:700">한국판 미리보기 ↗</a>`;
+        if(r.ja_pack)html+=` · <a href="/packs/${encodeURIComponent(r.ja_pack)}/review.html" target="_blank" style="color:var(--gold);font-weight:700">🇯🇵 일본어판 ↗</a>`;
+        if(jm)jm.innerHTML=html+' <span style="color:var(--faint)">(결과물 탭에서 편집·업로드)</span>';
+        flash('✅ 리메이크 완성');return;}
+      const h=r.ref&&r.ref.handle;
       if(jm)jm.innerHTML='✅ 완료 — 스타일·템플릿 프리셋 등록됨'+(h?` · <a style="color:var(--gold);font-weight:700;cursor:pointer" onclick="refReport('${esch(h)}')">📄 리포트 보기</a>`:'');
       flash('✅ 형식 업데이트 완료');refLoad();return;}
     setTimeout(()=>refPoll(jid),1300);
@@ -4147,7 +4194,10 @@
     if(!d.ok){flash('❌ '+d.error);return;}
     const box=$('refReport'); if(!box)return;
     box.style.display='';
-    const imgs=[1,2,3,4].map(i=>`<img src="/refimg/${esch(h)}/top${i}_cover.jpg" onerror="this.remove()" style="height:150px;border-radius:8px;border:1px solid var(--line)">`).join('');
+    let pimgs=[];
+    try{const pd=await apiJson('/api/ref/posts',{code:code(),handle:h});
+      pimgs=(pd.posts||[]).filter(p=>p.img).slice(0,4).map(p=>p.img);}catch(e){}
+    const imgs=pimgs.map(fn=>`<img src="/refimg/${esch(h)}/${esch(fn)}" onerror="this.remove()" style="height:150px;border-radius:8px;border:1px solid var(--line)">`).join('');
     box.innerHTML=`<div style="background:var(--panel);border:1px solid var(--gold);border-radius:12px;padding:15px">
       <div style="display:flex;align-items:center"><b>📄 @${esch(h)} 형식 리포트</b><span class="sp"></span><button class="iconbtn" onclick="$('refReport').style.display='none'">✕</button></div>
       <div style="display:flex;gap:8px;margin:10px 0;overflow-x:auto">${imgs}</div>

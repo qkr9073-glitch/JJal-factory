@@ -112,6 +112,13 @@ _JA_RULES = [
     (re.compile(r"^실제 기록$"), "実際の記録"),
     (re.compile(r"^수익지표$"), "収益指標"),
     (re.compile(r"^수강생후기$"), "受講生レビュー"),
+    # 매거진 테마 (smag/jmag) 크롬
+    (re.compile(r"^\(저장필수\)$"), "(保存必須)"),
+    (re.compile(r"^\*자세한 내용 본문 참고\*$"), "*詳しくはキャプションで*"),
+    (re.compile(r"^\*이해를 돕기 위한 AI 생성 이미지 포함$"), "*理解を助けるためのAI生成画像を含む"),
+    (re.compile(r"^여러분의 생각은\?$"), "みなさんはどう思う？"),
+    (re.compile(r"^댓글로 알려주세요!$"), "コメントで教えてください！"),
+    (re.compile(r"^저장 \+ 팔로우하면 다음 이슈도 놓치지 않아요$"), "保存＋フォローで次のイシューも見逃さない"),
 ]
 
 
@@ -1917,6 +1924,292 @@ def _pastel_cta(plan, cfg, out_path):
     return str(out_path)
 
 
+# ================================================================
+# 매거진 테마 2종 (레퍼런스 채널 미감 이식, MF-001)
+#  smag = 셀렉션매거진식: 풀블리드 사진 + 하단 그라데이션 + 흰 인용문 + (저장필수)
+#  jmag = 저스트두잇재팬식: 실사 + 빨간 상단 띠 + 초록 배지 + 노란 서브라인
+# 표지 사진은 AI 생성(genimg) 우선 — 글자는 여기서 얹는다 (AI 오타 리스크 0)
+
+SMAG_BG = (15, 15, 19)
+SMAG_TEXT = (250, 250, 252)
+SMAG_SUB = (208, 208, 216)
+SMAG_GOLD = (255, 205, 90)
+JMAG_BG = (250, 250, 248)
+JMAG_INK = (17, 17, 19)
+JMAG_BODY = (58, 58, 62)
+JMAG_RED = (229, 47, 42)
+JMAG_GREEN = (57, 205, 106)
+JMAG_YELLOW = (255, 211, 58)
+
+
+def _bleed(cfg, blur=0, dark=1.0):
+    """cover_image → W×H 풀블리드 크롭 (없으면 None)."""
+    src = cfg.get("cover_image")
+    if not src or not Path(str(src)).exists():
+        return None
+    try:
+        img = Image.open(src).convert("RGB")
+    except Exception:
+        return None
+    sc = max(W / img.width, H / img.height)
+    img = img.resize((int(img.width * sc) + 1, int(img.height * sc) + 1),
+                     Image.LANCZOS)
+    x = (img.width - W) // 2
+    y = (img.height - H) // 3          # 위쪽 1/3 지점 크롭 (얼굴/피사체 보존)
+    img = img.crop((x, y, x + W, y + H))
+    if blur:
+        img = img.filter(ImageFilter.GaussianBlur(blur))
+    if dark != 1.0:
+        from PIL import ImageEnhance
+        img = ImageEnhance.Brightness(img).enhance(dark)
+    return img
+
+
+def _grad_overlay(canvas, y0, y1, alpha_to=235, color=(0, 0, 0), down=True):
+    """y0→y1 구간에 세로 그라데이션 오버레이 (down=True면 아래로 갈수록 진하게)."""
+    hgt = max(2, y1 - y0)
+    ov = Image.new("L", (1, hgt))
+    for i in range(hgt):
+        t = i / (hgt - 1)
+        ov.putpixel((0, i), int(alpha_to * (t if down else 1 - t)))
+    mask = ov.resize((W, hgt))
+    canvas.paste(Image.new("RGB", (W, hgt), color), (0, y0), mask)
+
+
+def _ai_notice(draw, cfg, right=False):
+    if not cfg.get("_cover_ai"):
+        return
+    t = "*이해를 돕기 위한 AI 생성 이미지 포함"
+    f = _font("semi", 42)
+    x = (W - M - _tw(draw, t, f)) if right else M
+    draw.text((x, 58), t, font=f, fill=(232, 232, 238))
+
+
+def _mag_handle(cfg):
+    return (cfg.get("card_handle") or cfg.get("card_watermark") or "").strip()
+
+
+def _smag_cover(plan, cfg, out_path):
+    img = _bleed(cfg)
+    c = img if img is not None else Image.new("RGB", (W, H), SMAG_BG)
+    _grad_overlay(c, int(H * 0.44), H, alpha_to=246)
+    _grad_overlay(c, 0, 230, alpha_to=130, down=False)
+    d = ImageDraw.Draw(c)
+    _ai_notice(d, cfg)
+
+    title = (plan.get("title_main") or plan.get("title") or "").strip()
+    tf, ts = _fit_font(d, title, "xbold", 148, W - M * 2, min_size=92)
+    lines = _wrap(d, title, tf, W - M * 2)[:3]
+    lh = int(ts * 1.14)
+    quote = (plan.get("title_top") or "").strip()
+    qf = _font("xbold", 86)
+    q_h = 128 if quote else 0
+    badge_h = 96
+    block_h = badge_h + q_h + len(lines) * lh
+    y = H - 205 - block_h
+
+    hd = _mag_handle(cfg)
+    if hd:
+        hf = _font("semi", 46)
+        d.text((W - M - _tw(d, hd, hf), y - 24), hd, font=hf, fill=(205, 205, 212))
+    d.text((M, y), "(저장필수)", font=_font("xbold", 62), fill=SMAG_TEXT)
+    y += badge_h
+    if quote:
+        qt = quote if quote[:1] in "“\"'「" else f"“{quote}”"
+        qtf, _qs = _fit_font(d, qt, "xbold", 86, W - M * 2, min_size=62)
+        d.text((M, y), qt, font=qtf, fill=SMAG_TEXT)
+        y += q_h
+    for ln in lines:
+        d.text((M, y), ln, font=tf, fill=SMAG_TEXT)
+        y += lh
+    foot = "*자세한 내용 본문 참고*"
+    ff = _font("xbold", 46)
+    d.text((W - M - _tw(d, foot, ff), H - 132), foot, font=ff, fill=SMAG_TEXT)
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)
+
+
+def _smag_canvas(cfg):
+    img = _bleed(cfg, blur=24, dark=0.30)
+    if img is None:
+        return Image.new("RGB", (W, H), SMAG_BG)
+    ov = Image.new("RGB", (W, H), (0, 0, 0))
+    img.paste(ov, (0, 0), Image.new("L", (W, H), 92))
+    return img
+
+
+def _smag_items_card(plan, items, cfg, out_path):
+    c = _smag_canvas(cfg)
+    d = ImageDraw.Draw(c)
+    num = items[0].get("num", 1) if items else 1
+    d.text((M, 170), f"#{num:02d}", font=_font("xbold", 60), fill=SMAG_GOLD)
+    d.line([M, 268, W - M, 268], fill=(90, 90, 100), width=3)
+    y = 350
+    for it in items:
+        cat = (it.get("category") or "").strip()
+        if cat:
+            d.text((M, y), cat, font=_font("semi", 48), fill=SMAG_GOLD)
+            y += 84
+        hf, hs = _fit_font(d, it.get("title", ""), "xbold", 92, W - M * 2, min_size=68)
+        for ln in _wrap(d, it.get("title", ""), hf, W - M * 2):
+            d.text((M, y), ln, font=hf, fill=SMAG_TEXT)
+            y += int(hs * 1.18)
+        y += 26
+        bf = _font("reg", 56)
+        for lnobj in it.get("lines", []):
+            txt = (lnobj.get("text") or "").strip()
+            if not txt:
+                continue
+            for ln in _wrap(d, txt, bf, W - M * 2):
+                d.text((M, y), ln, font=bf, fill=SMAG_SUB)
+                y += 84
+            y += 12
+        y += 66
+    hd = _mag_handle(cfg)
+    if hd:
+        hf = _font("semi", 44)
+        d.text(((W - _tw(d, hd, hf)) / 2, H - 118), hd, font=hf, fill=(160, 160, 170))
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)
+
+
+def _smag_cta(plan, cfg, out_path):
+    c = _smag_canvas(cfg)
+    d = ImageDraw.Draw(c)
+    y = int(H * 0.3)
+    b = "(저장필수)"
+    d.text(((W - _tw(d, b, _font("xbold", 68))) / 2, y), b,
+           font=_font("xbold", 68), fill=SMAG_GOLD)
+    y += 170
+    l1, l2 = "여러분의 생각은?", "댓글로 알려주세요!"
+    f1, s1 = _fit_two_lines(d, l1, l2, "xbold", 150, W - M * 2, min_size=96)
+    d.text(((W - _tw(d, l1, f1)) / 2, y), l1, font=f1, fill=SMAG_TEXT)
+    y += int(s1 * 1.25)
+    d.text(((W - _tw(d, l2, f1)) / 2, y), l2, font=f1, fill=SMAG_GOLD)
+    y += int(s1 * 1.25) + 110
+    foot = "저장 + 팔로우하면 다음 이슈도 놓치지 않아요"
+    ff = _font("semi", 54)
+    d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff, fill=SMAG_SUB)
+    hd = _mag_handle(cfg)
+    if hd:
+        hf = _font("semi", 44)
+        d.text(((W - _tw(d, hd, hf)) / 2, H - 118), hd, font=hf, fill=(160, 160, 170))
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)
+
+
+def _jmag_cover(plan, cfg, out_path):
+    img = _bleed(cfg)
+    c = img if img is not None else Image.new("RGB", (W, H), JMAG_BG)
+    d = ImageDraw.Draw(c)
+    d.rectangle([0, 0, W, 30], fill=JMAG_RED)
+    _grad_overlay(c, int(H * 0.48), H, alpha_to=240)
+    d = ImageDraw.Draw(c)
+    _ai_notice(d, cfg, right=True)
+
+    badge = (plan.get("title_top") or "").strip()
+    if badge:
+        bf, _bs = _fit_font(d, badge, "xbold", 56, W - M * 2 - 64, min_size=40)
+        bw = _tw(d, badge, bf)
+        d.rounded_rectangle([M, 88, M + bw + 64, 190], radius=18, fill=JMAG_GREEN)
+        d.text((M + 32, 139 - _bs // 2), badge, font=bf, fill=(10, 38, 20))
+
+    title = (plan.get("title_main") or plan.get("title") or "").strip()
+    tf, ts = _fit_font(d, title, "xbold", 150, W - M * 2, min_size=94)
+    lines = _wrap(d, title, tf, W - M * 2)[:3]
+    lh = int(ts * 1.15)
+    sub = (plan.get("subtitle") or "").strip()
+    sf = _font("xbold", 66)
+    sub_lines = _wrap(d, sub, sf, W - M * 2)[:2] if sub else []
+    block_h = len(lines) * lh + (len(sub_lines) * 96 + 30 if sub_lines else 0)
+    y = H - 190 - block_h
+    for ln in lines:
+        d.text((M, y), ln, font=tf, fill=(255, 255, 255))
+        y += lh
+    if sub_lines:
+        y += 30
+        for ln in sub_lines:
+            d.text((M, y), ln, font=sf, fill=JMAG_YELLOW)
+            y += 96
+    hd = _mag_handle(cfg)
+    if hd:
+        hf = _font("semi", 46)
+        d.text((M, H - 120), hd, font=hf, fill=(222, 222, 226))
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)
+
+
+def _jmag_items_card(plan, items, cfg, out_path):
+    c = Image.new("RGB", (W, H), JMAG_BG)
+    d = ImageDraw.Draw(c)
+    d.rectangle([0, 0, W, 30], fill=JMAG_RED)
+    num = items[0].get("num", 1) if items else 1
+    d.text((M, 150), f"{num:02d}", font=_font("xbold", 130), fill=JMAG_RED)
+    nw = _tw(d, f"{num:02d}", _font("xbold", 130))
+    d.rectangle([M, 310, M + max(nw, 150), 324], fill=JMAG_GREEN)
+    y = 400
+    for it in items:
+        cat = (it.get("category") or "").strip()
+        if cat:
+            d.text((M, y), cat, font=_font("semi", 48), fill=JMAG_RED)
+            y += 84
+        hf, hs = _fit_font(d, it.get("title", ""), "xbold", 92, W - M * 2, min_size=68)
+        for ln in _wrap(d, it.get("title", ""), hf, W - M * 2):
+            d.text((M, y), ln, font=hf, fill=JMAG_INK)
+            y += int(hs * 1.18)
+        y += 26
+        bf = _font("reg", 56)
+        for lnobj in it.get("lines", []):
+            txt = (lnobj.get("text") or "").strip()
+            if not txt:
+                continue
+            for ln in _wrap(d, txt, bf, W - M * 2):
+                d.text((M, y), ln, font=bf, fill=JMAG_BODY)
+                y += 84
+            y += 12
+        y += 40
+        d.line([M, y, W - M, y], fill=(232, 230, 226), width=3)
+        y += 60
+    hd = _mag_handle(cfg)
+    if hd:
+        hf = _font("semi", 44)
+        d.text(((W - _tw(d, hd, hf)) / 2, H - 118), hd, font=hf, fill=(168, 166, 170))
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)
+
+
+def _jmag_cta(plan, cfg, out_path):
+    c = Image.new("RGB", (W, H), JMAG_BG)
+    d = ImageDraw.Draw(c)
+    d.rectangle([0, 0, W, 30], fill=JMAG_RED)
+    y = int(H * 0.3)
+    l1, l2 = "여러분의 생각은?", "댓글로 알려주세요!"
+    f1, s1 = _fit_two_lines(d, l1, l2, "xbold", 150, W - M * 2, min_size=96)
+    d.text(((W - _tw(d, l1, f1)) / 2, y), l1, font=f1, fill=JMAG_INK)
+    y += int(s1 * 1.25)
+    d.text(((W - _tw(d, l2, f1)) / 2, y), l2, font=f1, fill=JMAG_RED)
+    y += int(s1 * 1.25) + 100
+    ih = 210
+    d.rounded_rectangle([M, y, W - M, y + ih], radius=32, fill=(255, 255, 255),
+                        outline=(228, 226, 222), width=3)
+    d.text((M + 56, y + 44), "댓글 추가...", font=_font("reg", 46), fill=(150, 148, 152))
+    bf = _font("xbold", 54)
+    bw = _tw(d, "댓글", bf) + 88
+    d.rounded_rectangle([W - M - 56 - bw, y + 58, W - M - 56, y + 156],
+                        radius=26, fill=JMAG_GREEN)
+    d.text((W - M - 56 - bw + 44, y + 80), "댓글", font=bf, fill=(10, 38, 20))
+    y += ih + 90
+    foot = "저장 + 팔로우하면 다음 이슈도 놓치지 않아요"
+    ff = _font("semi", 54)
+    d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff, fill=(120, 118, 122))
+    hd = _mag_handle(cfg)
+    if hd:
+        hf = _font("semi", 44)
+        d.text(((W - _tw(d, hd, hf)) / 2, H - 118), hd, font=hf, fill=(168, 166, 170))
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)
+
+
 def _theme(cfg):
     return cfg.get("card_theme", "hunter")
 
@@ -1935,6 +2228,10 @@ def render_cover(plan, cfg, out_path):
             return _info_cover(plan, cfg, out_path)
         if t == "pastel":
             return _pastel_cover(plan, cfg, out_path)
+        if t == "smag":
+            return _smag_cover(plan, cfg, out_path)
+        if t == "jmag":
+            return _jmag_cover(plan, cfg, out_path)
         return _cream_cover(plan, cfg, out_path)
     finally:
         _LOCAL.lang = "ko"
@@ -1954,6 +2251,10 @@ def render_items_card(plan, items, cfg, out_path):
             return _info_items_card(plan, items, cfg, out_path)
         if t == "pastel":
             return _pastel_items_card(plan, items, cfg, out_path)
+        if t == "smag":
+            return _smag_items_card(plan, items, cfg, out_path)
+        if t == "jmag":
+            return _jmag_items_card(plan, items, cfg, out_path)
         return _cream_items_card(plan, items, cfg, out_path)
     finally:
         _LOCAL.lang = "ko"
@@ -1973,6 +2274,10 @@ def render_cta(plan, cfg, out_path):
             return _info_cta(plan, cfg, out_path)
         if t == "pastel":
             return _pastel_cta(plan, cfg, out_path)
+        if t == "smag":
+            return _smag_cta(plan, cfg, out_path)
+        if t == "jmag":
+            return _jmag_cta(plan, cfg, out_path)
         return _cream_cta(plan, cfg, out_path)
     finally:
         _LOCAL.lang = "ko"

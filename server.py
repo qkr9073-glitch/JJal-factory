@@ -2043,9 +2043,12 @@ def api_card_make():
     except (TypeError, ValueError):
         n_items = 60
     theme = (data.get("theme") or "").strip()
-    if theme in ("hunter", "cream", "news", "punch", "info", "pastel"):
+    if theme in ("hunter", "cream", "news", "punch", "info", "pastel", "smag", "jmag"):
         cfg = dict(cfg)
         cfg["card_theme"] = theme
+        if theme in ("smag", "jmag"):   # 매거진 테마 = 강사 브랜딩 차단(중립 매거진 톤)
+            cfg["card_brand_context"] = (cfg.get("card_brand_context_mag")
+                                         or reference.NEUTRAL_BRAND)
     accent = (data.get("accent") or "").strip()
     if re.fullmatch(r"#?[0-9A-Fa-f]{6}", accent):
         cfg = dict(cfg)
@@ -2123,9 +2126,12 @@ def api_card_localize():
     except (TypeError, ValueError):
         n_items = 60
     theme = (data.get("theme") or "").strip()
-    if theme in ("hunter", "cream", "news", "punch", "info", "pastel"):
+    if theme in ("hunter", "cream", "news", "punch", "info", "pastel", "smag", "jmag"):
         cfg = dict(cfg)
         cfg["card_theme"] = theme
+        if theme in ("smag", "jmag"):   # 매거진 테마 = 강사 브랜딩 차단(중립 매거진 톤)
+            cfg["card_brand_context"] = (cfg.get("card_brand_context_mag")
+                                         or reference.NEUTRAL_BRAND)
     now = time.time()
     for k in [k for k, v in JOBS.items() if now - v["ts"] > 3600]:
         JOBS.pop(k, None)
@@ -4298,9 +4304,75 @@ def api_ref_krjp():
 
 @app.get("/refimg/<handle>/<path:fn>")
 def ref_img(handle, fn):
-    """레퍼런스 수집 이미지 서빙 (리포트 미리보기용)."""
+    """레퍼런스 수집 이미지 서빙 (리포트·게시물 목록 미리보기용)."""
     handle = re.sub(r"[^A-Za-z0-9._]", "", handle or "")
     return send_from_directory(BASE / reference.REFS_DIRNAME / handle / "img", fn)
+
+
+@app.post("/api/ref/posts")
+def api_ref_posts():
+    """레퍼런스 채널의 수집 게시물 목록 (리메이크 선택용, 좋아요순)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    handle = re.sub(r"[^A-Za-z0-9._]", "", (data.get("handle") or "").strip().lstrip("@"))
+    posts = reference._posts_load(BASE, handle)
+    if not posts:
+        return jsonify(ok=False, error="게시물 목록이 없습니다 — 형식 업데이트를 먼저 돌려주세요"), 404
+    return jsonify(ok=True, posts=posts)
+
+
+def _run_ref_remake(jid, cfg, handle, media_id, lang):
+    """레퍼런스 게시물 리메이크 잡: 중심내용 유지 + 후킹·표현 재창조 + AI 썸네일
+    (그 채널 미감 테마) → 완성팩. lang='ja'면 일본어판까지 이어서 제작."""
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        step = re.match(r"\[(\d)/4\]", m)
+        if step:
+            job["pct"] = STEP_PCT.get(int(step.group(1)), job["pct"])
+
+    try:
+        result = reference.remake_build(cfg, BASE, handle, media_id, log=log)
+        job["result"] = _pack_payload(result)
+        _job_set_owner(job)
+        if lang == "ja":
+            log("🇯🇵 일본어판 변환 중...")
+            job["pct"] = 88
+            cfg2, _g = reference.remake_cfg(cfg, BASE, handle)
+            res2 = card_pipeline.build_translated(result["pack"], cfg2, BASE,
+                                                  target="ja", log=log)
+            p2 = _pack_payload(res2)
+            job["result"]["ja_pack"] = p2.get("pack", "")
+        job["pct"] = 100
+        job["status"] = "done"
+    except Exception as e:
+        job["error"] = str(e)
+        job["status"] = "error"
+
+
+@app.post("/api/ref/remake")
+def api_ref_remake():
+    """게시물 리메이크 접수 — lang: ko(한국어 리믹스) | ja(한국판+일본어판)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    handle = re.sub(r"[^A-Za-z0-9._]", "", (data.get("handle") or "").strip().lstrip("@"))
+    media_id = re.sub(r"[^0-9]", "", str(data.get("post") or ""))
+    if not (handle and media_id):
+        return jsonify(ok=False, error="채널·게시물 정보가 없습니다"), 400
+    lang = "ja" if (data.get("lang") == "ja") else "ko"
+    now = time.time()
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
+                 "result": None, "error": None, "ts": now,
+                 "code": (data.get("code") or "").strip()}
+    JOBQ.put((jid, _run_ref_remake, (jid, cfg, handle, media_id, lang)))
+    return jsonify(ok=True, job=jid)
 
 
 @app.get("/packs/<path:subpath>")

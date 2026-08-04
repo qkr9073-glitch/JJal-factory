@@ -130,25 +130,43 @@ def collect(cfg, base, handle, limit=30, log=print):
                                 encoding="utf-8")
     stats = _stats(media)
 
-    # 좋아요 상위 게시물: 표지 8장 + 상위 3개는 안쪽 2장씩 (형식 학습 재료)
+    # 좋아요 상위 게시물: 표지 8장 + 상위 3개는 안쪽 2장씩 (형식 학습 + 리메이크 재료)
     log("[2/4] 대표 이미지 내려받는 중...")
     for f in (d / "img").glob("*.jpg"):
         f.unlink()  # 이전 수집분 청소(형식이 바뀌었을 수 있음)
     top = sorted(media, key=lambda m: m.get("like_count", 0), reverse=True)
     saved = 0
-    for i, m in enumerate(top[:8], 1):
+    for rank, m in enumerate(top[:8], 1):
         if m.get("media_type") == "VIDEO":
             continue
+        mid = str(m.get("id", ""))
         url = m.get("media_url")
-        if url and _download(url, d / "img" / f"top{i}_cover.jpg"):
+        if mid and url and _download(url, d / "img" / f"{mid}.jpg"):
             saved += 1
-        if i <= 3:
+        if rank <= 3:
             children = (m.get("children") or {}).get("data", [])
             for j, c in enumerate(children[1:3], 2):
                 if c.get("media_type") == "IMAGE" and c.get("media_url"):
-                    if _download(c["media_url"], d / "img" / f"top{i}_p{j}.jpg"):
+                    if _download(c["media_url"], d / "img" / f"{mid}_p{j}.jpg"):
                         saved += 1
-    log(f"[2/4] 이미지 {saved}장 저장")
+    # 게시물 목록(리메이크 UI용) — 좋아요순
+    posts = []
+    for m in top:
+        mid = str(m.get("id", ""))
+        posts.append({
+            "id": mid,
+            "type": m.get("media_type", ""),
+            "like": m.get("like_count", 0),
+            "comments": m.get("comments_count", 0),
+            "ts": (m.get("timestamp") or "")[:10],
+            "caption": (m.get("caption") or "").strip()[:300],
+            "permalink": m.get("permalink", ""),
+            "img": f"{mid}.jpg" if (d / "img" / f"{mid}.jpg").exists() else "",
+            "pages": len((m.get("children") or {}).get("data", [])),
+        })
+    (d / "posts.json").write_text(json.dumps(posts, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
+    log(f"[2/4] 이미지 {saved}장 저장 · 게시물 {len(posts)}개 목록화")
     return bd, stats
 
 
@@ -288,7 +306,8 @@ def analyze(cfg, base, handle, bd, stats, log=print):
         styles.delete_style(base, old["style_id"])
     if old.get("template_id"):
         styles.delete_template(base, old["template_id"])
-    cover = next(iter(sorted((d / "img").glob("*_cover.jpg"))), None)
+    cover = next((d / "img" / p["img"] for p in _posts_load(base, handle)
+                  if p.get("img")), None)
     thumb = styles.make_thumb(cover.read_bytes()) if cover else None
     sp = styles.save_style(base, {
         "name": f"@{handle}"[:20],
@@ -309,7 +328,21 @@ def analyze(cfg, base, handle, bd, stats, log=print):
             tpl_saved = styles.save_template(base, tpl, thumb_b64=thumb)
         except Exception:
             pass
-    return rep, sp["id"], (tpl_saved or {}).get("id", "")
+    # 매거진 렌더 테마: 상위 표지들 밝기 다수결 — 밝은 실사 채널 → jmag, 어두운 → smag
+    render_theme = "smag"
+    votes = []
+    for p in _posts_load(base, handle)[:6]:
+        f = d / "img" / (p.get("img") or "")
+        if p.get("img") and f.exists():
+            try:
+                t, _a = styles.extract_visual(f.read_bytes())
+                if t:
+                    votes.append(t)
+            except Exception:
+                pass
+    if votes and votes.count("cream") * 2 >= len(votes):
+        render_theme = "jmag"
+    return rep, sp["id"], (tpl_saved or {}).get("id", ""), render_theme
 
 
 def _report_md(handle, bd, stats, rep):
@@ -359,8 +392,12 @@ def update_channel(cfg, base, handle, limit=30, log=print):
         raise RuntimeError("핸들이 비었습니다")
     cfg = refresh_token_if_needed(cfg, base, log=log)
     bd, stats = collect(cfg, base, handle, limit=limit, log=log)
-    rep, style_id, template_id = analyze(cfg, base, handle, bd, stats, log=log)
+    rep, style_id, template_id, render_theme = analyze(cfg, base, handle, bd, stats,
+                                                       log=log)
     reg = registry_load(base)
+    _old = reg.get(handle) or {}
+    if _old.get("theme_lock") and _old.get("render_theme"):
+        render_theme = _old["render_theme"]     # 수동 고정 테마는 자동 판정보다 우선
     reg[handle] = {
         "handle": handle,
         "name": bd.get("name", ""),
@@ -372,6 +409,8 @@ def update_channel(cfg, base, handle, limit=30, log=print):
         "summary": rep.get("summary", ""),
         "style_id": style_id,
         "template_id": template_id,
+        "render_theme": render_theme,
+        "theme_lock": bool(_old.get("theme_lock")),
     }
     registry_save(base, reg)
     log(f"✅ @{handle} 형식 업데이트 완료")
@@ -422,6 +461,230 @@ score 6 이상만, 최대 12개, score 내림차순. JSON만 출력:
 
 후보 목록:
 """
+
+
+# ---------------- 게시물 리메이크 (주제·중심내용 유지 + 표현·썸네일 재창조) ----------------
+
+NEUTRAL_BRAND = ("대중적인 이슈·정보를 선별해 전하는 큐레이션 매거진형 인스타그램 채널. "
+                 "저장과 댓글(토론)을 부르는 콘텐츠를 만든다. 특정 강의·상품 홍보는 하지 않는다.")
+
+
+def _posts_load(base, handle):
+    try:
+        return json.loads((_refs_root(base) / handle / "posts.json")
+                          .read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def remake_source(cfg, base, handle, media_id, log=print):
+    """리메이크 재료 준비: 게시물 이미지 경로들 + 캡션.
+    수집 때 못 받은 이미지는 raw.json의 media_url로 즉석 다운로드."""
+    d = _refs_root(base) / handle
+    posts = _posts_load(base, handle)
+    post = next((p for p in posts if str(p.get("id")) == str(media_id)), None)
+    if not post:
+        raise RuntimeError("게시물을 찾지 못했습니다 — 형식 업데이트를 먼저 돌려주세요")
+    if post.get("type") == "VIDEO":
+        raise RuntimeError("영상 게시물은 리메이크 대상이 아닙니다 (이미지 게시물만)")
+    paths = []
+    cov = d / "img" / f"{media_id}.jpg"
+    if not cov.exists():
+        raw = json.loads((d / "raw.json").read_text(encoding="utf-8"))
+        m = next((x for x in raw.get("media", {}).get("data", [])
+                  if str(x.get("id")) == str(media_id)), None)
+        if m and m.get("media_url"):
+            _download(m["media_url"], cov)
+    if cov.exists():
+        paths.append(str(cov))
+    for j in (2, 3):
+        pj = d / "img" / f"{media_id}_p{j}.jpg"
+        if pj.exists():
+            paths.append(str(pj))
+    if not paths:
+        raise RuntimeError("게시물 이미지를 준비하지 못했습니다 (수집 후 시간이 지나 "
+                           "이미지 링크가 만료됐을 수 있어요 — 형식 업데이트를 다시 돌려주세요)")
+    # 캡션은 원문 전체를 쓴다 (posts.json은 300자 요약 — 잘린 캡션은 AI 날조를 부른다)
+    caption = post.get("caption") or ""
+    try:
+        raw = json.loads((d / "raw.json").read_text(encoding="utf-8"))
+        m = next((x for x in raw.get("media", {}).get("data", [])
+                  if str(x.get("id")) == str(media_id)), None)
+        if m and (m.get("caption") or "").strip():
+            caption = m["caption"].strip()
+    except Exception:
+        pass
+    log(f"      리메이크 재료: 이미지 {len(paths)}장 + 캡션 {len(caption)}자")
+    return paths, caption
+
+
+def remake_cfg(cfg, base, handle):
+    """리메이크용 cfg: 그 채널의 렌더 테마 + 형식 지침 + 중립 브랜드 (강사 브랜딩 차단)."""
+    ent = registry_load(base).get(handle) or {}
+    cfg = dict(cfg)
+    cfg["card_theme"] = ent.get("render_theme") or "smag"
+    cfg["card_brand_context"] = cfg.get("card_brand_context_mag") or NEUTRAL_BRAND
+    guide = ""
+    try:
+        rep = json.loads((_refs_root(base) / handle / "report.json")
+                         .read_text(encoding="utf-8"))
+        guide = (rep.get("guide") or "").strip()
+        lvl = (rep.get("level_guide") or "").strip()
+        if lvl:
+            guide += f"\n- 수위 지침: {lvl}"
+    except Exception:
+        pass
+    return cfg, guide
+
+
+REMAKE_PROMPT = """당신은 인스타그램 캐러셀 '리메이크' 편집자다.
+첨부한 것은 레퍼런스 채널의 실제 게시물(표지·안쪽 이미지)과 캡션이다.
+
+임무: 이 게시물의 **사건·정보·중심내용을 그대로 유지**하되, 문장·어순·후킹·구성 표현은
+전부 새로 쓴다 (같은 이야기를 우리 말로 다시 쓰는 것 — 표절·벤치마킹 티 제거).
+⚠️ 절대 금지: 일반화, 다른 주제로 확장, 리스트형 잡학으로 변형. 원본이 다룬 그 사건/정보만 다룬다.
+⚠️ 원문에 없는 사실(이름·수치·장소·결말)을 지어내지 마라. 원문이 안 알려주는 부분은 모호하게 두거나 생략한다.
+
+{guide}
+
+원본 캡션:
+{caption}
+
+JSON만 출력:
+{{
+  "title_top": "표지 인용/배지용 짧은 후킹 한 줄 (따옴표 없이, 18자 이내)",
+  "title_main": "표지 헤드라인 (22자 이내, 원본과 다른 표현)",
+  "subtitle": "서브라인 한 줄 (충격 디테일·반전 등, 25자 이내, 없으면 빈 문자열)",
+  "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면, 원본 사건을 시각화 (1~2문장)",
+  "beats": [
+    {{"title": "전개 소제목 (사건 순서대로)", "lines": ["본문 문장 1", "본문 문장 2"]}},
+    "... 3~4개 (도입→전개→결말/반전 순)"
+  ],
+  "caption": "인스타 캡션 전문 — 원본 스토리텔링 톤을 참고해 새로 작성, 이모지로 시작, 400~700자, 마지막에 의견을 묻는 질문",
+  "hashtags": "해시태그 5~8개 한 줄 (#으로 시작, 공백 구분)"
+}}"""
+
+
+def remake_build(cfg, base, handle, media_id, log=print):
+    """게시물 리메이크: 중심내용 유지 + 표현·후킹 재창조 + AI 썸네일(채널 미감 테마)
+    → 완성팩 (build_cardnews와 같은 반환 형태, 수출 탭 호환)."""
+    from cardnews import render as card_render
+    from cardnews import pipeline as card_pipeline
+    import uuid as _uuid
+    import zipfile
+
+    cfg2, guide = remake_cfg(cfg, base, handle)
+    theme = cfg2.get("card_theme", "smag")
+    paths, caption = remake_source(cfg2, base, handle, media_id, log=log)
+    key = (cfg2.get("gemini_api_key") or "").strip()
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+
+    log("[1/4] 리메이크 기획 중 (AI 비전) — 중심내용 유지 · 표현 재창조")
+    gtxt = f"[형식 지침 — 이 채널의 형식을 따른다]\n{guide}" if guide else ""
+    parts = [{"text": REMAKE_PROMPT.format(guide=gtxt, caption=(caption or "(없음)")[:1500])}]
+    for p in paths[:3]:
+        parts.append(_inline(Path(p).read_bytes()))
+    body = {"contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.6, "maxOutputTokens": 4096,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    model = cfg2.get("gemini_model", "gemini-2.5-flash")
+    resp = requests.post(GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=180)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Gemini 오류 {resp.status_code}: {resp.text[:160]}")
+    rp = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    beats = [b for b in (rp.get("beats") or [])
+             if isinstance(b, dict) and (b.get("title") or "").strip()][:5]
+    if len(beats) < 2:
+        raise RuntimeError("리메이크 전개를 뽑지 못했습니다 — 다시 시도해주세요")
+    items = [{"num": i + 1, "category": "",
+              "title": str(b.get("title", "")).strip()[:60],
+              "lines": [{"text": str(t).strip()}
+                        for t in (b.get("lines") or []) if str(t).strip()][:4]}
+             for i, b in enumerate(beats)]
+    n = len(items)
+    plan = {
+        "title_top": str(rp.get("title_top", "")).strip()[:30],
+        "title_main": str(rp.get("title_main", "")).strip()[:40] or "리메이크",
+        "subtitle": str(rp.get("subtitle", "")).strip()[:40],
+        "image_query": str(rp.get("image_query", "")).strip(),
+        "caption": str(rp.get("caption", "")).strip(),
+        "comment_keyword": "",
+        "n_items": n,
+        "categories": [],
+        "teaser": list(range(1, n + 1)),
+        "preview_titles": [it["title"] for it in items[:3]],
+        "ebook_title": str(rp.get("title_main", "")).strip()[:40],
+    }
+    log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장")
+
+    log("[2/4] AI 표지 생성 중 (채널 미감)...")
+    try:
+        from src import genimg
+        covdir = Path(base) / "_covertmp"
+        covdir.mkdir(exist_ok=True)
+        cpath = covdir / (_uuid.uuid4().hex[:12] + ".jpg")
+        genimg.generate_cover(cfg2, plan["image_query"] or plan["title_main"],
+                              cpath, theme=theme, log=log)
+        cfg2["cover_image"] = str(cpath)
+        cfg2["_cover_ai"] = True
+    except Exception as e:
+        log(f"      (AI 표지 실패 — 텍스트 표지로 진행: {str(e)[:70]})")
+
+    log("[3/4] 카드 렌더링 — 표지 + 전개 카드 + CTA")
+    pack = card_pipeline._make_pack_dir(Path(base) / cfg2.get("output_dir", "결과물"),
+                                        plan)
+    cards = []
+    p = pack / "01.jpg"
+    card_render.render_cover(plan, cfg2, p)
+    cards.append(p)
+    for it in items:                       # 전개 비트 = 카드 1장씩 (스토리 호흡)
+        p = pack / f"{len(cards) + 1:02d}.jpg"
+        card_render.render_items_card(plan, [it], cfg2, p)
+        cards.append(p)
+    p = pack / f"{len(cards) + 1:02d}.jpg"
+    card_render.render_cta(plan, cfg2, p)
+    cards.append(p)
+
+    log("[4/4] 캡션 + 패키징...")
+    caption_out = plan["caption"] or f"{plan['title_top']} {plan['title_main']}"
+    tags = str(rp.get("hashtags", "")).strip()
+    if tags:
+        caption_out += "\n\n" + tags
+    (pack / "caption.txt").write_text(caption_out, encoding="utf-8")
+    meta = {
+        "type": "cardnews", "source": "remake", "mode": "normal",
+        "theme": theme,
+        "topic": plan["title_main"],
+        "title": f"{plan['title_top']} {plan['title_main']}".strip(),
+        "keyword": "", "ebook_title": plan["ebook_title"], "n_items": n,
+        "categories": [], "teaser": plan["teaser"], "ebook": False,
+        "ref_handle": handle, "ref_post": str(media_id),
+        "cover_image": str(cfg2.get("cover_image") or ""),
+        "cover_ai": bool(cfg2.get("_cover_ai")),
+        "created": datetime.now().isoformat(timespec="seconds"),
+    }
+    (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
+                                    encoding="utf-8")
+    (pack / "items.json").write_text(
+        json.dumps({"plan": {k: v for k, v in plan.items() if k != "caption"},
+                    "items": items, "proofs": []}, ensure_ascii=False, indent=2),
+        encoding="utf-8")
+    zip_path = pack / f"{pack.name}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for c in cards:
+            zf.write(c, c.name)
+        zf.write(pack / "caption.txt", "caption.txt")
+    cards_html = "\n".join(f'<img src="{c.name}">' for c in cards)
+    (pack / "review.html").write_text(card_pipeline.REVIEW_TEMPLATE.format(
+        title=meta["title"], num_cards=len(cards), num_pages=0,
+        keyword="", zip_name=zip_path.name,
+        caption=caption_out.replace("&", "&amp;").replace("<", "&lt;"),
+        cards_html=cards_html), encoding="utf-8")
+    return {"pack": pack, "meta": meta, "caption": caption_out,
+            "cards": [c.name for c in cards], "ebook_pages": 0}
 
 
 def _rss_titles(query, n=5):

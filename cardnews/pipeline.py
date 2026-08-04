@@ -67,6 +67,25 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
     log(f"      카테고리 {len(plan['categories'])}개 · 아이템 {plan['n_items']}개 · "
         f"댓글 키워드 '{plan['comment_keyword']}'")
 
+    # 매거진 테마(smag/jmag)는 AI 표지 우선 — 주제 정확 + 레퍼런스 미감 (실패 시 스톡 폴백)
+    if (cfg.get("card_theme") in ("smag", "jmag")
+            and cfg.get("card_auto_cover", True)
+            and not cfg.get("cover_image") and not mock):
+        try:
+            from src import genimg
+            import uuid as _uuid
+            covdir = Path(base_dir) / "_covertmp"
+            covdir.mkdir(exist_ok=True)
+            cpath = covdir / (_uuid.uuid4().hex[:12] + ".jpg")
+            scene = plan.get("image_query") or plan.get("title_main") or topic
+            genimg.generate_cover(cfg, f"{topic} — {scene}", cpath,
+                                  theme=cfg.get("card_theme"), log=log)
+            cfg = dict(cfg)
+            cfg["cover_image"] = str(cpath)
+            cfg["_cover_ai"] = True     # 표지에 AI 생성 고지 문구 삽입 (셀렉션 방식)
+        except Exception as e:
+            log(f"      (AI 표지 실패 — 스톡 사진으로 폴백: {str(e)[:70]})")
+
     # 표지 자동 사진 (Pexels) — 수동 표지 없고 auto_cover 켜졌을 때만
     if cfg.get("card_auto_cover", True) and not cfg.get("cover_image") and not mock:
         iq = plan.get("image_query") or plan.get("title_main") or topic
@@ -200,6 +219,8 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
                        for c in plan["categories"]],
         "teaser": plan["teaser"],
         "ebook": bool(make_ebook and num_pages),
+        "cover_image": str(cfg.get("cover_image") or ""),   # 수출 재렌더용
+        "cover_ai": bool(cfg.get("_cover_ai")),
         "created": datetime.now().isoformat(timespec="seconds"),
     }
     (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
@@ -231,10 +252,13 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
 
 
 def build_from_reference(image_paths, caption, cfg, base_dir, n_items=None,
-                         keyword=None, mock=False, log=print):
-    """해외 게시물 캡처(+캡션) → 한국 타깃 완성팩.
-    비전으로 핵심 소재를 뽑아(reference_topic) 현지화 기획(context_kind='ref')으로 제작."""
-    log("[1/4] 해외 레퍼런스 분석 중 (AI 비전) — 핵심 소재 추출")
+                         keyword=None, mock=False, log=print,
+                         extra_context="", make_ebook=True):
+    """해외/레퍼런스 게시물(+캡션) → 리메이크 완성팩.
+    비전으로 핵심 소재를 뽑아(reference_topic) 주제·중심내용은 유지하되
+    후킹·어순·표현은 재창조(context_kind='ref' 리믹스 규칙).
+    extra_context: 레퍼런스 채널 형식 지침 등 추가 주입."""
+    log("[1/4] 레퍼런스 게시물 분석 중 (AI 비전) — 핵심 소재 추출")
     ref = brain.reference_topic(cfg, image_paths, caption or "")
     topic = ref.get("topic") or "해외 인기 게시물 한국판"
     ctx = []
@@ -244,10 +268,13 @@ def build_from_reference(image_paths, caption, cfg, base_dir, n_items=None,
         ctx.append("새 후킹 각도: " + str(ref["hook_angle"]).strip())
     if ref.get("avoid"):
         ctx.append("원본 티 제거(치환 대상): " + str(ref["avoid"]).strip())
-    context = "\n".join(ctx)[:2000]
+    if extra_context:
+        ctx.append(str(extra_context).strip())
+    context = "\n".join(ctx)[:3000]
     log(f"      소재 추출 완료 · 원문 {ref.get('source_lang', '외국어')} → 주제: {topic}")
     return build_cardnews(topic, cfg, base_dir, n_items=n_items, keyword=keyword,
-                          context=context, context_kind="ref", mock=mock, log=log)
+                          context=context, context_kind="ref", mock=mock, log=log,
+                          make_ebook=make_ebook)
 
 
 LANG_LABEL = {"ja": "일본어", "en": "영어"}
@@ -300,6 +327,12 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     cfg2 = dict(cfg)
     cfg2["card_theme"] = theme
     cfg2["card_lang"] = target
+    # 원본 팩의 표지 사진·AI 고지 물려받기 (smag/jmag 등 사진 테마의 수출 재렌더)
+    _cov = smeta.get("cover_image")
+    if _cov and Path(str(_cov)).exists() and not cfg2.get("cover_image"):
+        cfg2["cover_image"] = str(_cov)
+    if smeta.get("cover_ai"):
+        cfg2["_cover_ai"] = True
 
     log(f"[3/4] {lang_label} 카드 렌더링 — 표지 + 아이템 + CTA")
     root = base_dir / cfg.get("output_dir", "결과물")
