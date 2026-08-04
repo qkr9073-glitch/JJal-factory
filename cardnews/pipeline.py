@@ -380,6 +380,8 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     log(f"      카드 {len(cards)}장 완성")
 
     log("[4/4] 캡션 + 패키징...")
+    if smeta.get("source") in ("remake", "magazine"):
+        plan["comment_keyword"] = ""   # 매거진류는 DM 퍼널 없음 — 번역기가 지어낸 키워드 차단
     kw = plan.get("comment_keyword", "")
     caption = (plan.get("caption") or "").strip()
     if kw and kw not in caption and target == "ja":

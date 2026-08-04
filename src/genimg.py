@@ -16,12 +16,21 @@ GEMINI_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
               "{model}:generateContent")
 
 STYLE_HINTS = {
-    "smag": ("Dramatic editorial news photograph, moody cinematic lighting, "
-             "photorealistic, high detail, dark atmosphere suitable for white "
-             "bold text overlay at the bottom"),
-    "jmag": ("Bright clean editorial photograph, natural daylight, "
-             "photorealistic, magazine product/news style, crisp detail"),
+    "smag": ("Dramatic candid news photograph, moody natural lighting, "
+             "photorealistic, dark atmosphere suitable for white bold text "
+             "overlay at the bottom. Looks like a real photo someone snapped "
+             "on a phone at the scene — slightly imperfect framing, natural "
+             "skin texture and grain, NOT staged, NOT cinematic CG gloss"),
+    "jmag": ("Bright candid editorial photograph, natural daylight, "
+             "photorealistic, magazine product/news style. Looks like a real "
+             "smartphone photo from the actual scene — believable everyday "
+             "detail, natural textures, slightly imperfect, NOT staged, "
+             "NOT AI-art gloss"),
 }
+
+EMOTION = ("The emotional read must be instant and STRONG — the situation and "
+           "facial expressions should hit the viewer in the first half second, "
+           "as punchy as a viral news photo.")
 
 NEGATIVE = ("Absolutely no text, no words, no letters, no numbers, no captions, "
             "no watermark, no subtitles anywhere in the image. "
@@ -107,7 +116,8 @@ def generate_variation(cfg, base_image_path, scene, out_path, theme="smag", log=
               f"moment of the same event: {scene}\n"
               f"Keep the identical location, lighting, photographic style and the same "
               f"people/subjects. Different camera angle or moment is good — but it must "
-              f"look like another photo from the same news photo set.\n{NEGATIVE}")
+              f"look like another photo from the same news photo set.\n"
+              f"{EMOTION}\n{NEGATIVE}")
     models = [cfg.get("card_genimg_model", "gemini-3.1-flash-image"),
               "gemini-2.5-flash-image"]
     last = ""
@@ -149,7 +159,7 @@ def generate_cover(cfg, scene, out_path, theme="smag", log=print):
     prompt = (f"Vertical 3:4 cover image for a social media card news post.\n"
               f"Scene: {scene}\n"
               f"Style: {STYLE_HINTS.get(theme, STYLE_HINTS['smag'])}.\n"
-              f"{NEGATIVE}")
+              f"{EMOTION}\n{NEGATIVE}")
     models = [cfg.get("card_genimg_model", "gemini-3.1-flash-image"),
               "gemini-2.5-flash-image"]
     last = ""

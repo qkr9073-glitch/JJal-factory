@@ -294,6 +294,26 @@ TRANSLATE_SYS = ("너는 한국어 인스타그램 카드뉴스를 {lang} 현지
                  "직역 금지 — 그 나라 사람이 쓴 것처럼 자연스러운 카피로. "
                  "숫자·핵심 의미·이모지는 유지하고, 문화적으로 어색한 표현은 현지식으로 바꿔라.")
 
+# 일본 네이티브 고정 규칙 — 한국인이 운영하는 티가 나면 실패 (2026-08-04 사용자 지시)
+JP_NATIVE = """
+[일본 네이티브 규칙 — 번역이 아니라 일본인 에디터가 처음부터 쓴 글이어야 한다]
+- 일본 SNS에서 실제 쓰는 어휘로: 네티즌→ネット民, 온라인 커뮤니티→SNSや掲示板,
+  논란→物議·賛否両論·炎上(맥락에 맞게 선택), 화제→話題沸騰·バズり 등.
+- 한국 넷 관용구의 직역 금지("난리 났다", "○○ 甲", "실화냐" 류) — 같은 감정의
+  일본 넷 관용구로 치환하라 (「マジかよ」「ありえない」「うらやましすぎる」 등 맥락에 맞게).
+- 번역체 문장(조사·어미가 어색한 直訳調) 금지. 일본 매거진 계정의 짧고 리듬감 있는 문체로.
+- 일본인이 봤을 때 "이게 왜 화제?"싶은 한국 내수용 맥락은 한 줄 배경 설명을 붙이거나
+  일본인이 공감할 각도로 바꿔서 전달하라.
+- 고유명사(한국 지명·브랜드·인명)는 일본 미디어의 카타카나 표기 관행을 따르라.
+- 출력 전 자가 검수: 일본인이 읽고 위화감 느낄 단어·표현이 하나라도 있으면 고쳐서 내라."""
+
+
+def _sys(lang):
+    s = TRANSLATE_SYS.format(lang=lang)
+    if "일본" in str(lang):
+        s += JP_NATIVE
+    return s
+
 
 def translate_plan(cfg, plan, lang="일본어"):
     """표지/부제/캡션/카테고리명/미리보기/댓글키워드를 현지 언어로 번역."""
@@ -307,7 +327,7 @@ def translate_plan(cfg, plan, lang="일본어"):
         "preview_titles": plan.get("preview_titles", []),
         "categories": [c.get("name", "") for c in plan.get("categories", [])],
     }
-    prompt = (TRANSLATE_SYS.format(lang=lang) +
+    prompt = (_sys(lang) +
               f"\n\n아래 JSON의 각 값을 {lang}로 현지화해 '똑같은 구조의 JSON'만 출력하라.\n"
               "- title_top/title_main/subtitle: 표지 카피 톤(짧고 임팩트, 원문 글자수 느낌 유지).\n"
               f"- caption: {lang} 인스타 본문 톤(정중체 기본, 이모지 적당히, 해시태그는 넣지 마라).\n"
@@ -326,7 +346,7 @@ def translate_items(cfg, items, lang="일본어", batch_size=8, log=print):
                     "lines": [{"tag": l.get("tag", ""), "text": l.get("text", "")}
                               for l in it.get("lines", [])]}
                    for it in chunk]
-        prompt = (TRANSLATE_SYS.format(lang=lang) +
+        prompt = (_sys(lang) +
                   f"\n\n아래 카드뉴스 아이템들을 {lang}로 현지화하라. "
                   '반드시 {"items":[...]} 구조의 JSON만 출력.\n'
                   "- num 정수 그대로 유지. title/tag/text 를 자연스러운 " + lang + "로.\n"
