@@ -468,6 +468,81 @@ def _hits(cfg, base, handle, media, log=print):
     return hits or None
 
 
+PLAYBOOK_PROMPT = """당신은 인스타 채널 @{handle}의 수석 기획자다. 아래는 이 채널의 1차 분석
+결과(형식·후킹·시퀀스·데이터)와 실제로 폭발한 히트작들이다 (히트작 표지 이미지 첨부).
+
+임무: 잘된 기획을 한 번 더 파고들어 '재사용 가능한 승리 기획 플레이북'으로 강화하라.
+각 플레이는 새 소재가 와도 그대로 끼워 넣을 수 있는 설계도여야 한다 — 추상적 조언 금지,
+빈칸 채우기 공식 수준으로 구체적으로.
+
+1차 분석 요약:
+{summary}
+
+히트작:
+{hits}
+
+JSON만 출력:
+{{"plays": [
+  {{"name": "플레이 이름 (예: 낚시-반전, 8자 이내)",
+    "when": "어떤 소재/상황에 쓰는 플레이인지 1문장",
+    "cover": "표지 문구 공식 — 빈칸 템플릿 (예: \\"OO에 OO 왔대!\\" 기대 조성 → 서브라인에서 반전 암시)",
+    "flow": "전개 설계 — 장별로 어떻게 굴리는지 1~2문장",
+    "cta": "참여 폭발 마무리 공식 — 댓글을 부르는 질문의 형태까지",
+    "evidence": "근거 — 어떤 히트작이 이 플레이로 몇 배 터졌나 1줄"}},
+  "... 3~5개, 성과 근거가 강한 순"
+],
+"playbook_guide": "기획 프롬프트 주입용 '- ' 불릿 3~5개 — 소재가 오면 어떤 플레이부터 검토하고 어떻게 조합할지 명령형으로"}}"""
+
+
+def _playbook(cfg, base, handle, rep, log=print):
+    """2차 강화 분석: 1차 해부 결과+히트작을 재입력해 재사용 가능한 승리 기획 플레이북 증류."""
+    hooks = rep.get("hooks") or {}
+    win = rep.get("winners") or {}
+    hits = rep.get("hits") or []
+    if not (hits or win.get("by_axis")):
+        return None
+    summary_bits = [
+        f"시퀀스: {hooks.get('sequence_summary', '')}",
+        "후킹 유형: " + ", ".join(f"{h.get('type')}({h.get('share')})"
+                               for h in hooks.get("hook_styles", []) if isinstance(h, dict)),
+        "터지는 소재(실측): " + ", ".join(f"{r['name']} 평균♥{r['avg']}"
+                                    for r in win.get("by_axis", [])[:3]),
+        f"수위 코드: {hooks.get('spice', '')}",
+        f"지속률: " + ", ".join(d.get("device", "") for d in hooks.get("retention", [])
+                             if isinstance(d, dict)),
+    ]
+    summary = "\n".join(b for b in summary_bits if b.split(": ", 1)[-1].strip())
+    d = _refs_root(base) / handle
+    parts_hits, imgs = [], []
+    for i, h in enumerate(hits[:3], 1):
+        parts_hits.append(f"[히트작{i}] ♥{h.get('like')}(중앙값 {h.get('mult_like')}배) "
+                          f"💬{h.get('comments')}({h.get('mult_comm')}배) {h.get('type', '')} — "
+                          f"{h.get('why', '')} / 캡션: {h.get('caption', '')}")
+        f = d / "img" / f"{h.get('id')}.jpg"
+        if f.exists():
+            imgs.append(f)
+    parts = [{"text": PLAYBOOK_PROMPT.format(handle=handle, summary=summary,
+                                             hits="\n".join(parts_hits) or "(없음)")}]
+    for f in imgs:
+        parts.append(_inline(f.read_bytes(), max_side=768))
+    key = (cfg.get("gemini_api_key") or "").strip()
+    body = {"contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.4, "maxOutputTokens": 3072,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    resp = requests.post(GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=150)
+    if resp.status_code != 200:
+        raise RuntimeError(f"플레이북 추출 실패 {resp.status_code}")
+    pb = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    plays = [p for p in (pb.get("plays") or []) if isinstance(p, dict)
+             and (p.get("name") or "").strip()]
+    if not plays:
+        raise RuntimeError("플레이를 뽑지 못했습니다")
+    return {"plays": plays[:5], "playbook_guide": str(pb.get("playbook_guide", "")).strip()}
+
+
 def _ops(media):
     """운영 패턴 실측(순수 계산): 업로드 시간대·요일(KST), 캐러셀 장수별 평균 좋아요."""
     hours, wdays, pl = {}, {}, {}
@@ -569,6 +644,15 @@ def analyze(cfg, base, handle, bd, stats, log=print):
         rep["hits"] = _hits(cfg, base, handle, media, log=log)
     except Exception as e:
         log(f"      (히트작 해부 실패: {str(e)[:80]})")
+    # 2차 강화 분석: 잘된 기획을 다시 파서 재사용 가능한 플레이북으로 증류
+    try:
+        log("[3/4] 2차 강화 분석 — 승리 기획 플레이북 추출 중...")
+        rep["playbook"] = _playbook(cfg, base, handle, rep, log=log)
+        if rep.get("playbook"):
+            log("      플레이: " + " / ".join(p.get("name", "")
+                for p in rep["playbook"].get("plays", [])[:5]))
+    except Exception as e:
+        log(f"      (플레이북 추출 실패: {str(e)[:80]})")
 
     rep["handle"] = handle
     rep["analyzed"] = datetime.now().isoformat(timespec="seconds")
@@ -712,6 +796,20 @@ def _report_md(handle, bd, stats, rep):
         data_md += f"""
 ## 히트작 해부 🔥 (아웃라이어 개별 분석)
 {hm}
+"""
+    pb = rep.get("playbook") or {}
+    plays = [p for p in (pb.get("plays") or []) if isinstance(p, dict)]
+    if plays:
+        pm = "\n".join(
+            f"- **{p.get('name', '')}** — {p.get('when', '')}\n"
+            f"  · 표지 공식: {p.get('cover', '')}\n"
+            f"  · 전개: {p.get('flow', '')}\n"
+            f"  · CTA: {p.get('cta', '')}\n"
+            f"  · 근거: {p.get('evidence', '')}"
+            for p in plays)
+        data_md += f"""
+## 승리 기획 플레이북 ♟ (2차 강화 분석)
+{pm}
 """
     hook_md += data_md
     return f"""# @{handle} 형식 리포트 ({rep.get('analyzed', '')[:16]})
@@ -942,6 +1040,17 @@ def remake_cfg(cfg, base, handle):
                 f"  · [{h.get('type', '')}] {h.get('lesson', '')}"
                 f" (♥{h.get('like')} 중앙값 {h.get('mult_like')}배)"
                 for h in hits[:3])
+        pb = rep.get("playbook") or {}
+        plays = [p for p in (pb.get("plays") or []) if isinstance(p, dict)]
+        if plays:
+            guide += ("\n- 승리 기획 플레이북 — 소재에 맞는 플레이를 골라 그 공식대로 기획하라:\n"
+                      + "\n".join(
+                          f"  · [{p.get('name', '')}] {p.get('when', '')} → "
+                          f"표지: {p.get('cover', '')} → 전개: {p.get('flow', '')} → "
+                          f"CTA: {p.get('cta', '')}"
+                          for p in plays[:4]))
+        if (pb.get("playbook_guide") or "").strip():
+            guide += "\n" + pb["playbook_guide"].strip()
     except Exception:
         pass
     return cfg, guide
