@@ -918,8 +918,76 @@ KRJP_RSS_QUERIES = ["편의점 신상", "한정판 콜라보", "한국 미담 �
                     "MZ 유행", "요즘 직장인 문화 화제", "한국 연애 결혼 문화",
                     "팝업스토어 핫플레이스"]
 
+# 일본 수요 신호 — 일본 매체가 지금 다루는 한국 소재 = 수요가 검증된 주제 축
+KRJP_JP_QUERIES = ["韓国 SNS 話題", "韓国 バズる", "韓国 ネット民 反応",
+                   "韓国グルメ 人気", "K-POP 話題", "韓国 面白い"]
+
+
+def _trends_kr(n=8):
+    """구글 트렌드 KR 급상승 검색어 RSS — 지금 한국에서 터지는 것 (관련 기사 포함)."""
+    try:
+        xml = requests.get("https://trends.google.co.kr/trending/rss?geo=KR",
+                           timeout=15, headers={"User-Agent": "Mozilla/5.0"}).text
+        root = ET.fromstring(xml)
+        NS = "{https://trends.google.com/trending/rss}"
+        out = []
+        for item in root.iter("item"):
+            kw = (item.findtext("title") or "").strip()
+            traffic = (item.findtext(NS + "approx_traffic") or "").strip()
+            news = item.find(NS + "news_item")
+            nt = (news.findtext(NS + "news_item_title") or "").strip() if news is not None else ""
+            nu = (news.findtext(NS + "news_item_url") or "").strip() if news is not None else ""
+            if kw:
+                title = f"{kw} (검색 {traffic})" + (f" — {nt}" if nt else "")
+                out.append({"title": title, "url": nu})
+            if len(out) >= n:
+                break
+        return out
+    except Exception:
+        return []
+
+
+def _yt_hot(base, n=10):
+    """유튜브 KR 인기 급상승 (공식 Data API) — 키 등록돼 있을 때만 작동."""
+    key = ""
+    try:
+        yk = json.loads((Path(base) / "youtube_keys.json").read_text(encoding="utf-8"))
+        for lst in yk.values():
+            for k in lst:
+                if k.get("key"):
+                    key = k["key"]
+                    break
+            if key:
+                break
+    except Exception:
+        pass
+    if not key:
+        return []
+    try:
+        r = requests.get("https://www.googleapis.com/youtube/v3/videos",
+                         params={"part": "snippet,statistics",
+                                 "chart": "mostPopular", "regionCode": "KR",
+                                 "maxResults": n, "key": key}, timeout=15)
+        if r.status_code != 200:
+            return []
+        out = []
+        for v in r.json().get("items", []):
+            views = int(v.get("statistics", {}).get("viewCount", 0))
+            out.append({"title": f"{v['snippet']['title']} (조회 {views // 10000}만)",
+                        "url": f"https://youtu.be/{v['id']}"})
+        return out
+    except Exception:
+        return []
+
 KRJP_PROMPT = """당신은 '일본인 타겟 한국 정보 인스타 채널'의 소재 편집장이다.
 아래는 한국 커뮤니티 인기글과 뉴스 제목들이다. 일본 시청자가 반응할 소재를 골라라.
+
+후보 태그 안내:
+- [일본뉴스] = 일본 매체가 이미 다루는 한국 소재 — 일본 수요가 검증된 주제 축이니 같은
+  주제의 한국 날것 소재에 가산점. 단 일본 매체가 이미 자세히 소개한 소식 자체는 희소성이
+  없다 — 그대로 옮기지 말고 '그 주제의 커뮤 날것 버전'을 찾는 힌트로 써라.
+- [급상승] = 지금 한국에서 검색량이 폭발한 것 (실시간성 가산)
+- [유튜브] = 지금 한국 유튜브 인기 급상승 (한국 MZ가 지금 보는 것)
 
 🎯 페르소나(고정): 한국에 관심 많은 일본 MZ세대 — K팝·한드로 입문해 한국 여행·유학을
 꿈꾸고, 미디어에 안 나오는 '진짜 한국'을 궁금해하는 층. 이들의 니즈는 둘이다:
@@ -954,9 +1022,10 @@ KRJP_PROMPT = """당신은 '일본인 타겟 한국 정보 인스타 채널'의 
 - jp_hook: 일본어 표지 후킹 문구 시안 1줄 (「」 스타일, 20자 이내)
 - topic: 우리 제작기에 넣을 한국어 주제 문장 1줄
 - q: 출처 교차검증용 뉴스 검색어 — 이 사건·현상을 뉴스에서 찾을 핵심 명사 2~4개 (조사 없이)
+- jq: 일본 반응 교차검색용 일본어 검색어 2~4단어 (이 소재가 일본에서 언급되는지 찾을 단어)
 
 score 6 이상만, 최대 12개, score 내림차순. 세 결이 골고루 섞이게. JSON만 출력:
-{"items": [{"axis":"...","tone":"...","score":8,"why":"...","jp_hook":"...","topic":"...","q":"...","src_title":"원래 제목","src_url":"원래 링크"}]}
+{"items": [{"axis":"...","tone":"...","score":8,"why":"...","jp_hook":"...","topic":"...","q":"...","jq":"...","src_title":"원래 제목","src_url":"원래 링크"}]}
 
 후보 목록:
 """
@@ -1587,10 +1656,12 @@ def magazine_build(cfg, base, topic, context="", theme="jmag", handle="", log=pr
                           "ref_handle": ref_handle}, log=log)
 
 
-def _rss_titles(query, n=5):
-    """구글뉴스 RSS — 공식 공개 피드라 계정 리스크 없음."""
+def _rss_titles(query, n=5, lang="ko"):
+    """구글뉴스 RSS — 공식 공개 피드라 계정 리스크 없음. lang='ja'면 일본판."""
+    tail = ("&hl=ja&gl=JP&ceid=JP:ja" if lang == "ja"
+            else "&hl=ko&gl=KR&ceid=KR:ko")
     url = ("https://news.google.com/rss/search?q=" + requests.utils.quote(query)
-           + "&hl=ko&gl=KR&ceid=KR:ko")
+           + tail)
     try:
         xml = requests.get(url, timeout=15,
                            headers={"User-Agent": "Mozilla/5.0"}).text
@@ -1655,12 +1726,19 @@ def _krjp_verify(cfg, items, cands, log=print):
         # ② 커뮤 교차 — 다른 커뮤 후보 제목과 핵심 명사 2개 이상 겹치면 근거
         cross = []
         for c in cands:
-            if c.get("src") == "뉴스" or c.get("url", "") in own:
+            if c.get("src") in ("뉴스", "일본뉴스", "급상승", "유튜브") \
+                    or c.get("url", "") in own:
                 continue
             if len(toks & set(_tokens(c.get("title") or ""))) >= 2:
                 cross.append({"src": c.get("src") or "커뮤",
                               "title": c["title"], "url": c["url"]})
-        it["evidence"] = (news + cross)[:4]
+        # ③ 일본 반응 — 이 소재가 일본에서도 언급되는지 (수요 신호, 관련성은 AI가 판정)
+        jp = []
+        jq = (it.get("jq") or "").strip()
+        for r in (_rss_titles(jq, n=3, lang="ja") if jq else []):
+            if r["url"] not in own:
+                jp.append({"src": "일본뉴스", "title": r["title"], "url": r["url"]})
+        it["evidence"] = (news + jp + cross)[:5]
         return it
 
     with cf.ThreadPoolExecutor(max_workers=6) as ex:
@@ -1695,12 +1773,15 @@ def _krjp_verify(cfg, items, cands, log=print):
         log(f"관련성 판정 생략(근거 그대로 유지): {str(e)[:60]}")
     for it in items:
         ev = it.get("evidence", [])
-        it["src_grade"] = ("뉴스 확인" if any(e["src"] == "뉴스" for e in ev)
+        it["jp_demand"] = any(e["src"] == "일본뉴스" for e in ev)
+        it["src_grade"] = ("뉴스 확인"
+                           if any(e["src"] in ("뉴스", "일본뉴스") for e in ev)
                            else "커뮤 교차" if ev else "커뮤 단독")
     n_news = sum(1 for i in items if i["src_grade"] == "뉴스 확인")
     n_solo = sum(1 for i in items if i["src_grade"] == "커뮤 단독")
+    n_jp = sum(1 for i in items if i["jp_demand"])
     log(f"출처 교차검증 — 뉴스 확인 {n_news} · 커뮤 교차 "
-        f"{len(items) - n_news - n_solo} · 커뮤 단독 {n_solo}")
+        f"{len(items) - n_news - n_solo} · 커뮤 단독 {n_solo} · 🇯🇵일본 화제 {n_jp}")
     return items
 
 
@@ -1709,7 +1790,7 @@ def suggest_krjp(cfg, base, log=print):
     key = (cfg.get("gemini_api_key") or "").strip()
     if not key:
         raise RuntimeError("Gemini API 키가 없습니다")
-    log("소재 수집 중 (커뮤 9곳 + 뉴스 12줄기)...")
+    log("소재 수집 중 (커뮤 9곳 + 뉴스 12줄기 + 일본 수요 신호)...")
     cands = []
     try:
         from src import hunter
@@ -1719,13 +1800,21 @@ def suggest_krjp(cfg, base, log=print):
     except Exception as e:
         log(f"커뮤 수집 일부 실패(뉴스로 계속): {str(e)[:80]}")
     for q in KRJP_RSS_QUERIES:
-        for it in _rss_titles(q, n=5):
+        for it in _rss_titles(q, n=4):
             cands.append({"title": it["title"], "url": it["url"], "src": "뉴스"})
+    # 일본 수요 신호 — 일본 매체가 다루는 한국 + 한국 실시간 급상승 + 유튜브 인기
+    for q in KRJP_JP_QUERIES:
+        for it in _rss_titles(q, n=3, lang="ja"):
+            cands.append({"title": it["title"], "url": it["url"], "src": "일본뉴스"})
+    for it in _trends_kr(n=8):
+        cands.append({"title": it["title"], "url": it["url"], "src": "급상승"})
+    for it in _yt_hot(base, n=10):
+        cands.append({"title": it["title"], "url": it["url"], "src": "유튜브"})
     if not cands:
         raise RuntimeError("소재 후보를 하나도 모으지 못했습니다")
     listing = "\n".join(f"- [{c['src']}] {c['title']} | {c['url']}"
-                        for c in cands[:90])
-    log(f"후보 {min(len(cands), 90)}개 → Gemini 선별 중...")
+                        for c in cands[:140])
+    log(f"후보 {min(len(cands), 140)}개 → Gemini 선별 중...")
     body = {
         "contents": [{"role": "user", "parts": [{"text": KRJP_PROMPT + listing}]}],
         "generationConfig": {"response_mime_type": "application/json",
