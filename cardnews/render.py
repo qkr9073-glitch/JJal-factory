@@ -2008,10 +2008,6 @@ def _smag_cover(plan, cfg, out_path):
     block_h = badge_h + q_h + len(lines) * lh
     y = H - 205 - block_h
 
-    hd = _mag_handle(cfg)
-    if hd:
-        hf = _font("semi", 46)
-        d.text((W - M - _tw(d, hd, hf), y - 24), hd, font=hf, fill=(205, 205, 212))
     d.text((M, y), "(저장필수)", font=_font("xbold", 62), fill=SMAG_TEXT)
     y += badge_h
     if quote:
@@ -2038,7 +2034,58 @@ def _smag_canvas(cfg):
     return img
 
 
+def _item_photo(items, cfg):
+    """전개 카드용 사진: 아이템 전용 AI 이미지 → 없으면 표지 이미지."""
+    src = (items[0].get("image") if items else None) or cfg.get("cover_image")
+    if not src or not Path(str(src)).exists():
+        return None
+    c2 = dict(cfg)
+    c2["cover_image"] = str(src)
+    return _bleed(c2, dark=0.9)
+
+
 def _smag_items_card(plan, items, cfg, out_path):
+    photo = _item_photo(items, cfg)
+    if photo is None:
+        return _smag_items_text(plan, items, cfg, out_path)
+    # 셀렉션 안쪽 장 공식: 사진이 주인공 — 위 제목·아래 본문만 그라데이션 위에
+    c = photo
+    _grad_overlay(c, 0, int(H * 0.44), alpha_to=250, down=False)
+    d = ImageDraw.Draw(c)
+    it = items[0]
+    num = it.get("num", 1)
+    d.text((M, 88), f"#{num:02d}", font=_font("xbold", 56), fill=SMAG_GOLD)
+    y = 186
+    hf, hs = _fit_font(d, it.get("title", ""), "xbold", 96, W - M * 2, min_size=70)
+    for ln in _wrap(d, it.get("title", ""), hf, W - M * 2)[:3]:
+        d.text((M, y), ln, font=hf, fill=SMAG_TEXT)
+        y += int(hs * 1.16)
+    # 본문: 하단 그라데이션 위에 아래서부터 쌓기
+    bf = _font("semi", 58)
+    rows = []
+    for lnobj in it.get("lines", []):
+        txt = (lnobj.get("text") or "").strip()
+        if txt:
+            rows.extend(_wrap(d, txt, bf, W - M * 2))
+            rows.append("")
+    while rows and not rows[-1]:
+        rows.pop()
+    body_h = sum(88 if r else 26 for r in rows)
+    _grad_overlay(c, max(int(H * 0.5), H - body_h - 400), H, alpha_to=242)
+    d = ImageDraw.Draw(c)
+    y = H - 150 - body_h
+    for r in rows:
+        if r:
+            d.text((M, y), r, font=bf, fill=(240, 240, 244))
+            y += 88
+        else:
+            y += 26
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)
+
+
+def _smag_items_text(plan, items, cfg, out_path):
+    """사진이 없을 때의 폴백 (일반 카드뉴스 탭에서 아이템 여러 개 쓸 때)"""
     c = _smag_canvas(cfg)
     d = ImageDraw.Draw(c)
     num = items[0].get("num", 1) if items else 1
@@ -2065,10 +2112,6 @@ def _smag_items_card(plan, items, cfg, out_path):
                 y += 84
             y += 12
         y += 66
-    hd = _mag_handle(cfg)
-    if hd:
-        hf = _font("semi", 44)
-        d.text(((W - _tw(d, hd, hf)) / 2, H - 118), hd, font=hf, fill=(160, 160, 170))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2090,10 +2133,6 @@ def _smag_cta(plan, cfg, out_path):
     foot = "저장 + 팔로우하면 다음 이슈도 놓치지 않아요"
     ff = _font("semi", 54)
     d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff, fill=SMAG_SUB)
-    hd = _mag_handle(cfg)
-    if hd:
-        hf = _font("semi", 44)
-        d.text(((W - _tw(d, hd, hf)) / 2, H - 118), hd, font=hf, fill=(160, 160, 170))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2131,22 +2170,62 @@ def _jmag_cover(plan, cfg, out_path):
         for ln in sub_lines:
             d.text((M, y), ln, font=sf, fill=JMAG_YELLOW)
             y += 96
-    hd = _mag_handle(cfg)
-    if hd:
-        hf = _font("semi", 46)
-        d.text((M, H - 120), hd, font=hf, fill=(222, 222, 226))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
 
 def _jmag_items_card(plan, items, cfg, out_path):
+    photo = _item_photo(items, cfg)
+    if photo is None:
+        return _jmag_items_text(plan, items, cfg, out_path)
+    # 저스트두잇 안쪽 장 공식: 실사 위에 하단 흰 굵은 글씨 (+빨간 띠, 번호)
+    c = photo
+    d = ImageDraw.Draw(c)
+    d.rectangle([0, 0, W, 30], fill=JMAG_RED)
+    _grad_overlay(c, 0, 300, alpha_to=150, down=False)
+    d = ImageDraw.Draw(c)
+    it = items[0]
+    d.text((M, 90), f"{it.get('num', 1):02d}", font=_font("xbold", 110),
+           fill=(255, 255, 255))
+    hf, hs = _fit_font(d, it.get("title", ""), "xbold", 100, W - M * 2, min_size=72)
+    tlines = _wrap(d, it.get("title", ""), hf, W - M * 2)[:2]
+    bf = _font("semi", 58)
+    rows = []
+    for lnobj in it.get("lines", []):
+        txt = (lnobj.get("text") or "").strip()
+        if txt:
+            rows.extend(_wrap(d, txt, bf, W - M * 2))
+            rows.append("")
+    while rows and not rows[-1]:
+        rows.pop()
+    body_h = sum(88 if r else 26 for r in rows)
+    block_h = len(tlines) * int(hs * 1.16) + 30 + body_h
+    _grad_overlay(c, max(int(H * 0.45), H - block_h - 380), H, alpha_to=240)
+    d = ImageDraw.Draw(c)
+    y = H - 150 - block_h
+    for ln in tlines:
+        d.text((M, y), ln, font=hf, fill=(255, 255, 255))
+        y += int(hs * 1.16)
+    y += 30
+    for r in rows:
+        if r:
+            d.text((M, y), r, font=bf, fill=(236, 236, 238))
+            y += 88
+        else:
+            y += 26
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)
+
+
+def _jmag_items_text(plan, items, cfg, out_path):
+    """사진이 없을 때의 폴백 (일반 카드뉴스 탭)"""
     c = Image.new("RGB", (W, H), JMAG_BG)
     d = ImageDraw.Draw(c)
     d.rectangle([0, 0, W, 30], fill=JMAG_RED)
     num = items[0].get("num", 1) if items else 1
     d.text((M, 150), f"{num:02d}", font=_font("xbold", 130), fill=JMAG_RED)
     nw = _tw(d, f"{num:02d}", _font("xbold", 130))
-    d.rectangle([M, 310, M + max(nw, 150), 324], fill=JMAG_GREEN)
+    d.rectangle([M, 310, M + max(int(nw), 150), 324], fill=JMAG_GREEN)
     y = 400
     for it in items:
         cat = (it.get("category") or "").strip()
@@ -2170,10 +2249,6 @@ def _jmag_items_card(plan, items, cfg, out_path):
         y += 40
         d.line([M, y, W - M, y], fill=(232, 230, 226), width=3)
         y += 60
-    hd = _mag_handle(cfg)
-    if hd:
-        hf = _font("semi", 44)
-        d.text(((W - _tw(d, hd, hf)) / 2, H - 118), hd, font=hf, fill=(168, 166, 170))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 

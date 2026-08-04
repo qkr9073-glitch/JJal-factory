@@ -431,9 +431,13 @@ def _parse_json(text):
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # 인용부호 미이스케이프 등 경미한 파손 보정
-        text2 = re.sub(r'(?<=[가-힣A-Za-z0-9])"(?=[가-힣A-Za-z0-9])', '\\"', text)
-        return json.loads(text2)
+        # 인용부호 미이스케이프 파손 — brain의 라인 단위 보정기 재사용
+        try:
+            from cardnews.brain import _repair_quotes
+            return json.loads(_repair_quotes(text))
+        except Exception:
+            text2 = re.sub(r'(?<=[가-힣A-Za-z0-9])"(?=[가-힣A-Za-z0-9])', '\\"', text)
+            return json.loads(text2)
 
 
 # ---------------- 한국 소재 소싱 (역수출: 일본 타겟) ----------------
@@ -557,7 +561,8 @@ JSON만 출력:
   "subtitle": "서브라인 한 줄 (충격 디테일·반전 등, 25자 이내, 없으면 빈 문자열)",
   "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면, 원본 사건을 시각화 (1~2문장)",
   "beats": [
-    {{"title": "전개 소제목 (사건 순서대로)", "lines": ["본문 문장 1", "본문 문장 2"]}},
+    {{"title": "그 장면을 서술하는 완전한 문장형 후킹 헤드라인 (짧은 소제목 금지 — 원본 안쪽 장처럼 스토리가 읽히게, 20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
+      "image_query": "이 전개 순간의 장면 묘사 — 영문 1문장, 표지와 같은 사건의 연속 컷(같은 장소·인물)"}},
     "... 3~4개 (도입→전개→결말/반전 순)"
   ],
   "caption": "인스타 캡션 전문 — 원본 스토리텔링 톤을 참고해 새로 작성, 이모지로 시작, 400~700자, 마지막에 의견을 묻는 질문",
@@ -620,22 +625,32 @@ def remake_build(cfg, base, handle, media_id, log=print):
     }
     log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장")
 
-    log("[2/4] AI 표지 생성 중 (채널 미감)...")
+    pack = card_pipeline._make_pack_dir(Path(base) / cfg2.get("output_dir", "결과물"),
+                                        plan)
+    log(f"[2/4] AI 이미지 생성 중 — 표지 + 전개 연속 컷 {len(items)}장 (채널 미감)...")
+    from src import genimg
+    cover_p = pack / "_cover.jpg"
     try:
-        from src import genimg
-        covdir = Path(base) / "_covertmp"
-        covdir.mkdir(exist_ok=True)
-        cpath = covdir / (_uuid.uuid4().hex[:12] + ".jpg")
         genimg.generate_cover(cfg2, plan["image_query"] or plan["title_main"],
-                              cpath, theme=theme, log=log)
-        cfg2["cover_image"] = str(cpath)
+                              cover_p, theme=theme, log=log)
+        cfg2["cover_image"] = str(cover_p)
         cfg2["_cover_ai"] = True
     except Exception as e:
         log(f"      (AI 표지 실패 — 텍스트 표지로 진행: {str(e)[:70]})")
+    # 안쪽 장: 표지와 '같은 사건의 연속 사진 세트'로 — 레퍼런스 채널의 이미지 위주 전개
+    if cover_p.exists():
+        for i, (it, b) in enumerate(zip(items, beats), 1):
+            scene = str(b.get("image_query") or "").strip()
+            if not scene:
+                continue
+            bp = pack / f"_b{i}.jpg"
+            try:
+                genimg.generate_variation(cfg2, cover_p, scene, bp, theme=theme, log=log)
+                it["image"] = str(bp)
+            except Exception as e:
+                log(f"      (컷 {i} 실패 — 표지 재사용: {str(e)[:60]})")
 
     log("[3/4] 카드 렌더링 — 표지 + 전개 카드 + CTA")
-    pack = card_pipeline._make_pack_dir(Path(base) / cfg2.get("output_dir", "결과물"),
-                                        plan)
     cards = []
     p = pack / "01.jpg"
     card_render.render_cover(plan, cfg2, p)
