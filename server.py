@@ -4282,8 +4282,9 @@ def api_ref_del():
     return jsonify(ok=True)
 
 
-def _run_ref_magazine(jid, cfg, topic, context, lang):
-    """소재→매거진 제작 잡 (역수출: 한국 소재를 jmag 미감+일본어판으로)."""
+def _run_ref_magazine(jid, cfg, topic, context, lang, handle=""):
+    """소재→매거진 제작 잡 (역수출: 한국 소재를 jmag 미감+일본어판으로).
+    handle이 없으면 테마가 일치하는 레퍼런스 채널의 후킹 시퀀스를 자동으로 쓴다."""
     job = JOBS[jid]
 
     def log(m):
@@ -4294,7 +4295,8 @@ def _run_ref_magazine(jid, cfg, topic, context, lang):
             job["pct"] = STEP_PCT.get(int(step.group(1)), job["pct"])
 
     try:
-        result = reference.magazine_build(cfg, BASE, topic, context=context, log=log)
+        result = reference.magazine_build(cfg, BASE, topic, context=context,
+                                          handle=handle, log=log)
         job["result"] = _pack_payload(result)
         _job_set_owner(job)
         if lang == "ja":
@@ -4322,12 +4324,14 @@ def api_ref_magazine():
         return jsonify(ok=False, error="소재(주제)를 4자 이상 입력해주세요"), 400
     context = str(data.get("context") or "").strip()[:600]
     lang = "ja" if (data.get("lang") == "ja") else "ko"
+    handle = re.sub(r"[^A-Za-z0-9._]", "",
+                    (data.get("handle") or "").strip().lstrip("@"))
     now = time.time()
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
                  "result": None, "error": None, "ts": now,
                  "code": (data.get("code") or "").strip()}
-    JOBQ.put((jid, _run_ref_magazine, (jid, cfg, topic, context, lang)))
+    JOBQ.put((jid, _run_ref_magazine, (jid, cfg, topic, context, lang, handle)))
     return jsonify(ok=True, job=jid)
 
 

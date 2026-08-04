@@ -130,7 +130,7 @@ def collect(cfg, base, handle, limit=30, log=print):
                                 encoding="utf-8")
     stats = _stats(media)
 
-    # 좋아요 상위 게시물: 표지 8장 + 상위 3개는 안쪽 2장씩 (형식 학습 + 리메이크 재료)
+    # 좋아요 상위 게시물: 표지 8장 + 상위 3개는 전체 장 (형식·후킹 시퀀스 학습 + 리메이크 재료)
     log("[2/4] 대표 이미지 내려받는 중...")
     for f in (d / "img").glob("*.jpg"):
         f.unlink()  # 이전 수집분 청소(형식이 바뀌었을 수 있음)
@@ -145,7 +145,7 @@ def collect(cfg, base, handle, limit=30, log=print):
             saved += 1
         if rank <= 3:
             children = (m.get("children") or {}).get("data", [])
-            for j, c in enumerate(children[1:3], 2):
+            for j, c in enumerate(children[1:10], 2):   # 표지 제외 최대 9장 = 장별 전략 분석 재료
                 if c.get("media_type") == "IMAGE" and c.get("media_url"):
                     if _download(c["media_url"], d / "img" / f"{mid}_p{j}.jpg"):
                         saved += 1
@@ -241,6 +241,90 @@ JSON만 출력:
 }}"""
 
 
+HOOK_PROMPT = """당신은 인스타그램 캐러셀 '후킹 전략' 분석가다. 첨부한 것은 채널 @{handle}의
+좋아요 상위 게시물들 — 각 게시물의 표지부터 마지막 장까지 순서대로다 (n-m장 = 게시물n의 m번째 장).
+
+임무: 이 채널이 시청자를 붙잡는 방법을 우리가 그대로 재현할 수 있는 수준으로 해부하라.
+① 표지 텍스트 후킹 — 어떤 유형의 문구로 스크롤을 멈추는가 (유형별 비중·실제 예문·작동 원리)
+② 이미지 후킹 — 사진 자체가 시선을 잡는 장치 (구도·표정·순간포착·색 대비·연출 등)
+③ 장별 시퀀스 — 1장부터 마지막 장까지 각 장이 맡는 역할과, 그 장의 텍스트 전략·이미지 전략.
+   특정 게시물 내용이 아니라 여러 게시물에 공통되는 '시퀀스 공식(구조)'을 뽑아라.
+
+JSON만 출력:
+{{
+  "hook_styles": [
+    {{"type": "후킹 유형명 (예: 충격 반전형, 8자 이내)", "share": "대략 비중 (예: 40%)",
+      "example": "실제 표지 문구 그대로 1개", "how": "이 유형이 클릭을 부르는 원리 1문장"}},
+    "... 비중 큰 순 3~5개"
+  ],
+  "image_hooks": [
+    {{"device": "장치명 (예: 감정 표정 클로즈업, 12자 이내)", "how": "어떻게 쓰는지 + 어떤 장에서 쓰는지 1문장"}},
+    "... 3~5개"
+  ],
+  "sequence": [
+    {{"page": "장 번호 (예: 1, 2, 3~4, 마지막)", "role": "역할명 (예: 충격 후킹, 6자 이내)",
+      "text": "이 장의 텍스트 전략 1문장", "image": "이 장의 이미지 전략 1문장"}},
+    "... 표지→안쪽→마지막 순 4~6단계 (비슷한 역할의 연속 장은 '3~4'처럼 묶기)"
+  ],
+  "sequence_summary": "시퀀스 공식 한 줄 (예: 충격 표지 → 맥락 → 고조 → 반전 → 의견 CTA)",
+  "hook_guide": "제작 프롬프트에 그대로 주입할 후킹 지침 — '- ' 불릿 4~6개. 표지 문구 작법(비중 1위 유형 중심), 장별 역할 순서, 각 단계의 이미지 연출을 명령형으로."
+}}"""
+
+
+def analyze_hooks(cfg, base, handle, log=print):
+    """상위 게시물의 전체 장(표지→마지막)을 순서대로 비전 분석 → 후킹 전략 + 장별 시퀀스.
+    collect()가 posts.json과 img/{id}(_pN).jpg를 만들어 둔 뒤에 호출한다."""
+    key = (cfg.get("gemini_api_key") or "").strip()
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+    d = _refs_root(base) / handle
+    parts = [{"text": HOOK_PROMPT.format(handle=handle)}]
+    n_posts = 0
+    for p in _posts_load(base, handle):
+        if n_posts >= 3 or p.get("type") == "VIDEO" or not p.get("img"):
+            continue
+        mid = str(p.get("id"))
+        pages = [d / "img" / f"{mid}.jpg"] + sorted(
+            (d / "img").glob(f"{mid}_p*.jpg"),
+            key=lambda f: int(re.search(r"_p(\d+)", f.name).group(1)))
+        pages = [f for f in pages if f.exists()]
+        if not pages:
+            continue
+        n_posts += 1
+        parts.append({"text": f"\n[게시물{n_posts} ♥{p.get('like', 0)} · "
+                              f"총 {p.get('pages') or len(pages)}장 중 {len(pages)}장 첨부 · "
+                              f"캡션: {(p.get('caption') or '')[:150]}]"})
+        for j, f in enumerate(pages[:10], 1):
+            parts.append({"text": f"{n_posts}-{j}장:"})
+            parts.append(_inline(f.read_bytes(), max_side=768))
+    if not n_posts:
+        raise RuntimeError("후킹 분석용 게시물 이미지가 없습니다")
+    body = {"contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.4, "maxOutputTokens": 4096,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    last_err = ""
+    for attempt in range(3):
+        resp = requests.post(GEMINI_URL.format(model=model),
+                             params={"key": key}, json=body, timeout=180)
+        if resp.status_code == 200:
+            break
+        last_err = f"{resp.status_code}: {resp.text[:160]}"
+        if resp.status_code not in (429, 500, 503):
+            break
+        import time as _t
+        _t.sleep(8 * (attempt + 1))
+    else:
+        resp = None
+    if resp is None or resp.status_code != 200:
+        raise RuntimeError(f"Gemini 오류 {last_err}")
+    hooks = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    if not (hooks.get("sequence") or hooks.get("hook_styles")):
+        raise RuntimeError("후킹 시퀀스를 뽑지 못했습니다")
+    return hooks
+
+
 def analyze(cfg, base, handle, bd, stats, log=print):
     """수집된 이미지+캡션 → 형식 리포트(report.json/md) + 스타일·템플릿 프리셋 등록."""
     key = (cfg.get("gemini_api_key") or "").strip()
@@ -290,6 +374,14 @@ def analyze(cfg, base, handle, bd, stats, log=print):
     rep = _parse_json(raw)
     if not (rep.get("guide") or "").strip():
         raise RuntimeError("형식 지침을 뽑지 못했습니다 — 다시 시도해주세요")
+
+    # 후킹 딥분석: 상위 게시물 전체 장 → 표지 후킹 유형·이미지 장치·장별 시퀀스
+    try:
+        log("[3/4] 후킹 전략·장별 시퀀스 분석 중...")
+        rep["hooks"] = analyze_hooks(cfg, base, handle, log=log)
+        log(f"      시퀀스: {rep['hooks'].get('sequence_summary', '')[:60]}")
+    except Exception as e:
+        log(f"      (후킹 분석 실패 — 형식 분석만 저장: {str(e)[:80]})")
 
     rep["handle"] = handle
     rep["analyzed"] = datetime.now().isoformat(timespec="seconds")
@@ -349,6 +441,32 @@ def _report_md(handle, bd, stats, rep):
     fmt = " · ".join(f"{k} {v['n']}개(♥{v['avg_like']})"
                      for k, v in stats.get("formats", {}).items())
     axes = "\n".join(f"- {a}" for a in rep.get("topic_axes", []))
+    hooks = rep.get("hooks") or {}
+    hook_md = ""
+    if hooks:
+        hs = "\n".join(
+            f"- **{h.get('type', '')}** ({h.get('share', '?')}) — {h.get('how', '')}\n"
+            f"  예: “{h.get('example', '')}”"
+            for h in hooks.get("hook_styles", []) if isinstance(h, dict))
+        ih = "\n".join(f"- **{h.get('device', '')}** — {h.get('how', '')}"
+                       for h in hooks.get("image_hooks", []) if isinstance(h, dict))
+        sq = "\n".join(
+            f"- **{s.get('page', '?')}장 · {s.get('role', '')}** — "
+            f"글: {s.get('text', '')} / 사진: {s.get('image', '')}"
+            for s in hooks.get("sequence", []) if isinstance(s, dict))
+        hook_md = f"""
+## 후킹 전략 해부 🎣
+시퀀스 공식: **{hooks.get('sequence_summary', '')}**
+
+### 표지 텍스트 후킹 유형
+{hs}
+
+### 이미지 후킹 장치
+{ih}
+
+### 장별 시퀀스 (캐러셀 흐름)
+{sq}
+"""
     return f"""# @{handle} 형식 리포트 ({rep.get('analyzed', '')[:16]})
 
 **{bd.get('name', '')}** — 팔로워 {bd.get('followers_count', 0):,} · 게시물 {bd.get('media_count', 0):,}
@@ -382,7 +500,7 @@ bio: {(bd.get('biography') or '').strip()[:200]}
 
 ### AI 표지 지침
 {rep.get('ai_cover_style', '')}
-"""
+{hook_md}"""
 
 
 def update_channel(cfg, base, handle, limit=30, log=print):
@@ -543,9 +661,30 @@ def remake_cfg(cfg, base, handle):
         lvl = (rep.get("level_guide") or "").strip()
         if lvl:
             guide += f"\n- 수위 지침: {lvl}"
+        guide += _hook_guide_text(rep)
     except Exception:
         pass
     return cfg, guide
+
+
+def _hook_guide_text(rep):
+    """report.json의 후킹 딥분석 → 기획 프롬프트 주입용 지침 텍스트 (없으면 빈 문자열)."""
+    hooks = rep.get("hooks") or {}
+    out = ""
+    hg = (hooks.get("hook_guide") or "").strip()
+    if hg:
+        out += "\n" + hg
+    seq = [s for s in (hooks.get("sequence") or []) if isinstance(s, dict)]
+    if seq:
+        out += ("\n- 장별 시퀀스 — 표지와 beats를 반드시 이 역할 순서로 구성하라"
+                f" ({hooks.get('sequence_summary', '')}):\n")
+        out += "\n".join(
+            f"  · {s.get('page', '?')}장 [{s.get('role', '')}] "
+            f"글: {s.get('text', '')} / 사진: {s.get('image', '')}"
+            for s in seq)
+        out += ("\n  · 단, 원본 채널의 '광고/제품 판매' 장은 따라 하지 마라 — "
+                "우리 마지막 장은 의견을 묻는 CTA다. 광고 문구·가짜 제품을 만들지 않는다.")
+    return out
 
 
 REMAKE_PROMPT = """당신은 인스타그램 캐러셀 '리메이크' 편집자다.
@@ -555,6 +694,10 @@ REMAKE_PROMPT = """당신은 인스타그램 캐러셀 '리메이크' 편집자�
 전부 새로 쓴다 (같은 이야기를 우리 말로 다시 쓰는 것 — 표절·벤치마킹 티 제거).
 ⚠️ 절대 금지: 일반화, 다른 주제로 확장, 리스트형 잡학으로 변형. 원본이 다룬 그 사건/정보만 다룬다.
 ⚠️ 원문에 없는 사실(이름·수치·장소·결말)을 지어내지 마라. 원문이 안 알려주는 부분은 모호하게 두거나 생략한다.
+🎣 후킹: 형식 지침에 '후킹 지침'과 '장별 시퀀스'가 있으면 그대로 따르라 — 표지 문구는 이
+채널에서 검증된 후킹 유형으로 쓰고, beats는 시퀀스의 역할 순서(도입→고조→반전 등)를 그대로 밟는다.
+📷 모든 image_query에는 인물의 국적·외모를 원본 사건과 일치시켜라 — 한국 사건이면
+"anonymous Korean students (East Asian)"처럼 영문으로 명시. 안 쓰면 서양인으로 그려져 어색해진다.
 
 {guide}
 
@@ -563,14 +706,15 @@ REMAKE_PROMPT = """당신은 인스타그램 캐러셀 '리메이크' 편집자�
 
 JSON만 출력:
 {{
-  "title_top": "표지 인용/배지용 짧은 후킹 한 줄 (따옴표 없이, 18자 이내)",
+  "title_top": "표지 인용/배지용 짧은 후킹 한 줄 (따옴표 없이, 18자 이내). ⚠️'저장필수'·'팔로우' 같은 상용구 금지 — 렌더러가 저장 배지를 따로 붙인다. 사건 속 대사나 궁금증 문구로",
   "title_main": "표지 헤드라인 (22자 이내, 원본과 다른 표현)",
   "subtitle": "서브라인 한 줄 (충격 디테일·반전 등, 25자 이내, 없으면 빈 문자열)",
   "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면, 원본 사건을 시각화 (1~2문장). ⚠️영화·게임·연예 등 IP 소재면 캐릭터·코스튬·로고를 그리게 하지 마라(비슷하게 그려져도 저작권 위험) — 반드시 '장소·소품·군중' 장면으로만 (예: 영화 소재 → crowded movie theater lobby at night, glowing screens, popcorn / 진열대·티켓·네온 등). 인물은 익명의 일반인만",
   "beats": [
-    {{"title": "그 장면을 서술하는 완전한 문장형 후킹 헤드라인 (짧은 소제목 금지 — 원본 안쪽 장처럼 스토리가 읽히게, 20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
-      "image_query": "이 전개 순간의 장면 묘사 — 영문 1문장, 표지와 같은 사건의 연속 컷(같은 장소·인물)"}},
-    "... 3~4개 (도입→전개→결말/반전 순)"
+    {{"role": "이 장이 장별 시퀀스에서 맡는 역할 (예: 맥락/고조/반전, 6자 이내)",
+      "title": "그 장면을 서술하는 완전한 문장형 후킹 헤드라인 (짧은 소제목 금지 — 원본 안쪽 장처럼 스토리가 읽히게, 20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
+      "image_query": "이 전개 순간의 장면 묘사 — 영문 1문장, 표지와 같은 사건의 연속 컷(같은 장소·인물). 장별 시퀀스의 그 장 '사진' 전략을 반영"}},
+    "... 3~4개 (장별 시퀀스의 역할 순서대로)"
   ],
   "caption": "인스타 캡션 전문 — 원본 스토리텔링 톤을 참고해 새로 작성, 이모지로 시작, 400~700자, 마지막에 의견을 묻는 질문",
   "hashtags": "해시태그 5~8개 한 줄 (#으로 시작, 공백 구분)"
@@ -616,6 +760,7 @@ def remake_build(cfg, base, handle, media_id, log=print):
         return s[:limit] if limit else s
 
     items = [{"num": i + 1, "category": "",
+              "role": _one(b.get("role"), 12),
               "title": _one(b.get("title"), 60),
               "lines": [{"text": _one(t)}
                         for t in (b.get("lines") or []) if _one(t)][:4]}
@@ -634,7 +779,9 @@ def remake_build(cfg, base, handle, media_id, log=print):
         "preview_titles": [it["title"] for it in items[:3]],
         "ebook_title": str(rp.get("title_main", "")).strip()[:40],
     }
-    log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장")
+    seq_log = "→".join(it["role"] for it in items if it.get("role"))
+    log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장"
+        + (f" · 시퀀스 {seq_log}" if seq_log else ""))
 
     return _produce_pack(cfg2, base, plan, items, beats, rp,
                          {"source": "remake", "ref_handle": handle,
@@ -753,24 +900,47 @@ MAGAZINE_PROMPT = """당신은 매거진형 인스타 캐러셀 편집자다. �
 - 소재는 제목 수준의 정보다. 확인 안 된 세부 사실(정확한 수치·출시일·이름)을 지어내지 마라.
   모르는 디테일은 소개·큐레이션 톤으로 일반적으로 서술한다.
 - 후킹은 강하게, 국가·집단 혐오/비하 프레임은 배제. 정치 소재 배제.
+🎣 아래에 '후킹 지침'과 '장별 시퀀스'가 있으면 그대로 따르라 — 표지 문구는 검증된 후킹
+유형으로, beats는 시퀀스의 역할 순서대로.
+📷 모든 image_query에 인물의 국적·외모를 명시하라 — 한국 소재면 "anonymous Korean
+people (East Asian)"처럼 영문으로. 안 쓰면 서양인으로 그려져 어색해진다.
+
+{guide}
 
 JSON만 출력:
 {{
-  "title_top": "표지 배지용 짧은 후킹 (18자 이내)",
+  "title_top": "표지 배지용 짧은 후킹 (18자 이내). ⚠️'저장필수'·'팔로우' 같은 상용구 금지 — 렌더러가 저장 배지를 따로 붙인다",
   "title_main": "표지 헤드라인 (22자 이내)",
   "subtitle": "서브라인 (부러움/충격 포인트, 25자 이내, 없으면 빈 문자열)",
   "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면 (1~2문장). ⚠️브랜드명·저작권 캐릭터·유명인 이름 금지 — 분위기·소품으로 우회 묘사",
   "beats": [
-    {{"title": "장면을 서술하는 완전한 문장형 헤드라인 (20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
-      "image_query": "이 장면 묘사 — 영문 1문장, 표지와 같은 세계관의 연속 컷"}},
-    "... 3~4개"
+    {{"role": "이 장이 장별 시퀀스에서 맡는 역할 (예: 맥락/고조/반전, 6자 이내)",
+      "title": "장면을 서술하는 완전한 문장형 헤드라인 (20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
+      "image_query": "이 장면 묘사 — 영문 1문장, 표지와 같은 세계관의 연속 컷. 장별 시퀀스의 그 장 '사진' 전략 반영"}},
+    "... 3~4개 (장별 시퀀스의 역할 순서대로)"
   ],
   "caption": "인스타 캡션 전문 — 이모지 시작, 400~700자, 마지막에 의견을 묻는 질문",
   "hashtags": "해시태그 5~8개 한 줄"
 }}"""
 
 
-def magazine_build(cfg, base, topic, context="", theme="jmag", log=print):
+def _theme_guide(base, theme, handle=""):
+    """테마(채널 미감)를 학습해 온 레퍼런스 채널의 형식·후킹 지침을 찾아온다.
+    handle을 주면 그 채널, 없으면 render_theme이 일치하는 등록 채널에서 자동으로."""
+    reg = registry_load(base)
+    ent = reg.get(handle) if handle else None
+    if not ent:
+        ent = next((e for e in reg.values() if e.get("render_theme") == theme), None)
+    if not ent:
+        return ""
+    try:
+        _cfg, guide = remake_cfg({}, base, ent["handle"])
+        return guide
+    except Exception:
+        return ""
+
+
+def magazine_build(cfg, base, topic, context="", theme="jmag", handle="", log=print):
     """소재(주제 문장) → 매거진 완성팩. 역수출 소재 스캔 결과를 바로 제작하는 경로 —
     리메이크와 같은 품질(AI 표지+연속 컷+채널 미감)이되 원본 게시물 없이 주제에서 출발."""
     cfg2 = dict(cfg)
@@ -783,9 +953,11 @@ def magazine_build(cfg, base, topic, context="", theme="jmag", log=print):
     if len(topic) < 4:
         raise RuntimeError("소재(주제)를 4자 이상 입력해주세요")
 
-    log("[1/4] 소재 기획 중 — 매거진 형식")
+    guide = _theme_guide(base, cfg2["card_theme"], handle)
+    gtxt = f"[형식·후킹 지침 — 이 채널의 형식을 따른다]\n{guide}" if guide else ""
+    log("[1/4] 소재 기획 중 — 매거진 형식" + (" + 채널 후킹 시퀀스" if guide else ""))
     body = {"contents": [{"role": "user", "parts": [{"text": MAGAZINE_PROMPT.format(
-                topic=topic, context=(context or "(없음)")[:600])}]}],
+                topic=topic, context=(context or "(없음)")[:600], guide=gtxt)}]}],
             "generationConfig": {"response_mime_type": "application/json",
                                  "temperature": 0.6, "maxOutputTokens": 4096,
                                  "thinkingConfig": {"thinkingBudget": 0}}}
@@ -805,6 +977,7 @@ def magazine_build(cfg, base, topic, context="", theme="jmag", log=print):
         return s[:limit] if limit else s
 
     items = [{"num": i + 1, "category": "",
+              "role": _one(b.get("role"), 12),
               "title": _one(b.get("title"), 60),
               "lines": [{"text": _one(t)}
                         for t in (b.get("lines") or []) if _one(t)][:4]}
@@ -823,7 +996,9 @@ def magazine_build(cfg, base, topic, context="", theme="jmag", log=print):
         "preview_titles": [it["title"] for it in items[:3]],
         "ebook_title": _one(rp.get("title_main"), 40),
     }
-    log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장")
+    seq_log = "→".join(it["role"] for it in items if it.get("role"))
+    log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장"
+        + (f" · 시퀀스 {seq_log}" if seq_log else ""))
     return _produce_pack(cfg2, base, plan, items, beats, rp,
                          {"source": "magazine", "topic": topic}, log=log)
 
