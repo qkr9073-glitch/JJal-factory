@@ -1977,12 +1977,8 @@ def _grad_overlay(canvas, y0, y1, alpha_to=235, color=(0, 0, 0), down=True):
 
 
 def _ai_notice(draw, cfg, right=False):
-    if not cfg.get("_cover_ai"):
-        return
-    t = "*이해를 돕기 위한 AI 생성 이미지 포함"
-    f = _font("semi", 42)
-    x = (W - M - _tw(draw, t, f)) if right else M
-    draw.text((x, 58), t, font=f, fill=(232, 232, 238))
+    """AI 고지는 이미지가 아니라 캡션에 넣는다 (레퍼런스 원본 방식) — 이미지는 깨끗하게."""
+    return
 
 
 def _mag_handle(cfg):
@@ -2116,10 +2112,21 @@ def _smag_items_text(plan, items, cfg, out_path):
     return str(out_path)
 
 
+def _cta_photo(cfg):
+    """CTA 카드 배경 사진: 전용 컷 → 표지 순. (텍스트만 있는 CTA는 어색 — 사진 위에 얹는다)"""
+    src = cfg.get("_cta_image") or cfg.get("cover_image")
+    if not src or not Path(str(src)).exists():
+        return None
+    c2 = dict(cfg)
+    c2["cover_image"] = str(src)
+    return _bleed(c2, dark=0.8)
+
+
 def _smag_cta(plan, cfg, out_path):
-    c = _smag_canvas(cfg)
+    c = _cta_photo(cfg) or _smag_canvas(cfg)
+    _grad_overlay(c, int(H * 0.30), H, alpha_to=235)
     d = ImageDraw.Draw(c)
-    y = int(H * 0.3)
+    y = int(H * 0.52)
     b = "(저장필수)"
     d.text(((W - _tw(d, b, _font("xbold", 68))) / 2, y), b,
            font=_font("xbold", 68), fill=SMAG_GOLD)
@@ -2132,7 +2139,7 @@ def _smag_cta(plan, cfg, out_path):
     y += int(s1 * 1.25) + 110
     foot = "저장 + 팔로우하면 다음 이슈도 놓치지 않아요"
     ff = _font("semi", 54)
-    d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff, fill=SMAG_SUB)
+    d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff, fill=(225, 225, 230))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2162,13 +2169,13 @@ def _jmag_cover(plan, cfg, out_path):
     sub_lines = _wrap(d, sub, sf, W - M * 2)[:2] if sub else []
     block_h = len(lines) * lh + (len(sub_lines) * 96 + 30 if sub_lines else 0)
     y = H - 190 - block_h
-    for ln in lines:
-        d.text((M, y), ln, font=tf, fill=(255, 255, 255))
+    for ln in lines:                      # 원본처럼 중앙 정렬
+        d.text(((W - _tw(d, ln, tf)) / 2, y), ln, font=tf, fill=(255, 255, 255))
         y += lh
     if sub_lines:
         y += 30
         for ln in sub_lines:
-            d.text((M, y), ln, font=sf, fill=JMAG_YELLOW)
+            d.text(((W - _tw(d, ln, sf)) / 2, y), ln, font=sf, fill=JMAG_YELLOW)
             y += 96
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
@@ -2178,41 +2185,21 @@ def _jmag_items_card(plan, items, cfg, out_path):
     photo = _item_photo(items, cfg)
     if photo is None:
         return _jmag_items_text(plan, items, cfg, out_path)
-    # 저스트두잇 안쪽 장 공식: 실사 위에 하단 흰 굵은 글씨 (+빨간 띠, 번호)
+    # 저스트두잇 안쪽 장 공식: 사진이 주인공 — 텍스트는 하단 한 줄 헤드라인만
+    # (원본은 안쪽 장이 깨끗한 실사, 스토리는 캡션이 담당 — 실측 확인)
     c = photo
     d = ImageDraw.Draw(c)
     d.rectangle([0, 0, W, 30], fill=JMAG_RED)
-    _grad_overlay(c, 0, 300, alpha_to=150, down=False)
-    d = ImageDraw.Draw(c)
     it = items[0]
-    d.text((M, 90), f"{it.get('num', 1):02d}", font=_font("xbold", 110),
-           fill=(255, 255, 255))
-    hf, hs = _fit_font(d, it.get("title", ""), "xbold", 100, W - M * 2, min_size=72)
+    hf, hs = _fit_font(d, it.get("title", ""), "xbold", 88, W - M * 2, min_size=64)
     tlines = _wrap(d, it.get("title", ""), hf, W - M * 2)[:2]
-    bf = _font("semi", 58)
-    rows = []
-    for lnobj in it.get("lines", []):
-        txt = (lnobj.get("text") or "").strip()
-        if txt:
-            rows.extend(_wrap(d, txt, bf, W - M * 2))
-            rows.append("")
-    while rows and not rows[-1]:
-        rows.pop()
-    body_h = sum(88 if r else 26 for r in rows)
-    block_h = len(tlines) * int(hs * 1.16) + 30 + body_h
-    _grad_overlay(c, max(int(H * 0.45), H - block_h - 380), H, alpha_to=240)
+    block_h = len(tlines) * int(hs * 1.18)
+    _grad_overlay(c, H - block_h - 420, H, alpha_to=225)
     d = ImageDraw.Draw(c)
-    y = H - 150 - block_h
+    y = H - 160 - block_h
     for ln in tlines:
-        d.text((M, y), ln, font=hf, fill=(255, 255, 255))
-        y += int(hs * 1.16)
-    y += 30
-    for r in rows:
-        if r:
-            d.text((M, y), r, font=bf, fill=(236, 236, 238))
-            y += 88
-        else:
-            y += 26
+        d.text(((W - _tw(d, ln, hf)) / 2, y), ln, font=hf, fill=(255, 255, 255))
+        y += int(hs * 1.18)
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2254,15 +2241,22 @@ def _jmag_items_text(plan, items, cfg, out_path):
 
 
 def _jmag_cta(plan, cfg, out_path):
-    c = Image.new("RGB", (W, H), JMAG_BG)
+    photo = _cta_photo(cfg)
+    c = photo if photo is not None else Image.new("RGB", (W, H), JMAG_BG)
+    on_photo = photo is not None
     d = ImageDraw.Draw(c)
     d.rectangle([0, 0, W, 30], fill=JMAG_RED)
-    y = int(H * 0.3)
+    if on_photo:
+        _grad_overlay(c, int(H * 0.34), H, alpha_to=238)
+        d = ImageDraw.Draw(c)
+    ink = (255, 255, 255) if on_photo else JMAG_INK
+    acc = JMAG_YELLOW if on_photo else JMAG_RED
+    y = int(H * 0.5) if on_photo else int(H * 0.3)
     l1, l2 = "여러분의 생각은?", "댓글로 알려주세요!"
     f1, s1 = _fit_two_lines(d, l1, l2, "xbold", 150, W - M * 2, min_size=96)
-    d.text(((W - _tw(d, l1, f1)) / 2, y), l1, font=f1, fill=JMAG_INK)
+    d.text(((W - _tw(d, l1, f1)) / 2, y), l1, font=f1, fill=ink)
     y += int(s1 * 1.25)
-    d.text(((W - _tw(d, l2, f1)) / 2, y), l2, font=f1, fill=JMAG_RED)
+    d.text(((W - _tw(d, l2, f1)) / 2, y), l2, font=f1, fill=acc)
     y += int(s1 * 1.25) + 100
     ih = 210
     d.rounded_rectangle([M, y, W - M, y + ih], radius=32, fill=(255, 255, 255),
@@ -2276,11 +2270,8 @@ def _jmag_cta(plan, cfg, out_path):
     y += ih + 90
     foot = "저장 + 팔로우하면 다음 이슈도 놓치지 않아요"
     ff = _font("semi", 54)
-    d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff, fill=(120, 118, 122))
-    hd = _mag_handle(cfg)
-    if hd:
-        hf = _font("semi", 44)
-        d.text(((W - _tw(d, hd, hf)) / 2, H - 118), hd, font=hf, fill=(168, 166, 170))
+    d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff,
+           fill=(232, 232, 236) if on_photo else (120, 118, 122))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 

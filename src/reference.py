@@ -604,16 +604,20 @@ def remake_build(cfg, base, handle, media_id, log=print):
              if isinstance(b, dict) and (b.get("title") or "").strip()][:5]
     if len(beats) < 2:
         raise RuntimeError("리메이크 전개를 뽑지 못했습니다 — 다시 시도해주세요")
+    def _one(s, limit=None):
+        s = re.sub(r"\s+", " ", str(s or "")).strip()   # 개행 소독 (PIL 측정 오류 방지)
+        return s[:limit] if limit else s
+
     items = [{"num": i + 1, "category": "",
-              "title": str(b.get("title", "")).strip()[:60],
-              "lines": [{"text": str(t).strip()}
-                        for t in (b.get("lines") or []) if str(t).strip()][:4]}
+              "title": _one(b.get("title"), 60),
+              "lines": [{"text": _one(t)}
+                        for t in (b.get("lines") or []) if _one(t)][:4]}
              for i, b in enumerate(beats)]
     n = len(items)
     plan = {
-        "title_top": str(rp.get("title_top", "")).strip()[:30],
-        "title_main": str(rp.get("title_main", "")).strip()[:40] or "리메이크",
-        "subtitle": str(rp.get("subtitle", "")).strip()[:40],
+        "title_top": _one(rp.get("title_top"), 30),
+        "title_main": _one(rp.get("title_main"), 40) or "리메이크",
+        "subtitle": _one(rp.get("subtitle"), 40),
         "image_query": str(rp.get("image_query", "")).strip(),
         "caption": str(rp.get("caption", "")).strip(),
         "comment_keyword": "",
@@ -650,6 +654,10 @@ def remake_build(cfg, base, handle, media_id, log=print):
             except Exception as e:
                 log(f"      (컷 {i} 실패 — 표지 재사용: {str(e)[:60]})")
 
+    last_img = next((it["image"] for it in reversed(items) if it.get("image")), None)
+    if last_img or cover_p.exists():
+        cfg2["_cta_image"] = last_img or str(cover_p)   # CTA도 이미지 메인
+
     log("[3/4] 카드 렌더링 — 표지 + 전개 카드 + CTA")
     cards = []
     p = pack / "01.jpg"
@@ -665,6 +673,8 @@ def remake_build(cfg, base, handle, media_id, log=print):
 
     log("[4/4] 캡션 + 패키징...")
     caption_out = plan["caption"] or f"{plan['title_top']} {plan['title_main']}"
+    if cfg2.get("_cover_ai"):
+        caption_out += "\n\n*AI를 활용해 재구성한 콘텐츠가 포함됩니다."   # 고지는 캡션에 (원본 방식)
     tags = str(rp.get("hashtags", "")).strip()
     if tags:
         caption_out += "\n\n" + tags
@@ -678,6 +688,7 @@ def remake_build(cfg, base, handle, media_id, log=print):
         "categories": [], "teaser": plan["teaser"], "ebook": False,
         "ref_handle": handle, "ref_post": str(media_id),
         "cover_image": str(cfg2.get("cover_image") or ""),
+        "cta_image": str(cfg2.get("_cta_image") or ""),
         "cover_ai": bool(cfg2.get("_cover_ai")),
         "created": datetime.now().isoformat(timespec="seconds"),
     }

@@ -203,6 +203,8 @@ def build_cardnews(topic, cfg, base_dir, n_items=None, keyword=None,
         num_pages = 0
 
     caption = _final_caption(plan, cfg)
+    if cfg.get("_cover_ai"):
+        caption += "\n\n*AI를 활용해 재구성한 콘텐츠가 포함됩니다."   # 고지는 캡션에
     (pack / "caption.txt").write_text(caption, encoding="utf-8")
     meta = {
         "type": "cardnews",
@@ -296,6 +298,8 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     theme = smeta.get("theme", cfg.get("card_theme", "hunter"))
     lang_label = LANG_LABEL.get(target, "일본어")
     per_card = int(cfg.get("card_items_per_card", 2))
+    if smeta.get("source") == "remake":
+        per_card = 1        # 리메이크 팩은 전개 비트 1개=카드 1장 (사진 위주 전개 유지)
 
     log(f"[1/4] {lang_label} 현지화 번역 — 표지·캡션·카테고리")
     orig_cats = [c.get("name", "") for c in plan.get("categories", [])]
@@ -313,10 +317,14 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
 
     log(f"[2/4] {lang_label} 현지화 번역 — 아이템 {len(items)}개")
     titems = brain.translate_items(cfg, items, lang=lang_label, log=log)
+    _orig_by_num = {it.get("num"): it for it in items}
     for it in titems:
         oc = (it.get("category") or "").strip()
         if oc in cat_map:
             it["category"] = cat_map[oc]
+        _src = _orig_by_num.get(it.get("num"))
+        if _src and _src.get("image"):       # 전개 컷 이미지는 번역을 거쳐도 유지
+            it["image"] = _src["image"]
     by_num = {it["num"]: it for it in titems}
     teaser_items = [by_num[n] for n in plan.get("teaser", []) if n in by_num]
     if not teaser_items:
@@ -331,6 +339,9 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     _cov = smeta.get("cover_image")
     if _cov and Path(str(_cov)).exists() and not cfg2.get("cover_image"):
         cfg2["cover_image"] = str(_cov)
+    _cta = smeta.get("cta_image")
+    if _cta and Path(str(_cta)).exists():
+        cfg2["_cta_image"] = str(_cta)
     if smeta.get("cover_ai"):
         cfg2["_cover_ai"] = True
 
@@ -365,6 +376,8 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     caption = (plan.get("caption") or "").strip()
     if kw and kw not in caption and target == "ja":
         caption += f"\n\n📌 コメントに「{kw}」と書いてください。\nDMでまとめPDFをお送りします。"
+    if smeta.get("cover_ai") and target == "ja":
+        caption += "\n\n*AIを活用して再構成したコンテンツを含みます。"
     if target == "ja" and cfg.get("card_hashtags_ja"):
         caption += "\n\n" + cfg["card_hashtags_ja"]
     (pack / "caption.txt").write_text(caption, encoding="utf-8")
