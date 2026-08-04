@@ -4077,7 +4077,7 @@
           <div class="caphint" style="margin-top:8px">공식 API(business_discovery)만 사용 — 계정 안전.<br>조회 대상은 <b>프로페셔널 계정</b>만 가능.<br>결과는 카드뉴스 <b>스타일/템플릿 프리셋</b>으로 자동 등록돼요 (재실행 = 형식 최신화).</div></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">역수출 소재 (일본 타겟)</span></div>
           <button class="btn" style="width:100%" onclick="refKrjp(false)">🔎 한국 소재 스캔</button>
-          <div class="caphint" style="margin-top:8px">커뮤 9곳+뉴스+<b>일본 수요 신호</b>(일본뉴스·급상승 검색어·유튜브 인기)를 4축(🛍한정템/🎭인물/📰사건미담/✅팩트체크)으로 선별.<br>소재마다 출처 교차검증(🟢뉴스/🟡커뮤 교차/⚠️단독) + 🇯🇵 일본 반응 확인.<br>논쟁 수위는 유지하되 혐오·정치 소재는 자동 배제.<br>유튜브 인기 급상승은 관리자 탭에 유튜브 키 넣으면 켜져요.</div></div>
+          <div class="caphint" style="margin-top:8px">커뮤 9곳+뉴스+<b>일본 수요 신호</b>(일본뉴스·급상승 검색어·유튜브 인기)를 7축(🛍한정템/🎭인물/📰사건미담/✅팩트체크/💡꿀팁/📖스토리/🪞반전)으로 선별.<br>소재마다 출처 교차검증(🟢뉴스/🟡커뮤 교차/⚠️단독) + 🇯🇵 일본 반응 확인.<br>논쟁 수위는 유지하되 혐오·정치 소재는 자동 배제.<br>유튜브 인기 급상승은 관리자 탭에 유튜브 키 넣으면 켜져요.</div></div>
       </aside>
       <main class="mainpane">
         <div id="jjobs"></div>
@@ -4242,7 +4242,7 @@
     let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh});}catch(e){box.innerHTML='❌ 통신 오류';return;}
     if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
     KRJP_ITEMS=d.items||[];
-    const AX={'한정템':'🛍','인물':'🎭','사건미담':'📰','팩트체크':'✅'};
+    const AX={'한정템':'🛍','인물':'🎭','사건미담':'📰','팩트체크':'✅','꿀팁':'💡','스토리':'📖','반전':'🪞'};
     const TONE={'비판':['🔥','#ff6b57'],'국뽕':['🇰🇷','#4da3ff'],'음지':['🌚','#b98cff']};
     box.innerHTML=`<div class="panehead" style="margin-top:4px"><h2>🇯🇵 역수출 소재 후보</h2><span class="n">${d.cached?'30분 캐시':'방금 스캔'} · <a style="cursor:pointer;color:var(--gold)" onclick="refKrjp(true)">🔄 새로 스캔</a></span></div>
       <div style="display:flex;flex-direction:column;gap:8px">`+

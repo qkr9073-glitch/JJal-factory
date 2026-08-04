@@ -397,6 +397,78 @@ def _winners(cfg, handle, media, rep, log=print):
     return {"median": med, "by_axis": _top(ax), "by_hook": _top(hk)}
 
 
+BRANCHES_PROMPT = """아래는 채널 @{handle}의 최근 게시물 목록(좋아요·댓글·캡션 앞부분)이다.
+이 채널이 실제로 굴리는 '콘텐츠 갈래'(내용 유형)를 스스로 발견해 4~8개로 명명하고,
+모든 게시물을 배정하라. 미리 정한 틀에 끼워 맞추지 말 것 — 논쟁·폭로·비판 같은 센 갈래만
+보지 말고 **꿀팁(실용 정보)/재미 스토리(사연·해프닝)/겉과 다른 속(이미지와 다른 실제
+일상·반전)/미담** 같은 부드러운 갈래도 놓치지 마라 — 채널이 잘되는 건 센 것과 부드러운
+것의 배합 때문일 수 있다.
+각 갈래에:
+- name: 갈래 이름 (8자 이내)
+- desc: 뭘 하는 갈래인지 한 줄
+- why: 왜 먹히는지 (독자 심리) 한 줄
+- formula: 구성 공식 한 줄 (표지→전개→마무리)
+JSON만 출력:
+{{"branches": [{{"name":"...","desc":"...","why":"...","formula":"..."}}],
+  "assign": [{{"n":1,"branch":"갈래 이름"}}]}}
+
+목록:
+{listing}"""
+
+
+def _branches(cfg, handle, media, log=print):
+    """콘텐츠 갈래 지도 — AI가 갈래를 발견·배정, 갈래별 ♥·💬 평균은 파이썬 실측."""
+    posts = [m for m in media if (m.get("caption") or "").strip()][:30]
+    if len(posts) < 8:
+        return None
+
+    def _lk(m):
+        return m.get("like_count", m.get("like", 0)) or 0
+
+    def _cm(m):
+        return m.get("comments_count", m.get("comments", 0)) or 0
+
+    listing = "\n".join(
+        f"{i + 1}. ♥{_lk(m)} 💬{_cm(m)} | {(m.get('caption') or '').strip()[:120]}"
+        for i, m in enumerate(posts))
+    key = (cfg.get("gemini_api_key") or "").strip()
+    body = {"contents": [{"role": "user", "parts": [{"text": BRANCHES_PROMPT.format(
+                handle=handle, listing=listing)}]}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.3, "maxOutputTokens": 4096,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    resp = requests.post(GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=120)
+    if resp.status_code != 200:
+        raise RuntimeError(f"갈래 지도 분석 실패 {resp.status_code}")
+    data = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    groups = {}
+    for a in data.get("assign", []):
+        try:
+            i = int(a.get("n")) - 1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(posts):
+            groups.setdefault(str(a.get("branch") or "기타"), []).append(posts[i])
+    types = []
+    for b in data.get("branches", []):
+        name = str(b.get("name") or "").strip()
+        ps = groups.get(name, [])
+        if not name or not ps:
+            continue
+        top = max(ps, key=_lk)
+        types.append({
+            "name": name, "desc": b.get("desc", ""), "why": b.get("why", ""),
+            "formula": b.get("formula", ""), "n": len(ps),
+            "share": round(len(ps) * 100 / len(posts)),
+            "avg_like": round(sum(_lk(p) for p in ps) / len(ps)),
+            "avg_comments": round(sum(_cm(p) for p in ps) / len(ps), 1),
+            "top_caption": (top.get("caption") or "").strip()[:60]})
+    types.sort(key=lambda t: -t["avg_like"])
+    return types or None
+
+
 HIT_PROMPT = """당신은 인스타 히트작 분석가다. 아래는 채널 @{handle}에서 성과가 폭발한
 게시물들이다 (채널 좋아요 중앙값 {median} 대비 몇 배인지 표기, 표지 이미지 첨부).
 
@@ -638,6 +710,15 @@ def analyze(cfg, base, handle, bd, stats, log=print):
         rep["ops"] = _ops(media)
     except Exception:
         pass
+    # 콘텐츠 갈래 지도: 센 갈래(논쟁·폭로)만이 아니라 꿀팁·스토리·반전 등 부드러운 갈래까지
+    try:
+        log("[3/4] 콘텐츠 갈래 지도 분석 중 (꿀팁·스토리·반전 등 전 갈래 실측)...")
+        rep["branches"] = _branches(cfg, handle, media, log=log)
+        if rep.get("branches"):
+            log("      갈래: " + " / ".join(
+                f"{b['name']}({b['share']}%)" for b in rep["branches"][:6]))
+    except Exception as e:
+        log(f"      (갈래 지도 분석 실패: {str(e)[:80]})")
     # 히트작 개별 해부: 좋아요·댓글 아웃라이어는 따로 배운다
     try:
         log("[3/4] 히트작 해부 중 (좋아요·댓글 폭발 게시물)...")
@@ -786,6 +867,19 @@ def _report_md(handle, bd, stats, rep):
 - 요일: {' · '.join(ops.get('wdays', [])) or '?'}
 - 캐러셀 장수별 성과: {pp or '?'}
 """
+    brs = rep.get("branches") or []
+    if brs:
+        bm = "\n".join(
+            f"- **{b.get('name', '')}** ({b.get('n')}개 {b.get('share')}% · "
+            f"평균 ♥{b.get('avg_like')} 💬{b.get('avg_comments')}) — {b.get('desc', '')}\n"
+            f"  · 왜 먹히나: {b.get('why', '')}\n"
+            f"  · 구성 공식: {b.get('formula', '')}\n"
+            f"  · 대표작: {b.get('top_caption', '')}"
+            for b in brs)
+        data_md += f"""
+## 콘텐츠 갈래 지도 🗺 (센 것·부드러운 것 배합 실측)
+{bm}
+"""
     hits = rep.get("hits") or []
     if hits:
         hm = "\n".join(
@@ -916,7 +1010,8 @@ KRJP_RSS_QUERIES = ["편의점 신상", "한정판 콜라보", "한국 미담 �
                     "한국 여행 일본인", "K푸드 일본 반응",
                     "해외 반응 한국 화제", "황당 유행 밈",
                     "MZ 유행", "요즘 직장인 문화 화제", "한국 연애 결혼 문화",
-                    "팝업스토어 핫플레이스"]
+                    "팝업스토어 핫플레이스",
+                    "한국 여행 꿀팁", "알고보니 반전 화제"]
 
 # 일본 수요 신호 — 일본 매체가 지금 다루는 한국 소재 = 수요가 검증된 주제 축
 KRJP_JP_QUERIES = ["韓国 SNS 話題", "韓国 バズる", "韓国 ネット民 反応",
@@ -999,8 +1094,10 @@ KRJP_PROMPT = """당신은 '일본인 타겟 한국 정보 인스타 채널'의 
 
 벤치마크 채널(@justdoeatjapan — 한국인에게 일본 정보)의 거울상이다. 그 채널의 댓글 폭발 공식:
 ① "거기엔 안 파는" 부러움 소재(한정판·신상) ② 논란 인물 연속극 ③ 사건+미담/공분 ④ 팩트체크
-이 4축으로 분류하고, 논쟁을 부르는 소재를 선호한다(수위 유지 — 젠더·집단 갈등 같은 뜨거운
-논쟁 소재도 그대로 다룬다). 단 **국가·민족 혐오 프레임 절대 배제**, 정치 진영 소재 배제
+여기에 그 채널을 받쳐주는 **부드러운 갈래**가 있다 — ⑤ 꿀팁(현지 실용 정보, 저장 유발)
+⑥ 스토리(재밌는 사연·해프닝) ⑦ 반전(겉 이미지와 다른 실제 속사정·일상).
+이 7축으로 분류하되 센 것(논쟁·폭로)과 부드러운 것(꿀팁·스토리·반전)이 섞이게 골라라 —
+논쟁 소재는 수위 유지(젠더·집단 갈등 같은 뜨거운 논쟁 소재도 그대로 다룬다). 단 **국가·민족 혐오 프레임 절대 배제**, 정치 진영 소재 배제
 (정치인·북한 관련은 밈·유머여도 배제 — 일본 시장에서 계정 리스크),
 그리고 우리가 집단을 비하하는 '화자'가 되지 않는다 — "한국에서 이 논쟁이 이렇게 뜨겁다"는
 **논쟁 보도 프레임**으로 소화한다. 커뮤니티 유머·밈 게시물은 실제 사건·발언으로 단정하지
@@ -1015,7 +1112,7 @@ KRJP_PROMPT = """당신은 '일본인 타겟 한국 정보 인스타 채널'의 
   뉴스에 안 나오는 리얼 사회면
 
 각 후보에:
-- axis: "한정템" | "인물" | "사건미담" | "팩트체크"
+- axis: "한정템" | "인물" | "사건미담" | "팩트체크" | "꿀팁" | "스토리" | "반전"
 - tone: "비판" | "국뽕" | "음지"
 - score: 일본 시청자 반응 예상 1~10 (부러움·놀라움·논쟁 유발력)
 - why: 선정 이유 한 줄 (일본 시청자 관점, 어떤 결로 태우는지 포함)
@@ -1117,6 +1214,15 @@ def remake_cfg(cfg, base, handle):
         if pp:
             guide += (f"\n- 최적 분량(실측): 캐러셀 {pp['len']}이 가장 터짐(평균 ♥{pp['avg']})"
                       " — beats 수를 (그 장수 - 표지·CTA 2장)에 맞춰라")
+        brs = rep.get("branches") or []
+        if brs:
+            guide += ("\n- 콘텐츠 갈래 지도(실측) — 이 채널은 센 갈래와 부드러운 갈래를 배합한다."
+                      " 소재 성격에 맞는 갈래를 고르고 그 갈래의 구성 공식을 따르라"
+                      " (논쟁 소재가 아니면 억지로 논쟁 프레임을 씌우지 마라):\n"
+                      + "\n".join(
+                          f"  · [{b['name']}] 비중 {b['share']}% · 평균 ♥{b['avg_like']}"
+                          f" 💬{b['avg_comments']} — {b['formula']}"
+                          for b in brs[:6]))
         hits = rep.get("hits") or []
         if hits:
             guide += "\n- 히트작 교훈(이 채널에서 실제 폭발한 것 — 우선 적용):\n" + "\n".join(
@@ -1538,6 +1644,12 @@ MAGAZINE_PROMPT = """당신은 매거진형 인스타 캐러셀 편집자다. �
 - 국뽕: "한국엔 이런 게 있다(일본엔 없다)" 부러움·감탄을 노골적으로
 - 음지: 이해 안 가지만 눈을 못 떼는 기묘함 — 밈·기행·서브컬처의 낯선 매력을 그대로
 표지·전개·캡션 전부에서 그 결이 느껴져야 한다.
+단, 소재가 논쟁이 아니라 부드러운 갈래면 억지로 논쟁 프레임을 씌우지 마라 — 갈래별 공식:
+- 꿀팁: 저장하고 싶은 실용 정보 — 표지는 '이득' 약속(모르면 손해), 전개는 팁을 하나씩,
+  CTA는 저장·써봤는지 질문
+- 스토리: 사연·해프닝 — 기승전결로 끌고 가서 마지막 장에 반전·펀치라인, CTA는 "당신이라면?"
+- 반전(겉과 다른 속): 표지에서 통념·겉 이미지를 제시하고 전개에서 실제 모습으로 뒤집는다 —
+  "알고 보니" 구조, CTA는 "몰랐던 사람?"
 논쟁 소재(젠더·집단 갈등 포함)도 수위 그대로 태운다 — 단 채널이 비하의 화자가 되지 말고
 "이 논쟁이 이렇게 뜨겁다"를 전하는 **논쟁 보도(관찰자) 프레임**으로 쓴다.
 소재가 커뮤니티 글·밈이면 실제 사건·발언으로 단정하지 말고 "온라인에서 화제"로 서술한다.
