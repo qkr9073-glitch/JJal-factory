@@ -426,6 +426,13 @@ def _inline(image_bytes, max_side=1024):
                             "data": base64.b64encode(buf.getvalue()).decode()}}
 
 
+def _render_safe(s):
+    """렌더에 올라가는 텍스트 소독: 개행 제거(PIL 측정 오류) + 이모지 제거(폰트 ☒ 깨짐)."""
+    s = re.sub(r"\s+", " ", str(s or "")).strip()
+    return re.sub(r"[‍️⁉‼←-⇿⌀-⯿〰〽"
+                  r"\U0001f000-\U0001faff]", "", s).strip()
+
+
 def _parse_json(text):
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     try:
@@ -605,7 +612,7 @@ def remake_build(cfg, base, handle, media_id, log=print):
     if len(beats) < 2:
         raise RuntimeError("리메이크 전개를 뽑지 못했습니다 — 다시 시도해주세요")
     def _one(s, limit=None):
-        s = re.sub(r"\s+", " ", str(s or "")).strip()   # 개행 소독 (PIL 측정 오류 방지)
+        s = _render_safe(s)
         return s[:limit] if limit else s
 
     items = [{"num": i + 1, "category": "",
@@ -629,6 +636,20 @@ def remake_build(cfg, base, handle, media_id, log=print):
     }
     log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장")
 
+    return _produce_pack(cfg2, base, plan, items, beats, rp,
+                         {"source": "remake", "ref_handle": handle,
+                          "ref_post": str(media_id)}, log=log)
+
+
+def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
+    """매거진 팩 공용 빌더: AI 표지+연속 컷 → 렌더 → 캡션·고지 → 팩 파일 일습.
+    remake_build(게시물 리메이크)와 magazine_build(소재 기반)가 함께 쓴다."""
+    from cardnews import render as card_render
+    from cardnews import pipeline as card_pipeline
+    import zipfile
+
+    theme = cfg2.get("card_theme", "smag")
+    n = len(items)
     pack = card_pipeline._make_pack_dir(Path(base) / cfg2.get("output_dir", "결과물"),
                                         plan)
     log(f"[2/4] AI 이미지 생성 중 — 표지 + 전개 연속 컷 {len(items)}장 (채널 미감)...")
@@ -686,12 +707,12 @@ def remake_build(cfg, base, handle, media_id, log=print):
         "title": f"{plan['title_top']} {plan['title_main']}".strip(),
         "keyword": "", "ebook_title": plan["ebook_title"], "n_items": n,
         "categories": [], "teaser": plan["teaser"], "ebook": False,
-        "ref_handle": handle, "ref_post": str(media_id),
         "cover_image": str(cfg2.get("cover_image") or ""),
         "cta_image": str(cfg2.get("_cta_image") or ""),
         "cover_ai": bool(cfg2.get("_cover_ai")),
         "created": datetime.now().isoformat(timespec="seconds"),
     }
+    meta.update(meta_extra or {})
     (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
                                     encoding="utf-8")
     (pack / "items.json").write_text(
@@ -711,6 +732,93 @@ def remake_build(cfg, base, handle, media_id, log=print):
         cards_html=cards_html), encoding="utf-8")
     return {"pack": pack, "meta": meta, "caption": caption_out,
             "cards": [c.name for c in cards], "ebook_pages": 0}
+
+
+MAGAZINE_PROMPT = """당신은 매거진형 인스타 캐러셀 편집자다. 아래 '소재'로 게시물을 기획하라.
+
+소재(주제): {topic}
+참고 정보: {context}
+
+타겟: 일본인 시청자에게 한국 정보를 전하는 채널 (한국어로 쓰고 나중에 일본어로 현지화한다).
+"일본에선 못 산다/못 본다"는 부러움 포인트, 신기함, 논쟁 유발 포인트를 살려라.
+
+⚠️ 주의:
+- 소재는 제목 수준의 정보다. 확인 안 된 세부 사실(정확한 수치·출시일·이름)을 지어내지 마라.
+  모르는 디테일은 소개·큐레이션 톤으로 일반적으로 서술한다.
+- 후킹은 강하게, 국가·집단 혐오/비하 프레임은 배제. 정치 소재 배제.
+
+JSON만 출력:
+{{
+  "title_top": "표지 배지용 짧은 후킹 (18자 이내)",
+  "title_main": "표지 헤드라인 (22자 이내)",
+  "subtitle": "서브라인 (부러움/충격 포인트, 25자 이내, 없으면 빈 문자열)",
+  "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면 (1~2문장)",
+  "beats": [
+    {{"title": "장면을 서술하는 완전한 문장형 헤드라인 (20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
+      "image_query": "이 장면 묘사 — 영문 1문장, 표지와 같은 세계관의 연속 컷"}},
+    "... 3~4개"
+  ],
+  "caption": "인스타 캡션 전문 — 이모지 시작, 400~700자, 마지막에 의견을 묻는 질문",
+  "hashtags": "해시태그 5~8개 한 줄"
+}}"""
+
+
+def magazine_build(cfg, base, topic, context="", theme="jmag", log=print):
+    """소재(주제 문장) → 매거진 완성팩. 역수출 소재 스캔 결과를 바로 제작하는 경로 —
+    리메이크와 같은 품질(AI 표지+연속 컷+채널 미감)이되 원본 게시물 없이 주제에서 출발."""
+    cfg2 = dict(cfg)
+    cfg2["card_theme"] = theme if theme in ("smag", "jmag") else "jmag"
+    cfg2["card_brand_context"] = cfg.get("card_brand_context_mag") or NEUTRAL_BRAND
+    key = (cfg2.get("gemini_api_key") or "").strip()
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+    topic = str(topic or "").strip()
+    if len(topic) < 4:
+        raise RuntimeError("소재(주제)를 4자 이상 입력해주세요")
+
+    log("[1/4] 소재 기획 중 — 매거진 형식")
+    body = {"contents": [{"role": "user", "parts": [{"text": MAGAZINE_PROMPT.format(
+                topic=topic, context=(context or "(없음)")[:600])}]}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.6, "maxOutputTokens": 4096,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    model = cfg2.get("gemini_model", "gemini-2.5-flash")
+    resp = requests.post(GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=180)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Gemini 오류 {resp.status_code}: {resp.text[:160]}")
+    rp = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    beats = [b for b in (rp.get("beats") or [])
+             if isinstance(b, dict) and (b.get("title") or "").strip()][:5]
+    if len(beats) < 2:
+        raise RuntimeError("전개를 뽑지 못했습니다 — 다시 시도해주세요")
+
+    def _one(s, limit=None):
+        s = _render_safe(s)
+        return s[:limit] if limit else s
+
+    items = [{"num": i + 1, "category": "",
+              "title": _one(b.get("title"), 60),
+              "lines": [{"text": _one(t)}
+                        for t in (b.get("lines") or []) if _one(t)][:4]}
+             for i, b in enumerate(beats)]
+    n = len(items)
+    plan = {
+        "title_top": _one(rp.get("title_top"), 30),
+        "title_main": _one(rp.get("title_main"), 40) or topic[:40],
+        "subtitle": _one(rp.get("subtitle"), 40),
+        "image_query": str(rp.get("image_query", "")).strip(),
+        "caption": str(rp.get("caption", "")).strip(),
+        "comment_keyword": "",
+        "n_items": n,
+        "categories": [],
+        "teaser": list(range(1, n + 1)),
+        "preview_titles": [it["title"] for it in items[:3]],
+        "ebook_title": _one(rp.get("title_main"), 40),
+    }
+    log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장")
+    return _produce_pack(cfg2, base, plan, items, beats, rp,
+                         {"source": "magazine", "topic": topic}, log=log)
 
 
 def _rss_titles(query, n=5):

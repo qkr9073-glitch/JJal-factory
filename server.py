@@ -4282,6 +4282,55 @@ def api_ref_del():
     return jsonify(ok=True)
 
 
+def _run_ref_magazine(jid, cfg, topic, context, lang):
+    """소재→매거진 제작 잡 (역수출: 한국 소재를 jmag 미감+일본어판으로)."""
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        job["msg"] = m
+        step = re.match(r"\[(\d)/4\]", m)
+        if step:
+            job["pct"] = STEP_PCT.get(int(step.group(1)), job["pct"])
+
+    try:
+        result = reference.magazine_build(cfg, BASE, topic, context=context, log=log)
+        job["result"] = _pack_payload(result)
+        _job_set_owner(job)
+        if lang == "ja":
+            log("🇯🇵 일본어판 변환 중...")
+            job["pct"] = 88
+            res2 = card_pipeline.build_translated(result["pack"], cfg, BASE,
+                                                  target="ja", log=log)
+            job["result"]["ja_pack"] = _pack_payload(res2).get("pack", "")
+        job["pct"] = 100
+        job["status"] = "done"
+    except Exception as e:
+        job["error"] = str(e)
+        job["status"] = "error"
+
+
+@app.post("/api/ref/magazine")
+def api_ref_magazine():
+    """소재 스캔 결과(또는 직접 입력 주제) → 매거진 팩 제작. lang=ja면 일본어판까지."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    topic = str(data.get("topic") or "").strip()
+    if len(topic) < 4:
+        return jsonify(ok=False, error="소재(주제)를 4자 이상 입력해주세요"), 400
+    context = str(data.get("context") or "").strip()[:600]
+    lang = "ja" if (data.get("lang") == "ja") else "ko"
+    now = time.time()
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
+                 "result": None, "error": None, "ts": now,
+                 "code": (data.get("code") or "").strip()}
+    JOBQ.put((jid, _run_ref_magazine, (jid, cfg, topic, context, lang)))
+    return jsonify(ok=True, job=jid)
+
+
 @app.post("/api/ref/krjp")
 def api_ref_krjp():
     """역수출(일본 타겟) 한국 소재 추천 — 커뮤 인기글+뉴스RSS를 4축 분류. 30분 캐시."""

@@ -325,6 +325,14 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
         _src = _orig_by_num.get(it.get("num"))
         if _src and _src.get("image"):       # 전개 컷 이미지는 번역을 거쳐도 유지
             it["image"] = _src["image"]
+    if theme in ("smag", "jmag"):
+        # 매거진 테마는 렌더 텍스트에서 이모지 제거 (YuGoth 등에서 ☒로 깨짐)
+        from src.reference import _render_safe as _rsafe
+        for _k in ("title_top", "title_main", "subtitle"):
+            if plan.get(_k):
+                plan[_k] = _rsafe(plan[_k])
+        for it in titems:
+            it["title"] = _rsafe(it.get("title"))
     by_num = {it["num"]: it for it in titems}
     teaser_items = [by_num[n] for n in plan.get("teaser", []) if n in by_num]
     if not teaser_items:

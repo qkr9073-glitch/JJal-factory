@@ -4214,6 +4214,21 @@
     const it=KRJP_ITEMS[ix]; if(!it)return;
     navigator.clipboard.writeText(it.topic||'').then(()=>flash('📋 주제 복사됨 — 카드뉴스 탭에 붙여넣어 제작하세요'));
   }
+  async function refMagazine(ix,lang){
+    const it=KRJP_ITEMS[ix]; if(!it)return;
+    const context=`선정 이유: ${it.why||''} / 일본어 후킹 시안: ${it.jp_hook||''} / 원문 제목: ${it.src_title||''}`;
+    let d; try{d=await apiJson('/api/ref/magazine',{code:code(),topic:it.topic,context,lang});}catch(e){flash('❌ 통신 오류: '+e);return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const box=$('jjobs');
+    if(box){const div=document.createElement('div');div.id='refrow-'+d.job;
+      div.style.cssText='background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:10px 13px;margin-bottom:8px;font-size:13px';
+      div.innerHTML=`<b>🗾 소재 제작${lang==='ja'?' +🇯🇵':''} — ${esch((it.topic||'').slice(0,30))}</b>
+        <div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
+        <span class="jm" style="color:var(--gold)">접수됨…</span>`;
+      box.prepend(div);}
+    window.scrollTo({top:0,behavior:'smooth'});
+    refPoll(d.job);
+  }
   async function refKrjp(refresh){
     const box=$('refKrjpBox'); if(!box)return;
     box.innerHTML='<div style="color:var(--gold);font-size:13px;padding:8px 0">🔎 커뮤 8곳+뉴스 스캔 중… (30초~1분, 창 유지)</div>';
@@ -4230,7 +4245,10 @@
           ${it.src_url?`<a href="${esch(it.src_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--faint)">원문 ↗</a>`:''}</div>
         <div style="font-weight:700;font-size:13.5px;margin-top:5px">${esch(it.topic||'')}</div>
         <div style="color:var(--muted);font-size:12.5px;margin-top:3px">${esch(it.why||'')} — <span style="color:var(--gold)">${esch(it.jp_hook||'')}</span></div>
-        <div style="margin-top:7px"><button class="btn" onclick="refCopy(${ix})">📋 주제 복사</button></div>
+        <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn primary" onclick="refMagazine(${ix},'ja')">🗾 일본어판 제작</button>
+          <button class="btn" onclick="refMagazine(${ix},'ko')">🇰🇷 한국판만</button>
+          <button class="btn" onclick="refCopy(${ix})">📋 복사</button></div>
       </div>`).join('')+'</div>';
   }
 
