@@ -4077,7 +4077,7 @@
           <div class="caphint" style="margin-top:8px">공식 API(business_discovery)만 사용 — 계정 안전.<br>조회 대상은 <b>프로페셔널 계정</b>만 가능.<br>결과는 카드뉴스 <b>스타일/템플릿 프리셋</b>으로 자동 등록돼요 (재실행 = 형식 최신화).</div></div>
         <div class="step"><div class="sh"><span class="num">2</span><span class="st">역수출 소재 (일본 타겟)</span></div>
           <button class="btn" style="width:100%" onclick="refKrjp(false)">🔎 한국 소재 스캔</button>
-          <div class="caphint" style="margin-top:8px">커뮤 8곳+뉴스를 4축(🛍한정템/🎭인물/📰사건미담/✅팩트체크)으로 선별.<br>논쟁 수위는 유지하되 혐오·정치 소재는 자동 배제.</div></div>
+          <div class="caphint" style="margin-top:8px">커뮤 9곳+뉴스를 4축(🛍한정템/🎭인물/📰사건미담/✅팩트체크)으로 선별.<br>소재마다 출처 교차검증(🟢뉴스/🟡커뮤 교차/⚠️단독).<br>논쟁 수위는 유지하되 혐오·정치 소재는 자동 배제.</div></div>
       </aside>
       <main class="mainpane">
         <div id="jjobs"></div>
@@ -4220,7 +4220,9 @@
   }
   async function refMagazine(ix,lang){
     const it=KRJP_ITEMS[ix]; if(!it)return;
-    const context=`결(톤): ${it.tone||''} / 선정 이유: ${it.why||''} / 일본어 후킹 시안: ${it.jp_hook||''} / 원문 제목: ${it.src_title||''}`;
+    const ev=(it.evidence||[]).slice(0,2).map(e=>e.title).join(' · ');
+    let context=`결(톤): ${it.tone||''} / 선정 이유: ${it.why||''} / 일본어 후킹 시안: ${it.jp_hook||''} / 원문 제목: ${it.src_title||''}`;
+    if(it.src_grade)context+=` / 출처 검증: ${it.src_grade}${ev?` (근거: ${ev})`:''}`;
     let d; try{d=await apiJson('/api/ref/magazine',{code:code(),topic:it.topic,context,lang});}catch(e){flash('❌ 통신 오류: '+e);return;}
     if(!d.ok){flash('❌ '+d.error);return;}
     const box=$('jjobs');
@@ -4235,7 +4237,7 @@
   }
   async function refKrjp(refresh){
     const box=$('refKrjpBox'); if(!box)return;
-    box.innerHTML='<div style="color:var(--gold);font-size:13px;padding:8px 0">🔎 커뮤 8곳+뉴스 스캔 중… (30초~1분, 창 유지)</div>';
+    box.innerHTML='<div style="color:var(--gold);font-size:13px;padding:8px 0">🔎 커뮤 9곳+뉴스 스캔 + 출처 교차검증 중… (1~2분, 창 유지)</div>';
     let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh});}catch(e){box.innerHTML='❌ 통신 오류';return;}
     if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
     KRJP_ITEMS=d.items||[];
@@ -4248,9 +4250,11 @@
           <span style="font-size:12px;font-weight:800;color:var(--gold)">${AX[it.axis]||'•'} ${esch(it.axis||'')}</span>
           ${it.tone?`<span style="font-size:12px;font-weight:800;color:${(TONE[it.tone]||['',''])[1]||'var(--muted)'}">${(TONE[it.tone]||['•'])[0]} ${esch(it.tone)}</span>`:''}
           <span style="font-size:12px;color:var(--faint)">반응예상 ${it.score||'?'}/10</span>
+          ${it.src_grade?`<span style="font-size:12px;font-weight:800;color:${it.src_grade==='뉴스 확인'?'#5ec97b':it.src_grade==='커뮤 교차'?'#e8b23f':'#ff8f66'}">${it.src_grade==='뉴스 확인'?'🟢':it.src_grade==='커뮤 교차'?'🟡':'⚠️'} ${esch(it.src_grade)}</span>`:''}
           ${it.src_url?`<a href="${esch(it.src_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--faint)">원문 ↗</a>`:''}</div>
         <div style="font-weight:700;font-size:13.5px;margin-top:5px">${esch(it.topic||'')}</div>
         <div style="color:var(--muted);font-size:12.5px;margin-top:3px">${esch(it.why||'')} — <span style="color:var(--gold)">${esch(it.jp_hook||'')}</span></div>
+        ${(it.evidence||[]).length?`<div style="font-size:12px;color:var(--faint);margin-top:4px">근거: ${it.evidence.slice(0,3).map(e=>`<a href="${esch(e.url)}" target="_blank" rel="noopener" style="color:var(--faint)">[${esch(e.src||'')}] ${esch((e.title||'').slice(0,28))} ↗</a>`).join(' · ')}</div>`:''}
         <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn primary" onclick="refMagazine(${ix},'ja')">🗾 일본어판 제작</button>
           <button class="btn" onclick="refMagazine(${ix},'ko')">🇰🇷 한국판만</button>

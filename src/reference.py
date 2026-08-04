@@ -953,9 +953,10 @@ KRJP_PROMPT = """당신은 '일본인 타겟 한국 정보 인스타 채널'의 
 - why: 선정 이유 한 줄 (일본 시청자 관점, 어떤 결로 태우는지 포함)
 - jp_hook: 일본어 표지 후킹 문구 시안 1줄 (「」 스타일, 20자 이내)
 - topic: 우리 제작기에 넣을 한국어 주제 문장 1줄
+- q: 출처 교차검증용 뉴스 검색어 — 이 사건·현상을 뉴스에서 찾을 핵심 명사 2~4개 (조사 없이)
 
 score 6 이상만, 최대 12개, score 내림차순. 세 결이 골고루 섞이게. JSON만 출력:
-{"items": [{"axis":"...","tone":"...","score":8,"why":"...","jp_hook":"...","topic":"...","src_title":"원래 제목","src_url":"원래 링크"}]}
+{"items": [{"axis":"...","tone":"...","score":8,"why":"...","jp_hook":"...","topic":"...","q":"...","src_title":"원래 제목","src_url":"원래 링크"}]}
 
 후보 목록:
 """
@@ -1471,6 +1472,9 @@ MAGAZINE_PROMPT = """당신은 매거진형 인스타 캐러셀 편집자다. �
 논쟁 소재(젠더·집단 갈등 포함)도 수위 그대로 태운다 — 단 채널이 비하의 화자가 되지 말고
 "이 논쟁이 이렇게 뜨겁다"를 전하는 **논쟁 보도(관찰자) 프레임**으로 쓴다.
 소재가 커뮤니티 글·밈이면 실제 사건·발언으로 단정하지 말고 "온라인에서 화제"로 서술한다.
+참고 정보에 '출처 검증' 등급이 있으면 그대로 따르라: '뉴스 확인'이면 근거 제목에 있는
+사실까지만 쓰고, '커뮤 교차'·'커뮤 단독'이면 **모든 서술을 "…라는 글이 화제/…라고 한다"의
+전언 프레임**으로 쓰며 수치·날짜·실명 등 세부 사실을 절대 단정하지 않는다.
 형식 지침에 '수위 코드'가 있으면 그 수위의 야한 드립·암시도 그대로 쓴다 —
 단 노출·노골적 성 묘사는 금지(계정 정지 리스크), 언어유희·암시 수준까지만.
 
@@ -1604,12 +1608,108 @@ def _rss_titles(query, n=5):
         return []
 
 
+VERIFY_PROMPT = """아래는 소재 목록과, 소재마다 자동 검색으로 수집된 근거 기사 제목들이다.
+각 근거가 그 소재와 '같은 사건·현상'을 다루는지 판정하라. 키워드만 겹치는 다른 사건,
+무관한 기사는 제거 대상이다. JSON만 출력 (전부 관련이면 빈 배열):
+{"drop": [[소재번호, 근거번호], ...]}
+
+"""
+
+
+def _krjp_verify(cfg, items, cands, log=print):
+    """출처 교차검증 — 소재마다 뉴스 재검색(관련 기사 없으면 검색어 바꿔 더 넓게) +
+    커뮤 후보 목록 교차 대조 + Gemini 관련성 최종 판정.
+    등급: 뉴스 확인 > 커뮤 교차 > 커뮤 단독(사실 단정 금지)."""
+    import concurrent.futures as cf
+
+    def _tokens(s):
+        stop = {"한국", "일본", "논란", "화제", "이유", "반응", "커뮤니티", "온라인",
+                "사건", "근황", "공개", "영상", "사진", "모바일", "게임", "방송"}
+        return [w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", s or "")
+                if w not in stop]
+
+    def _verify(it):
+        topic = it.get("topic") or ""
+        own = {(it.get("src_url") or "").strip()}
+        toks = set(_tokens(topic) + _tokens(it.get("src_title") or "")
+                   + _tokens(it.get("q") or ""))
+        # ① 뉴스 재검색 — 관련 기사(핵심 명사 2개+ 겹침)를 못 찾으면
+        #    검색어를 바꿔가며 더 넓게 재검색
+        queries, seen_q = [], set()
+        for q in [it.get("q"), " ".join(_tokens(topic)[:3]),
+                  " ".join(_tokens(it.get("src_title") or "")[:3])]:
+            q = (q or "").strip()
+            if q and q not in seen_q:
+                seen_q.add(q)
+                queries.append(q)
+        news = []
+        for q in queries:
+            for r in _rss_titles(q, n=4):
+                if r["url"] in own or any(e["url"] == r["url"] for e in news):
+                    continue
+                if len(toks & set(_tokens(r["title"]))) < 2:
+                    continue
+                news.append({"src": "뉴스", "title": r["title"], "url": r["url"]})
+            if news:
+                break
+        # ② 커뮤 교차 — 다른 커뮤 후보 제목과 핵심 명사 2개 이상 겹치면 근거
+        cross = []
+        for c in cands:
+            if c.get("src") == "뉴스" or c.get("url", "") in own:
+                continue
+            if len(toks & set(_tokens(c.get("title") or ""))) >= 2:
+                cross.append({"src": c.get("src") or "커뮤",
+                              "title": c["title"], "url": c["url"]})
+        it["evidence"] = (news + cross)[:4]
+        return it
+
+    with cf.ThreadPoolExecutor(max_workers=6) as ex:
+        items = list(ex.map(_verify, items))
+    # ③ Gemini 관련성 최종 판정 — 키워드만 겹친 다른 사건 근거 제거 (실패 시 그대로)
+    try:
+        listing = ""
+        for i, it in enumerate(items):
+            if not it.get("evidence"):
+                continue
+            listing += f"소재{i}: {it.get('topic')}\n"
+            for j, e in enumerate(it["evidence"]):
+                listing += f"  근거{j}: [{e['src']}] {e['title']}\n"
+        if listing:
+            body = {"contents": [{"role": "user",
+                                  "parts": [{"text": VERIFY_PROMPT + listing}]}],
+                    "generationConfig": {"response_mime_type": "application/json",
+                                         "temperature": 0.1,
+                                         "maxOutputTokens": 1024,
+                                         "thinkingConfig": {"thinkingBudget": 0}}}
+            resp = requests.post(
+                GEMINI_URL.format(model=cfg.get("gemini_model", "gemini-2.5-flash")),
+                params={"key": (cfg.get("gemini_api_key") or "").strip()},
+                json=body, timeout=60)
+            drops = {(int(a), int(b)) for a, b in
+                     (_parse_json(resp.json()["candidates"][0]["content"]
+                                  ["parts"][0]["text"]) or {}).get("drop", [])}
+            for i, it in enumerate(items):
+                it["evidence"] = [e for j, e in enumerate(it.get("evidence", []))
+                                  if (i, j) not in drops]
+    except Exception as e:
+        log(f"관련성 판정 생략(근거 그대로 유지): {str(e)[:60]}")
+    for it in items:
+        ev = it.get("evidence", [])
+        it["src_grade"] = ("뉴스 확인" if any(e["src"] == "뉴스" for e in ev)
+                           else "커뮤 교차" if ev else "커뮤 단독")
+    n_news = sum(1 for i in items if i["src_grade"] == "뉴스 확인")
+    n_solo = sum(1 for i in items if i["src_grade"] == "커뮤 단독")
+    log(f"출처 교차검증 — 뉴스 확인 {n_news} · 커뮤 교차 "
+        f"{len(items) - n_news - n_solo} · 커뮤 단독 {n_solo}")
+    return items
+
+
 def suggest_krjp(cfg, base, log=print):
-    """커뮤 인기글 + 뉴스RSS → 일본 타겟 소재 후보 (4축 분류 + 수위 가드)."""
+    """커뮤 인기글 + 뉴스RSS → 일본 타겟 소재 후보 (4축 분류 + 수위 가드 + 출처 검증)."""
     key = (cfg.get("gemini_api_key") or "").strip()
     if not key:
         raise RuntimeError("Gemini API 키가 없습니다")
-    log("소재 수집 중 (커뮤 8곳 + 뉴스 6줄기)...")
+    log("소재 수집 중 (커뮤 9곳 + 뉴스 12줄기)...")
     cands = []
     try:
         from src import hunter
@@ -1640,5 +1740,7 @@ def suggest_krjp(cfg, base, log=print):
     raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
     items = (_parse_json(raw) or {}).get("items", [])
     items = [i for i in items if isinstance(i, dict) and i.get("topic")][:12]
+    log(f"소재 {len(items)}개 선별 → 출처 교차검증 중...")
+    items = _krjp_verify(cfg, items, cands, log=log)
     log(f"✅ 소재 {len(items)}개 선별")
     return items

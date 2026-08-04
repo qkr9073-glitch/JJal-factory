@@ -308,6 +308,26 @@ def hunt_humoruniv(n):
     return out[:n]
 
 
+def hunt_nate(n):
+    """네이트판 톡 랭킹 — MZ 리얼 스토리(연애·회사·학교) 광산."""
+    soup = fetch_html("https://pann.nate.com/talk/ranking",
+                      "https://pann.nate.com/")
+    out = []
+    for li in soup.select("div.cntList ul.post_wrap > li"):
+        a = li.select_one("dt h2 a[href^='/talk/']")
+        if not a:
+            continue
+        out.append(_item(
+            "네이트판", "랭킹", _txt(a),
+            "https://pann.nate.com" + (a.get("href") or ""),
+            views=_num(_txt(li.select_one("dd.info .count"))),
+            recs=_num(_txt(li.select_one("dd.info .rcm"))),
+            replies=_num(_txt(li.select_one(".reple-num")).strip("()")),
+            age=0))
+    out.sort(key=lambda x: -x["recs"])
+    return out[:n]
+
+
 # ── seen(제작 이력) ──────────────────────────────────────────
 
 def load_seen(base_dir):
@@ -335,7 +355,7 @@ DEFAULT_BLOCK = ["이재명", "윤석열", "대통령", "민주당", "국민의�
                  "살인", "사망", "자살", "참사", "성폭행", "성범죄", "학대"]
 
 SOURCES = [hunt_dc, hunt_ruliweb, hunt_fmkorea, hunt_dogdrip, hunt_theqoo,
-           hunt_inven, hunt_instiz, hunt_humoruniv]
+           hunt_inven, hunt_instiz, hunt_humoruniv, hunt_nate]
 
 
 def hunt(base_dir, per_site=12, block_keywords=None):
