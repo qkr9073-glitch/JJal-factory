@@ -566,7 +566,7 @@ JSON만 출력:
   "title_top": "표지 인용/배지용 짧은 후킹 한 줄 (따옴표 없이, 18자 이내)",
   "title_main": "표지 헤드라인 (22자 이내, 원본과 다른 표현)",
   "subtitle": "서브라인 한 줄 (충격 디테일·반전 등, 25자 이내, 없으면 빈 문자열)",
-  "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면, 원본 사건을 시각화 (1~2문장)",
+  "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면, 원본 사건을 시각화 (1~2문장). ⚠️영화·게임·연예 등 IP 소재면 캐릭터·코스튬·로고를 그리게 하지 마라(비슷하게 그려져도 저작권 위험) — 반드시 '장소·소품·군중' 장면으로만 (예: 영화 소재 → crowded movie theater lobby at night, glowing screens, popcorn / 진열대·티켓·네온 등). 인물은 익명의 일반인만",
   "beats": [
     {{"title": "그 장면을 서술하는 완전한 문장형 후킹 헤드라인 (짧은 소제목 금지 — 원본 안쪽 장처럼 스토리가 읽히게, 20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
       "image_query": "이 전개 순간의 장면 묘사 — 영문 1문장, 표지와 같은 사건의 연속 컷(같은 장소·인물)"}},
@@ -655,13 +655,20 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
     log(f"[2/4] AI 이미지 생성 중 — 표지 + 전개 연속 컷 {len(items)}장 (채널 미감)...")
     from src import genimg
     cover_p = pack / "_cover.jpg"
-    try:
-        genimg.generate_cover(cfg2, plan["image_query"] or plan["title_main"],
-                              cover_p, theme=theme, log=log)
-        cfg2["cover_image"] = str(cover_p)
-        cfg2["_cover_ai"] = True
-    except Exception as e:
-        log(f"      (AI 표지 실패 — 텍스트 표지로 진행: {str(e)[:70]})")
+    for attempt, scene in enumerate([
+            plan["image_query"] or plan["title_main"],
+            # 재시도: 브랜드/캐릭터 언급이 거부됐을 가능성 — 일반화 장면으로 우회
+            f"Atmospheric editorial photo evoking the topic '{plan['title_main']}' "
+            f"without any brands, characters or celebrities. Generic objects and mood only."]):
+        try:
+            genimg.generate_cover(cfg2, scene, cover_p, theme=theme, log=log)
+            cfg2["cover_image"] = str(cover_p)
+            cfg2["_cover_ai"] = True
+            break
+        except Exception as e:
+            log(f"      (AI 표지 {attempt + 1}차 실패: {str(e)[:70]})")
+    if not cfg2.get("_cover_ai"):
+        log("      (표지 생성 전부 실패 — 텍스트 표지로 진행)")
     # 안쪽 장: 표지와 '같은 사건의 연속 사진 세트'로 — 레퍼런스 채널의 이미지 위주 전개
     if cover_p.exists():
         for i, (it, b) in enumerate(zip(items, beats), 1):
@@ -752,7 +759,7 @@ JSON만 출력:
   "title_top": "표지 배지용 짧은 후킹 (18자 이내)",
   "title_main": "표지 헤드라인 (22자 이내)",
   "subtitle": "서브라인 (부러움/충격 포인트, 25자 이내, 없으면 빈 문자열)",
-  "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면 (1~2문장)",
+  "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면 (1~2문장). ⚠️브랜드명·저작권 캐릭터·유명인 이름 금지 — 분위기·소품으로 우회 묘사",
   "beats": [
     {{"title": "장면을 서술하는 완전한 문장형 헤드라인 (20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
       "image_query": "이 장면 묘사 — 영문 1문장, 표지와 같은 세계관의 연속 컷"}},
