@@ -298,8 +298,8 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     theme = smeta.get("theme", cfg.get("card_theme", "hunter"))
     lang_label = LANG_LABEL.get(target, "일본어")
     per_card = int(cfg.get("card_items_per_card", 2))
-    if smeta.get("source") == "remake":
-        per_card = 1        # 리메이크 팩은 전개 비트 1개=카드 1장 (사진 위주 전개 유지)
+    if smeta.get("source") in ("remake", "magazine"):
+        per_card = 1        # 매거진류 팩은 전개 비트 1개=카드 1장 (사진 위주 전개 유지)
 
     log(f"[1/4] {lang_label} 현지화 번역 — 표지·캡션·카테고리")
     orig_cats = [c.get("name", "") for c in plan.get("categories", [])]
