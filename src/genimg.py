@@ -26,7 +26,9 @@ NEGATIVE = ("Absolutely no text, no words, no letters, no numbers, no captions, 
             "no watermark, no subtitles anywhere in the image. "
             "No trademarked logos or brand marks. No recognizable copyrighted "
             "characters, no superhero costumes or emblems, no celebrity lookalikes — "
-            "use generic places, objects and anonymous people only.")
+            "use generic places, objects and anonymous people only. "
+            "No nudity or sexually explicit content (suggestive styling within "
+            "platform guidelines is acceptable).")
 
 
 def generate_variation(cfg, base_image_path, scene, out_path, theme="smag", log=print):

@@ -4120,14 +4120,18 @@
     box.innerHTML='<div style="color:var(--gold);font-size:13px;padding:8px 0">게시물 불러오는 중…</div>';
     let d; try{d=await apiJson('/api/ref/posts',{code:code(),handle:h});}catch(e){box.innerHTML='❌ 통신 오류';return;}
     if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
+    const _lk=(d.posts||[]).map(p=>p.like||0).sort((a,b)=>a-b);
+    const _med=_lk.length?_lk[Math.floor(_lk.length/2)]||1:1;
     const rows=(d.posts||[]).map(p=>{
       const img=p.img?`<img src="/refimg/${esch(h)}/${esch(p.img)}" style="width:96px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none">`
                      :`<div style="width:96px;height:120px;border-radius:8px;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--faint);flex:none">${p.type==='VIDEO'?'🎬':'🖼'}</div>`;
       const canRemake=p.type!=='VIDEO';
-      return `<div style="display:flex;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px">
+      const mult=(p.like||0)/_med;
+      const hot=mult>=2?`<span style="color:#ff6b57;font-weight:800">🔥 히트작 ${mult.toFixed(1)}배</span> · `:'';
+      return `<div style="display:flex;gap:10px;background:var(--panel);border:1px solid ${mult>=2?'#ff6b57':'var(--line)'};border-radius:10px;padding:10px">
         ${img}
         <div style="flex:1;min-width:0">
-          <div style="font-size:12px;color:var(--faint)">♥${(p.like||0).toLocaleString()} · 💬${(p.comments||0).toLocaleString()} · ${esch(p.ts||'')}${p.pages?` · ${p.pages}장`:''} ${p.permalink?`· <a href="${esch(p.permalink)}" target="_blank" rel="noopener" style="color:var(--faint)">원본 ↗</a>`:''}</div>
+          <div style="font-size:12px;color:var(--faint)">${hot}♥${(p.like||0).toLocaleString()} · 💬${(p.comments||0).toLocaleString()} · ${esch(p.ts||'')}${p.pages?` · ${p.pages}장`:''} ${p.permalink?`· <a href="${esch(p.permalink)}" target="_blank" rel="noopener" style="color:var(--faint)">원본 ↗</a>`:''}</div>
           <div style="font-size:12.5px;color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esch(p.caption||'(캡션 없음)')}</div>
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
             ${canRemake?`<button class="btn" onclick="refRemake('${esch(h)}','${esch(p.id)}','ko')">🔁 한국판 리메이크</button>

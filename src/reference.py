@@ -255,6 +255,7 @@ HOOK_PROMPT = """당신은 인스타그램 캐러셀 '후킹 전략' 분석가�
 ⑤ 대본 전개 — 문체(구어/문어·존댓말)·문장 길이·서술 시점·감정 곡선·스토리 전개 형식
 ⑥ 지속률 장치 — 마지막 장까지 넘기게 만드는 것 (클리프행어, 결말 숨기기, 중간 반전 배치 등)
 ⑦ 결(톤) 분포 — 이 채널이 쓰는 정서의 배합 (예: 충격/유머/공감/비판/자부심/기묘함 비중)
+⑧ 수위 코드 — 섹시 코드·야한 드립을 쓰는지, 쓴다면 어떤 소재·방식·수위·비중인지
 
 JSON만 출력:
 {{
@@ -283,6 +284,7 @@ JSON만 출력:
   ],
   "tone_mix": "결(톤) 배합 한 줄 (예: 충격 50% + 유머 30% + 공감 20%, 어떤 소재에 어떤 결)",
   "headline_stats": "표지 카피 통계 — 평균 글자수·줄수·기호 사용 경향(따옴표/느낌표/물음표/말줄임) 1~2문장",
+  "spice": "섹시 코드·야한 드립 사용 분석 — 쓴다면 어떤 소재에서 어떤 방식(암시·언어유희·노출 연출 등)·어느 수위·비중까지 구체적으로 1~2문장, 안 쓰면 '사용 안 함'",
   "extra_notes": ["스키마 밖의 특이한 무기·장치 발견 시 (예: 캡처 박스 삽입, 시리즈 연속극, 업로드 시간대) 0~4개"],
   "hook_guide": "제작 프롬프트에 그대로 주입할 후킹 지침 — '- ' 불릿 5~8개. 표지 문구 작법(비중 1위 유형 중심), 장별 역할 순서, 이미지 연출, 대본 문체, 지속률 장치를 명령형으로."
 }}"""
@@ -395,6 +397,77 @@ def _winners(cfg, handle, media, rep, log=print):
     return {"median": med, "by_axis": _top(ax), "by_hook": _top(hk)}
 
 
+HIT_PROMPT = """당신은 인스타 히트작 분석가다. 아래는 채널 @{handle}에서 성과가 폭발한
+게시물들이다 (채널 좋아요 중앙값 {median} 대비 몇 배인지 표기, 표지 이미지 첨부).
+
+각 히트작이 '왜 터졌는지'를 해부하고, 우리가 새 게시물을 만들 때 그대로 써먹을 교훈을 뽑아라.
+좋아요형(공감·저장)과 댓글형(논쟁·참여)은 터진 이유가 다르다 — 구분해서 분석하라.
+
+JSON만 출력:
+{{"hits": [
+  {{"n": 1, "why": "터진 이유 해부 1~2문장 (소재·후킹·이미지·감정 버튼)",
+    "type": "좋아요형|댓글형|둘다",
+    "lesson": "제작에 바로 적용할 교훈 1줄 (명령형)"}}
+]}}"""
+
+
+def _hits(cfg, base, handle, media, log=print):
+    """좋아요·댓글 아웃라이어 게시물 개별 해부 — 왜 터졌는지 + 제작 교훈."""
+    scored = [m for m in media if m.get("media_type") != "VIDEO"]
+    if len(scored) < 8:
+        return None
+    likes = sorted(m.get("like_count", 0) for m in scored)
+    med_l = likes[len(likes) // 2] or 1
+    comms = sorted(m.get("comments_count", 0) for m in scored)
+    med_c = comms[len(comms) // 2] or 1
+    picks, seen = [], set()
+    for m in sorted(scored, key=lambda x: -x.get("like_count", 0))[:2]:
+        if m.get("like_count", 0) >= med_l * 2:
+            picks.append(m)
+            seen.add(m.get("id"))
+    for m in sorted(scored, key=lambda x: -x.get("comments_count", 0))[:2]:
+        if m.get("id") not in seen and m.get("comments_count", 0) >= med_c * 2.5:
+            picks.append(m)
+            seen.add(m.get("id"))
+    picks = picks[:3]
+    if not picks:
+        return None
+    d = _refs_root(base) / handle
+    parts = [{"text": HIT_PROMPT.format(handle=handle, median=med_l)}]
+    metas = []
+    for i, m in enumerate(picks, 1):
+        mid = str(m.get("id"))
+        lk, cm = m.get("like_count", 0), m.get("comments_count", 0)
+        parts.append({"text": f"\n[히트작{i}] ♥{lk}(중앙값 {round(lk / med_l, 1)}배) · "
+                              f"💬{cm}({round(cm / med_c, 1)}배) · "
+                              f"캡션: {(m.get('caption') or '').strip()[:200]}"})
+        f = d / "img" / f"{mid}.jpg"
+        if f.exists():
+            parts.append(_inline(f.read_bytes(), max_side=768))
+        metas.append({"id": mid, "like": lk, "comments": cm,
+                      "mult_like": round(lk / med_l, 1),
+                      "mult_comm": round(cm / med_c, 1),
+                      "caption": (m.get("caption") or "").strip()[:120]})
+    key = (cfg.get("gemini_api_key") or "").strip()
+    body = {"contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.3, "maxOutputTokens": 2048,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    resp = requests.post(GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=150)
+    if resp.status_code != 200:
+        raise RuntimeError(f"히트작 해부 실패 {resp.status_code}")
+    out = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    hits = []
+    for i, h in enumerate(out.get("hits", [])[:len(metas)]):
+        if isinstance(h, dict):
+            hits.append({**metas[i], "why": str(h.get("why", "")),
+                         "type": str(h.get("type", "")),
+                         "lesson": str(h.get("lesson", ""))})
+    return hits or None
+
+
 def _ops(media):
     """운영 패턴 실측(순수 계산): 업로드 시간대·요일(KST), 캐러셀 장수별 평균 좋아요."""
     hours, wdays, pl = {}, {}, {}
@@ -490,6 +563,12 @@ def analyze(cfg, base, handle, bd, stats, log=print):
         rep["ops"] = _ops(media)
     except Exception:
         pass
+    # 히트작 개별 해부: 좋아요·댓글 아웃라이어는 따로 배운다
+    try:
+        log("[3/4] 히트작 해부 중 (좋아요·댓글 폭발 게시물)...")
+        rep["hits"] = _hits(cfg, base, handle, media, log=log)
+    except Exception as e:
+        log(f"      (히트작 해부 실패: {str(e)[:80]})")
 
     rep["handle"] = handle
     rep["analyzed"] = datetime.now().isoformat(timespec="seconds")
@@ -570,6 +649,7 @@ def _report_md(handle, bd, stats, rep):
 ## 후킹 전략 해부 🎣
 시퀀스 공식: **{hooks.get('sequence_summary', '')}**
 결(톤) 배합: {hooks.get('tone_mix', '')}
+수위 코드: {hooks.get('spice', '')}
 
 ### 표지 텍스트 후킹 유형
 {hs}
@@ -621,6 +701,17 @@ def _report_md(handle, bd, stats, rep):
 - 업로드 시간대(KST): {' · '.join(ops.get('hours', [])) or '?'}
 - 요일: {' · '.join(ops.get('wdays', [])) or '?'}
 - 캐러셀 장수별 성과: {pp or '?'}
+"""
+    hits = rep.get("hits") or []
+    if hits:
+        hm = "\n".join(
+            f"- **♥{h.get('like')}({h.get('mult_like')}배) · "
+            f"💬{h.get('comments')}({h.get('mult_comm')}배) · {h.get('type', '')}** — "
+            f"{h.get('why', '')}\n  → 교훈: {h.get('lesson', '')}"
+            for h in hits)
+        data_md += f"""
+## 히트작 해부 🔥 (아웃라이어 개별 분석)
+{hm}
 """
     hook_md += data_md
     return f"""# @{handle} 형식 리포트 ({rep.get('analyzed', '')[:16]})
@@ -845,6 +936,12 @@ def remake_cfg(cfg, base, handle):
         if pp:
             guide += (f"\n- 최적 분량(실측): 캐러셀 {pp['len']}이 가장 터짐(평균 ♥{pp['avg']})"
                       " — beats 수를 (그 장수 - 표지·CTA 2장)에 맞춰라")
+        hits = rep.get("hits") or []
+        if hits:
+            guide += "\n- 히트작 교훈(이 채널에서 실제 폭발한 것 — 우선 적용):\n" + "\n".join(
+                f"  · [{h.get('type', '')}] {h.get('lesson', '')}"
+                f" (♥{h.get('like')} 중앙값 {h.get('mult_like')}배)"
+                for h in hits[:3])
     except Exception:
         pass
     return cfg, guide
@@ -883,6 +980,10 @@ def _hook_guide_text(rep):
     hs2 = (hooks.get("headline_stats") or "").strip()
     if hs2:
         out += f"\n- 표지 카피 규격(글자수·기호 이대로): {hs2}"
+    sp = (hooks.get("spice") or "").strip()
+    if sp and "안 함" not in sp:
+        out += (f"\n- 수위 코드(채널 실측): {sp} — 같은 수위로 재현하라. "
+                "단 노출·노골적 성 묘사는 금지(계정 정지 리스크), 암시·언어유희 드립 수준까지만")
     return out
 
 
@@ -897,6 +998,8 @@ REMAKE_PROMPT = """당신은 인스타그램 캐러셀 '리메이크' 편집자�
 채널에서 검증된 후킹 유형으로 쓰고, beats는 시퀀스의 역할 순서(도입→고조→반전 등)를 그대로 밟는다.
 📷 모든 image_query에는 인물의 국적·외모를 원본 사건과 일치시켜라 — 한국 사건이면
 "anonymous Korean students (East Asian)"처럼 영문으로 명시. 안 쓰면 서양인으로 그려져 어색해진다.
+🔞 형식 지침에 '수위 코드'가 있으면 그 수위의 야한 드립·암시는 그대로 쓴다 —
+단 노출·노골적 성 묘사는 금지(계정 정지 리스크), 언어유희·암시 수준까지만.
 
 {guide}
 
@@ -1195,6 +1298,8 @@ MAGAZINE_PROMPT = """당신은 매거진형 인스타 캐러셀 편집자다. �
 논쟁 소재(젠더·집단 갈등 포함)도 수위 그대로 태운다 — 단 채널이 비하의 화자가 되지 말고
 "이 논쟁이 이렇게 뜨겁다"를 전하는 **논쟁 보도(관찰자) 프레임**으로 쓴다.
 소재가 커뮤니티 글·밈이면 실제 사건·발언으로 단정하지 말고 "온라인에서 화제"로 서술한다.
+형식 지침에 '수위 코드'가 있으면 그 수위의 야한 드립·암시도 그대로 쓴다 —
+단 노출·노골적 성 묘사는 금지(계정 정지 리스크), 언어유희·암시 수준까지만.
 
 ⚠️ 주의:
 - 소재는 제목 수준의 정보다. 확인 안 된 세부 사실(정확한 수치·출시일·이름)을 지어내지 마라.
