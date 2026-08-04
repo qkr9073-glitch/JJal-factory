@@ -38,7 +38,9 @@ NEGATIVE = ("Absolutely no text, no words, no letters, no numbers, no captions, 
             "characters, no superhero costumes or emblems, no celebrity lookalikes — "
             "use generic places, objects and anonymous people only. "
             "No nudity or sexually explicit content (suggestive styling within "
-            "platform guidelines is acceptable).")
+            "platform guidelines is acceptable). "
+            "No red circles, arrows, highlight rings or hand-drawn annotation "
+            "marks on the image — annotations are added in post-processing.")
 
 
 def add_callout(cfg, image_path, target, log=print):
@@ -80,27 +82,36 @@ def add_callout(cfg, image_path, target, log=print):
     if (px1 - px0) * (py1 - py0) > 0.45 * W * H:
         return False    # 대상이 화면 절반 수준이면 원 강조가 어색 — 생략
     cx, cy = (px0 + px1) / 2, (py0 + py1) / 2
-    RED = (232, 28, 28)
-    d = ImageDraw.Draw(img)
+    clean = img.copy()          # 줌 인셋은 링을 그리기 '전' 원본에서 뜬다 (이중 원 방지)
+
+    def _ring(canvas, bx, width):
+        """안티앨리어싱 빨간 링 — 2배 캔버스에 그려 내려서 계단 현상 제거."""
+        cw, ch = canvas.size
+        ov = Image.new("RGBA", (cw * 2, ch * 2), (0, 0, 0, 0))
+        ImageDraw.Draw(ov).ellipse([c * 2 for c in bx],
+                                   outline=(232, 28, 28, 255), width=width * 2)
+        ov = ov.resize((cw, ch), Image.LANCZOS)
+        canvas.paste(ov, (0, 0), ov)
+
     rx = max((px1 - px0) / 2 * 1.35, W * 0.05)
     ry = max((py1 - py0) / 2 * 1.35, W * 0.05)
-    d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry],
-              outline=RED, width=max(6, W // 160))
-    # 원형 돋보기 인셋: 대상 주변을 잘라 확대, 대상 반대편 상단 코너에
+    _ring(img, [cx - rx, cy - ry, cx + rx, cy + ry], max(6, W // 160))
+    # 원형 돋보기 인셋: 깨끗한 원본에서 대상 주변을 잘라 확대, 대상 반대편 상단 코너에
     s = max(px1 - px0, py1 - py0) * 1.5
     s = max(s, W * 0.14)
     l = max(0, min(W - s, cx - s / 2))
     t = max(0, min(H - s, cy - s / 2))
     D = int(W * 0.36)
-    zoom = img.crop((int(l), int(t), int(l + s), int(t + s))).resize((D, D), Image.LANCZOS)
-    mask = Image.new("L", (D, D), 0)
-    ImageDraw.Draw(mask).ellipse([0, 0, D - 1, D - 1], fill=255)
+    zoom = clean.crop((int(l), int(t), int(l + s), int(t + s))).resize((D, D),
+                                                                      Image.LANCZOS)
+    mask = Image.new("L", (D * 2, D * 2), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, D * 2 - 1, D * 2 - 1], fill=255)
+    mask = mask.resize((D, D), Image.LANCZOS)   # 인셋 가장자리도 안티앨리어싱
     ix = int(W * 0.05) if cx > W / 2 else int(W - D - W * 0.05)
     iy = int(H * 0.12) if cy > H * 0.5 else int(H * 0.45 - D)
     iy = max(int(H * 0.05), min(iy, int(H * 0.55) - D))
     img.paste(zoom, (ix, iy), mask)
-    ImageDraw.Draw(img).ellipse([ix, iy, ix + D, iy + D],
-                                outline=RED, width=max(7, W // 140))
+    _ring(img, [ix, iy, ix + D, iy + D], max(7, W // 140))
     img.save(p, "JPEG", quality=92)
     return True
 
