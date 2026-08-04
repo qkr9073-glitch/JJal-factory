@@ -14,7 +14,7 @@ import json
 import re
 import threading
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -233,6 +233,7 @@ JSON만 출력:
   "cover_formula": "표지 공식 — 사진 종류·텍스트 배치·줄수·장치(원형 줌/배지/서브라인 등) 구체적으로 3~5문장",
   "inner_formula": "안쪽 장 공식 — 장수·구성(스토리/인포그래픽/순위 등)·마지막 장 CTA 2~4문장",
   "caption_tone": "캡션 형식 — 시작 기호·문체·길이·해시태그·CTA 2~3문장",
+  "caption_blueprint": "캡션을 그대로 따라 쓸 수 있는 단계 설계도 — ①오프닝(이모지·첫 문장 패턴) ②본문 전개 방식 ③맺음/CTA ④해시태그(개수·고정 태그 유무), 각 단계 1줄씩",
   "topic_axes": ["소재 축 3~6개 (예: 해외 화제, 참여형 순위, ...)"],
   "engagement_formula": "댓글·저장을 부르는 장치 분석 2~3문장",
   "level_guide": "수위 지침 — 이 채널의 도발/논쟁 수위를 우리가 유지하는 방법. 혐오 배제 원칙 포함 2~3문장",
@@ -281,6 +282,7 @@ JSON만 출력:
     "... 3~4개"
   ],
   "tone_mix": "결(톤) 배합 한 줄 (예: 충격 50% + 유머 30% + 공감 20%, 어떤 소재에 어떤 결)",
+  "headline_stats": "표지 카피 통계 — 평균 글자수·줄수·기호 사용 경향(따옴표/느낌표/물음표/말줄임) 1~2문장",
   "extra_notes": ["스키마 밖의 특이한 무기·장치 발견 시 (예: 캡처 박스 삽입, 시리즈 연속극, 업로드 시간대) 0~4개"],
   "hook_guide": "제작 프롬프트에 그대로 주입할 후킹 지침 — '- ' 불릿 5~8개. 표지 문구 작법(비중 1위 유형 중심), 장별 역할 순서, 이미지 연출, 대본 문체, 지속률 장치를 명령형으로."
 }}"""
@@ -340,6 +342,86 @@ def analyze_hooks(cfg, base, handle, log=print):
     return hooks
 
 
+WINNERS_PROMPT = """아래는 채널 @{handle}의 최근 게시물 목록(좋아요 수·캡션 앞부분)이다.
+각 게시물을 소재 축과 후킹 유형으로 분류만 하라 (평가 금지, 전부 분류).
+소재 축 후보: {axes}
+후킹 유형 후보: {hooktypes}
+후보에 안 맞으면 "기타". JSON만 출력:
+{{"posts": [{{"n": 1, "axis": "...", "hook": "..."}}]}}
+
+목록:
+{listing}"""
+
+
+def _winners(cfg, handle, media, rep, log=print):
+    """최근 게시물 30개를 소재·후킹별로 분류 → 그룹별 평균 좋아요 실측 (데이터 승리 공식)."""
+    posts = [m for m in media if (m.get("caption") or "").strip()][:30]
+    if len(posts) < 8:
+        return None
+    listing = "\n".join(
+        f"{i + 1}. ♥{m.get('like_count', 0)} | {(m.get('caption') or '').strip()[:90]}"
+        for i, m in enumerate(posts))
+    axes = ", ".join(rep.get("topic_axes") or []) or "자유 분류"
+    hooktypes = ", ".join(h.get("type", "") for h in
+                          (rep.get("hooks") or {}).get("hook_styles", [])) or "자유 분류"
+    key = (cfg.get("gemini_api_key") or "").strip()
+    body = {"contents": [{"role": "user", "parts": [{"text": WINNERS_PROMPT.format(
+                handle=handle, axes=axes, hooktypes=hooktypes, listing=listing)}]}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.2, "maxOutputTokens": 4096,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    resp = requests.post(GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=120)
+    if resp.status_code != 200:
+        raise RuntimeError(f"승리 공식 분류 실패 {resp.status_code}")
+    cls = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    likes = [m.get("like_count", 0) for m in posts]
+    med = sorted(likes)[len(likes) // 2] or 1
+    ax, hk = {}, {}
+    for c in cls.get("posts", []):
+        try:
+            i = int(c.get("n")) - 1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(posts):
+            ax.setdefault(str(c.get("axis") or "기타"), []).append(likes[i])
+            hk.setdefault(str(c.get("hook") or "기타"), []).append(likes[i])
+
+    def _top(d):
+        rows = [{"name": k, "n": len(v), "avg": round(sum(v) / len(v))}
+                for k, v in d.items() if len(v) >= 2 and k != "기타"]
+        return sorted(rows, key=lambda r: -r["avg"])[:5]
+    return {"median": med, "by_axis": _top(ax), "by_hook": _top(hk)}
+
+
+def _ops(media):
+    """운영 패턴 실측(순수 계산): 업로드 시간대·요일(KST), 캐러셀 장수별 평균 좋아요."""
+    hours, wdays, pl = {}, {}, {}
+    for m in media:
+        t = (m.get("timestamp") or "").replace("+0000", "+00:00")
+        try:
+            dt = datetime.fromisoformat(t) + timedelta(hours=9)
+            hours[dt.hour] = hours.get(dt.hour, 0) + 1
+            w = "월화수목금토일"[dt.weekday()]
+            wdays[w] = wdays.get(w, 0) + 1
+        except ValueError:
+            pass
+        if m.get("media_type") == "CAROUSEL_ALBUM":
+            n = len((m.get("children") or {}).get("data", []))
+            b = "4~5장" if n <= 5 else ("6~7장" if n <= 7 else "8장+")
+            pl.setdefault(b, []).append(m.get("like_count", 0))
+    pages = [{"len": k, "n": len(v), "avg": round(sum(v) / len(v))}
+             for k, v in pl.items() if len(v) >= 2]
+    return {
+        "hours": [f"{h}시({c}개)" for h, c in
+                  sorted(hours.items(), key=lambda x: -x[1])[:3]],
+        "wdays": [f"{d}({c}개)" for d, c in
+                  sorted(wdays.items(), key=lambda x: -x[1])[:3]],
+        "pages_perf": sorted(pages, key=lambda r: -r["avg"]),
+    }
+
+
 def analyze(cfg, base, handle, bd, stats, log=print):
     """수집된 이미지+캡션 → 형식 리포트(report.json/md) + 스타일·템플릿 프리셋 등록."""
     key = (cfg.get("gemini_api_key") or "").strip()
@@ -397,6 +479,17 @@ def analyze(cfg, base, handle, bd, stats, log=print):
         log(f"      시퀀스: {rep['hooks'].get('sequence_summary', '')[:60]}")
     except Exception as e:
         log(f"      (후킹 분석 실패 — 형식 분석만 저장: {str(e)[:80]})")
+
+    # 데이터 승리 공식 + 운영 패턴 (최근 30개 실측)
+    try:
+        log("[3/4] 데이터 승리 공식 분석 중 (소재·후킹별 좋아요 실측)...")
+        rep["winners"] = _winners(cfg, handle, media, rep, log=log)
+    except Exception as e:
+        log(f"      (승리 공식 분석 실패: {str(e)[:80]})")
+    try:
+        rep["ops"] = _ops(media)
+    except Exception:
+        pass
 
     rep["handle"] = handle
     rep["analyzed"] = datetime.now().isoformat(timespec="seconds")
@@ -492,6 +585,9 @@ def _report_md(handle, bd, stats, rep):
 - 안쪽 장: {ty.get('inner', '')}
 - 강조: {ty.get('accent', '')}
 
+### 표지 카피 규격
+{hooks.get('headline_stats', '')}
+
 ### 대본 전개 형식
 {hooks.get('script_style', '')}
 
@@ -501,6 +597,32 @@ def _report_md(handle, bd, stats, rep):
 ### 그 외 발견 (특이 무기)
 {ex}
 """ if ex else "")
+    win = rep.get("winners") or {}
+    ops = rep.get("ops") or {}
+    data_md = ""
+    if win or ops:
+        wa = "\n".join(f"- {r['name']}: 평균 ♥{r['avg']} ({r['n']}개, 중앙값의 "
+                       f"{round(r['avg'] / max(win.get('median', 1), 1), 1)}배)"
+                       for r in win.get("by_axis", []))
+        wh = "\n".join(f"- {r['name']}: 평균 ♥{r['avg']} ({r['n']}개)"
+                       for r in win.get("by_hook", []))
+        pp = " · ".join(f"{r['len']} 평균 ♥{r['avg']}({r['n']}개)"
+                        for r in ops.get("pages_perf", []))
+        data_md = f"""
+## 데이터 승리 공식 📊 (최근 게시물 실측, 중앙값 ♥{win.get('median', '?')})
+
+### 터지는 소재 (평균 좋아요순)
+{wa or '- (표본 부족)'}
+
+### 터지는 후킹 유형
+{wh or '- (표본 부족)'}
+
+## 운영 패턴
+- 업로드 시간대(KST): {' · '.join(ops.get('hours', [])) or '?'}
+- 요일: {' · '.join(ops.get('wdays', [])) or '?'}
+- 캐러셀 장수별 성과: {pp or '?'}
+"""
+    hook_md += data_md
     return f"""# @{handle} 형식 리포트 ({rep.get('analyzed', '')[:16]})
 
 **{bd.get('name', '')}** — 팔로워 {bd.get('followers_count', 0):,} · 게시물 {bd.get('media_count', 0):,}
@@ -707,6 +829,22 @@ def remake_cfg(cfg, base, handle):
         if lvl:
             guide += f"\n- 수위 지침: {lvl}"
         guide += _hook_guide_text(rep)
+        cb = (rep.get("caption_blueprint") or "").strip()
+        if cb:
+            guide += f"\n- 캡션 설계도(이 구조 그대로): {cb}"
+        win = rep.get("winners") or {}
+        med = win.get("median") or 0
+        ba = (win.get("by_axis") or [None])[0]
+        bh = (win.get("by_hook") or [None])[0]
+        if ba and med:
+            guide += (f"\n- 데이터 승리 공식(실측): 소재 '{ba['name']}' 평균 ♥{ba['avg']}"
+                      f"(중앙값의 {round(ba['avg'] / max(med, 1), 1)}배)"
+                      + (f", 후킹 '{bh['name']}' 평균 ♥{bh['avg']}" if bh else "")
+                      + " — 표지·전개 선택 시 우선 반영")
+        pp = ((rep.get("ops") or {}).get("pages_perf") or [None])[0]
+        if pp:
+            guide += (f"\n- 최적 분량(실측): 캐러셀 {pp['len']}이 가장 터짐(평균 ♥{pp['avg']})"
+                      " — beats 수를 (그 장수 - 표지·CTA 2장)에 맞춰라")
     except Exception:
         pass
     return cfg, guide
@@ -742,6 +880,9 @@ def _hook_guide_text(rep):
     ex = [n for n in (hooks.get("extra_notes") or []) if n]
     if ex:
         out += "\n- 이 채널의 특이 장치: " + " / ".join(ex[:3])
+    hs2 = (hooks.get("headline_stats") or "").strip()
+    if hs2:
+        out += f"\n- 표지 카피 규격(글자수·기호 이대로): {hs2}"
     return out
 
 
@@ -772,7 +913,7 @@ JSON만 출력:
     {{"role": "이 장이 장별 시퀀스에서 맡는 역할 (예: 맥락/고조/반전, 6자 이내)",
       "title": "그 장면을 서술하는 완전한 문장형 후킹 헤드라인 (짧은 소제목 금지 — 원본 안쪽 장처럼 스토리가 읽히게, 20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
       "image_query": "이 전개 순간의 장면 묘사 — 영문 1문장, 표지와 같은 사건의 연속 컷(같은 장소·인물). 장별 시퀀스의 그 장 '사진' 전략을 반영"}},
-    "... 3~4개 (장별 시퀀스의 역할 순서대로)"
+    "... 3~6개 (장별 시퀀스의 역할 순서대로, 형식 지침에 '최적 분량' 실측이 있으면 그 수에 맞춰라)"
   ],
   "caption": "인스타 캡션 전문 — 원본 스토리텔링 톤을 참고해 새로 작성, 이모지로 시작, 400~700자, 마지막에 의견을 묻는 질문",
   "hashtags": "해시태그 5~8개 한 줄 (#으로 시작, 공백 구분)"
@@ -810,7 +951,7 @@ def remake_build(cfg, base, handle, media_id, log=print):
         raise RuntimeError(f"Gemini 오류 {resp.status_code}: {resp.text[:160]}")
     rp = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
     beats = [b for b in (rp.get("beats") or [])
-             if isinstance(b, dict) and (b.get("title") or "").strip()][:5]
+             if isinstance(b, dict) and (b.get("title") or "").strip()][:6]
     if len(beats) < 2:
         raise RuntimeError("리메이크 전개를 뽑지 못했습니다 — 다시 시도해주세요")
     def _one(s, limit=None):
@@ -844,6 +985,87 @@ def remake_build(cfg, base, handle, media_id, log=print):
     return _produce_pack(cfg2, base, plan, items, beats, rp,
                          {"source": "remake", "ref_handle": handle,
                           "ref_post": str(media_id)}, log=log)
+
+
+JUDGE_PROMPT = """당신은 인스타 벤치마킹 심판이다. [A]는 우리가 만든 게시물 카드들,
+[B]는 레퍼런스 채널의 실제 인기 표지들이다.
+우리 목표: [B] 채널의 미감·후킹·형식을 완전 재현하되 내용만 다른 것. 팬심 없이 냉정하게 채점하라.
+
+채널 형식 기준: {rubric}
+
+10점 만점(소수점 1자리):
+- hook: 표지 문구가 [B]급으로 스크롤을 멈추는가
+- visual: 사진 미감·연출이 [B]와 같은 채널에서 나온 것처럼 보이는가
+- sequence: 장별 흐름이 기준 시퀀스대로 굴러가는가
+- copy: 문구·대본 문체가 채널 기준과 일치하는가
+
+JSON만 출력:
+{{"scores": {{"hook": 0.0, "visual": 0.0, "sequence": 0.0, "copy": 0.0}}, "total": 0.0,
+  "weak": "가장 아쉬운 점 1가지 (구체적으로)",
+  "fix": "hook/visual이 7 미만일 때만 — 표지 이미지 재생성에 반영할 영문 장면 보강 지시 1문장. 아니면 빈 문자열",
+  "verdict": "한 줄 총평"}}"""
+
+
+def _judge_pack(cfg2, base, handle, plan, pack, cards, log=print):
+    """완성 카드를 레퍼런스 원본 인기 표지와 나란히 놓고 AI 심판 채점.
+    표지 점수(후킹/미감)가 낮으면 심판의 지시로 표지를 1회 보수(같은 장면 유지)."""
+    from cardnews import render as card_render
+    from src import genimg
+    d = _refs_root(base) / handle
+    refs = [d / "img" / p["img"] for p in _posts_load(base, handle)[:5] if p.get("img")]
+    refs = [f for f in refs if f.exists()][:2]
+    if not refs or not cards:
+        return None
+    rep = {}
+    try:
+        rep = json.loads((d / "report.json").read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    hooks = rep.get("hooks") or {}
+    rubric = " / ".join(x for x in [
+        hooks.get("sequence_summary", ""),
+        (hooks.get("typography") or {}).get("cover", ""),
+        (hooks.get("script_style") or "")[:120]] if x)
+    log("      벤치마킹 자가채점 — 원본 인기 표지와 나란히 비교 중...")
+    parts = [{"text": JUDGE_PROMPT.format(rubric=rubric or "(리포트 없음)")},
+             {"text": "[A] 우리 결과물 (표지부터 순서대로):"}]
+    for c in cards[:3]:
+        parts.append(_inline(Path(c).read_bytes(), max_side=768))
+    parts.append({"text": "[B] 레퍼런스 채널 실제 인기 표지:"})
+    for f in refs:
+        parts.append(_inline(f.read_bytes(), max_side=768))
+    key = (cfg2.get("gemini_api_key") or "").strip()
+    body = {"contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.3, "maxOutputTokens": 1024,
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
+    model = cfg2.get("gemini_model", "gemini-2.5-flash")
+    resp = requests.post(GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=120)
+    if resp.status_code != 200:
+        raise RuntimeError(f"채점 호출 실패 {resp.status_code}")
+    judge = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    sc = judge.get("scores") or {}
+    log(f"      🧑‍⚖️ 채점 {judge.get('total', '?')}/10 — {str(judge.get('verdict', ''))[:70]}")
+    fix = str(judge.get("fix") or "").strip()
+    try:
+        cover_low = float(sc.get("hook", 10)) < 7 or float(sc.get("visual", 10)) < 7
+    except (TypeError, ValueError):
+        cover_low = False
+    cover_p = cfg2.get("cover_image")
+    if fix and cover_low and cover_p and Path(cover_p).exists():
+        log(f"      🔧 표지 자동 보수: {str(judge.get('weak', ''))[:60]}")
+        try:
+            # 기존 표지를 기준 이미지로 같은 장면을 유지한 채 보강 (연속 컷과의 일관성 보존)
+            genimg.generate_variation(
+                cfg2, cover_p,
+                f"An improved, more striking cover shot of the exact same scene. {fix}",
+                Path(cover_p), theme=cfg2.get("card_theme", "smag"), log=log)
+            card_render.render_cover(plan, cfg2, Path(cards[0]))
+            judge["fixed"] = True
+        except Exception as e:
+            log(f"      (표지 보수 실패 — 원본 유지: {str(e)[:60]})")
+    return judge
 
 
 def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
@@ -904,6 +1126,14 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
     card_render.render_cta(plan, cfg2, p)
     cards.append(p)
 
+    judge = None
+    _jh = (meta_extra or {}).get("ref_handle") or ""
+    if _jh and cfg2.get("card_ref_judge", True):
+        try:
+            judge = _judge_pack(cfg2, base, _jh, plan, pack, cards, log=log)
+        except Exception as e:
+            log(f"      (자가채점 실패: {str(e)[:60]})")
+
     log("[4/4] 캡션 + 패키징...")
     caption_out = plan["caption"] or f"{plan['title_top']} {plan['title_main']}"
     if cfg2.get("_cover_ai"):
@@ -925,6 +1155,8 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
         "created": datetime.now().isoformat(timespec="seconds"),
     }
     meta.update(meta_extra or {})
+    if judge:
+        meta["judge"] = judge
     (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
                                     encoding="utf-8")
     (pack / "items.json").write_text(
@@ -985,7 +1217,7 @@ JSON만 출력:
     {{"role": "이 장이 장별 시퀀스에서 맡는 역할 (예: 맥락/고조/반전, 6자 이내)",
       "title": "장면을 서술하는 완전한 문장형 헤드라인 (20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
       "image_query": "이 장면 묘사 — 영문 1문장, 표지와 같은 세계관의 연속 컷. 장별 시퀀스의 그 장 '사진' 전략 반영"}},
-    "... 3~4개 (장별 시퀀스의 역할 순서대로)"
+    "... 3~6개 (장별 시퀀스의 역할 순서대로, 형식 지침에 '최적 분량' 실측이 있으면 그 수에 맞춰라)"
   ],
   "caption": "인스타 캡션 전문 — 이모지 시작, 400~700자, 마지막에 의견을 묻는 질문",
   "hashtags": "해시태그 5~8개 한 줄"
@@ -1000,12 +1232,12 @@ def _theme_guide(base, theme, handle=""):
     if not ent:
         ent = next((e for e in reg.values() if e.get("render_theme") == theme), None)
     if not ent:
-        return ""
+        return "", ""
     try:
         _cfg, guide = remake_cfg({}, base, ent["handle"])
-        return guide
+        return guide, ent["handle"]
     except Exception:
-        return ""
+        return "", ent.get("handle", "")
 
 
 def magazine_build(cfg, base, topic, context="", theme="jmag", handle="", log=print):
@@ -1021,7 +1253,7 @@ def magazine_build(cfg, base, topic, context="", theme="jmag", handle="", log=pr
     if len(topic) < 4:
         raise RuntimeError("소재(주제)를 4자 이상 입력해주세요")
 
-    guide = _theme_guide(base, cfg2["card_theme"], handle)
+    guide, ref_handle = _theme_guide(base, cfg2["card_theme"], handle)
     gtxt = f"[형식·후킹 지침 — 이 채널의 형식을 따른다]\n{guide}" if guide else ""
     log("[1/4] 소재 기획 중 — 매거진 형식" + (" + 채널 후킹 시퀀스" if guide else ""))
     body = {"contents": [{"role": "user", "parts": [{"text": MAGAZINE_PROMPT.format(
@@ -1036,7 +1268,7 @@ def magazine_build(cfg, base, topic, context="", theme="jmag", handle="", log=pr
         raise RuntimeError(f"Gemini 오류 {resp.status_code}: {resp.text[:160]}")
     rp = _parse_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
     beats = [b for b in (rp.get("beats") or [])
-             if isinstance(b, dict) and (b.get("title") or "").strip()][:5]
+             if isinstance(b, dict) and (b.get("title") or "").strip()][:6]
     if len(beats) < 2:
         raise RuntimeError("전개를 뽑지 못했습니다 — 다시 시도해주세요")
 
@@ -1068,7 +1300,8 @@ def magazine_build(cfg, base, topic, context="", theme="jmag", handle="", log=pr
     log(f"      표지: {plan['title_top']} / {plan['title_main']} · 전개 {n}장"
         + (f" · 시퀀스 {seq_log}" if seq_log else ""))
     return _produce_pack(cfg2, base, plan, items, beats, rp,
-                         {"source": "magazine", "topic": topic}, log=log)
+                         {"source": "magazine", "topic": topic,
+                          "ref_handle": ref_handle}, log=log)
 
 
 def _rss_titles(query, n=5):
