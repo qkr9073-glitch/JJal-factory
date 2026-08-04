@@ -4389,7 +4389,10 @@ def _run_ref_remake(jid, cfg, handle, media_id, lang):
             job["pct"] = STEP_PCT.get(int(step.group(1)), job["pct"])
 
     try:
-        result = reference.remake_build(cfg, BASE, handle, media_id, log=log)
+        # 일본어판 목적이면 기획 단계부터 일본 수요층 시점(당사자화)으로 쓴다 — 번역만으론 시점이 안 바뀜
+        audience = "일본 시청자(일본 네티즌)" if lang == "ja" else ""
+        result = reference.remake_build(cfg, BASE, handle, media_id,
+                                        audience=audience, log=log)
         job["result"] = _pack_payload(result)
         _job_set_owner(job)
         if lang == "ja":

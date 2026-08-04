@@ -1109,7 +1109,9 @@ REMAKE_PROMPT = """당신은 인스타그램 캐러셀 '리메이크' 편집자�
 "anonymous Korean students (East Asian)"처럼 영문으로 명시. 안 쓰면 서양인으로 그려져 어색해진다.
 🔞 형식 지침에 '수위 코드'가 있으면 그 수위의 야한 드립·암시는 그대로 쓴다 —
 단 노출·노골적 성 묘사는 금지(계정 정지 리스크), 언어유희·암시 수준까지만.
-
+😜 인물이 나오는 장면은 표정을 과장 연출하라 — 놀리는/약올리는/황당/억울/능청 등
+수요층의 감정을 대변하거나 약올리는 표정이 후킹이다 (image_query에 표정을 영문으로 명시).
+{audience}
 {guide}
 
 원본 캡션:
@@ -1121,6 +1123,7 @@ JSON만 출력:
   "title_main": "표지 헤드라인 (22자 이내, 원본과 다른 표현)",
   "subtitle": "서브라인 한 줄 (충격 디테일·반전 등, 25자 이내, 없으면 빈 문자열)",
   "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면, 원본 사건을 시각화 (1~2문장). ⚠️영화·게임·연예 등 IP 소재면 캐릭터·코스튬·로고를 그리게 하지 마라(비슷하게 그려져도 저작권 위험) — 반드시 '장소·소품·군중' 장면으로만 (예: 영화 소재 → crowded movie theater lobby at night, glowing screens, popcorn / 진열대·티켓·네온 등). 인물은 익명의 일반인만",
+  "callout_target": "표지에서 빨간 원+돋보기 줌으로 강조할 핵심 대상 — 영문 2~5단어 (예: the tiny peeled banana). 크기·비교·순위·숨은 디테일이 후킹인 소재면 적극 사용하라(레퍼런스 채널의 핵심 장치다). 콕 짚을 대상이 없을 때만 빈 문자열",
   "beats": [
     {{"role": "이 장이 장별 시퀀스에서 맡는 역할 (예: 맥락/고조/반전, 6자 이내)",
       "title": "그 장면을 서술하는 완전한 문장형 후킹 헤드라인 (짧은 소제목 금지 — 원본 안쪽 장처럼 스토리가 읽히게, 20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
@@ -1132,9 +1135,10 @@ JSON만 출력:
 }}"""
 
 
-def remake_build(cfg, base, handle, media_id, log=print):
+def remake_build(cfg, base, handle, media_id, audience="", log=print):
     """게시물 리메이크: 중심내용 유지 + 표현·후킹 재창조 + AI 썸네일(채널 미감 테마)
-    → 완성팩 (build_cardnews와 같은 반환 형태, 수출 탭 호환)."""
+    → 완성팩 (build_cardnews와 같은 반환 형태, 수출 탭 호환).
+    audience: 최종 수요층(예: '일본 시청자') — 감정의 주어를 그쪽으로 재중심화."""
     from cardnews import render as card_render
     from cardnews import pipeline as card_pipeline
     import uuid as _uuid
@@ -1147,9 +1151,18 @@ def remake_build(cfg, base, handle, media_id, log=print):
     if not key:
         raise RuntimeError("Gemini API 키가 없습니다")
 
-    log("[1/4] 리메이크 기획 중 (AI 비전) — 중심내용 유지 · 표현 재창조")
+    log("[1/4] 리메이크 기획 중 (AI 비전) — 중심내용 유지 · 표현 재창조"
+        + (f" · {audience} 시점" if audience else ""))
     gtxt = f"[형식 지침 — 이 채널의 형식을 따른다]\n{guide}" if guide else ""
-    parts = [{"text": REMAKE_PROMPT.format(guide=gtxt, caption=(caption or "(없음)")[:1500])}]
+    atxt = ""
+    if audience:
+        atxt = (f"🎯 수요층: 이 게시물의 최종 시청자는 {audience}다. 감정의 주어·당사자를 "
+                f"그 수요층으로 재중심화하라 — 순위·비교·평가 소재면 그 나라 항목을 후킹의 "
+                f"중심에 놓고(예: 분류표라면 그 나라가 어떻게 그려졌는지부터), 반응 장은 "
+                f"그 수요층 네티즌의 억울함·발끈·부러움으로 쓴다. 원본에 그 나라 정보가 "
+                f"없으면 지어내지 말고 '그 나라에서도 화제'로 소화하라.")
+    parts = [{"text": REMAKE_PROMPT.format(guide=gtxt, audience=atxt,
+                                           caption=(caption or "(없음)")[:1500])}]
     for p in paths[:3]:
         parts.append(_inline(Path(p).read_bytes()))
     body = {"contents": [{"role": "user", "parts": parts}],
@@ -1268,11 +1281,18 @@ def _judge_pack(cfg2, base, handle, plan, pack, cards, log=print):
     if fix and cover_low and cover_p and Path(cover_p).exists():
         log(f"      🔧 표지 자동 보수: {str(judge.get('weak', ''))[:60]}")
         try:
-            # 기존 표지를 기준 이미지로 같은 장면을 유지한 채 보강 (연속 컷과의 일관성 보존)
+            # 깨끗한 원본(원 강조 전)을 기준으로 같은 장면 유지 보강 — 연속 컷 일관성 보존
+            base_img = cfg2.get("_cover_clean") or cover_p
             genimg.generate_variation(
-                cfg2, cover_p,
+                cfg2, base_img,
                 f"An improved, more striking cover shot of the exact same scene. {fix}",
                 Path(cover_p), theme=cfg2.get("card_theme", "smag"), log=log)
+            ct = (cfg2.get("_callout_target") or "").strip()
+            if ct:
+                try:
+                    genimg.add_callout(cfg2, cover_p, ct, log=log)
+                except Exception:
+                    pass
             card_render.render_cover(plan, cfg2, Path(cards[0]))
             judge["fixed"] = True
         except Exception as e:
@@ -1320,6 +1340,18 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
                 it["image"] = str(bp)
             except Exception as e:
                 log(f"      (컷 {i} 실패 — 표지 재사용: {str(e)[:60]})")
+
+    # 원 강조+돋보기 줌: 연속 컷 생성이 끝난 뒤에 그린다 (컷들이 원을 물려받지 않게)
+    ct = str(rp.get("callout_target") or "").strip()
+    cfg2["_callout_target"] = ct
+    if ct and cfg2.get("_cover_ai") and cover_p.exists():
+        try:
+            (pack / "_cover_clean.jpg").write_bytes(cover_p.read_bytes())
+            cfg2["_cover_clean"] = str(pack / "_cover_clean.jpg")
+            if genimg.add_callout(cfg2, cover_p, ct, log=log):
+                log(f"      🔴 원 강조+돋보기 줌 적용: {ct}")
+        except Exception as e:
+            log(f"      (원 강조 실패: {str(e)[:60]})")
 
     last_img = next((it["image"] for it in reversed(items) if it.get("image")), None)
     if last_img or cover_p.exists():
@@ -1397,6 +1429,10 @@ MAGAZINE_PROMPT = """당신은 매거진형 인스타 캐러셀 편집자다. �
 
 타겟: 일본인 시청자에게 한국 정보를 전하는 채널 (한국어로 쓰고 나중에 일본어로 현지화한다).
 "일본에선 못 산다/못 본다"는 부러움 포인트, 신기함, 논쟁 유발 포인트를 살려라.
+🎯 감정의 주어는 언제나 일본 시청자다 — 당사자화가 핵심. 순위·비교·평가 소재면 일본 항목을
+후킹의 중심에 놓고, 반응은 '일본 네티즌의 억울함·발끈·부러움'으로 쓴다 ('한국 네티즌 반응' 금지).
+일본 항목이 원재료에 없으면 지어내지 말고 "일본에서도 화제"로 소화하라.
+😜 인물 장면은 표정을 과장 연출 — 놀리는/약올리는/황당/억울/능청 표정이 후킹이다 (영문 명시).
 
 ⚡ 이 채널은 밋밋한 소개 채널이 아니다. 참고 정보에 '결'이 있으면 그 결로, 없으면 소재에
 맞는 결을 골라 확실히 태워라:
@@ -1427,6 +1463,7 @@ JSON만 출력:
   "title_main": "표지 헤드라인 (22자 이내)",
   "subtitle": "서브라인 (부러움/충격 포인트, 25자 이내, 없으면 빈 문자열)",
   "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면 (1~2문장). ⚠️브랜드명·저작권 캐릭터·유명인 이름 금지 — 분위기·소품으로 우회 묘사",
+  "callout_target": "표지에서 빨간 원+돋보기 줌으로 강조할 핵심 대상 — 영문 2~5단어. 특정 사물·디테일을 콕 짚는 게 후킹인 소재일 때만, 아니면 빈 문자열",
   "beats": [
     {{"role": "이 장이 장별 시퀀스에서 맡는 역할 (예: 맥락/고조/반전, 6자 이내)",
       "title": "장면을 서술하는 완전한 문장형 헤드라인 (20~30자)", "lines": ["본문 문장 1", "본문 문장 2"],
