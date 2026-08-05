@@ -7474,19 +7474,36 @@ def api_ie_insta_collect_make():
     import requests as _rq
     tmpdir = BASE / "_covertmp"
     tmpdir.mkdir(exist_ok=True)
-    paths = []
-    last_err = ""
-    for i, u in enumerate(imgs[:10]):
+    IMG_HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                             "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+               "Referer": "https://www.instagram.com/",
+               "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"}
+
+    def _dl(urls):
+        """URL 목록 → 저장된 파일 경로들. (헤더 없이 요청하면 CDN이 403)"""
+        got, err = [], ""
+        for u in urls[:10]:
+            try:
+                r = _rq.get(u, headers=IMG_HDR, timeout=40)
+                r.raise_for_status()
+                q = tmpdir / (uuid.uuid4().hex[:12] + ".jpg")
+                from PIL import Image as _Img
+                import io as _io
+                _Img.open(_io.BytesIO(r.content)).convert("RGB").save(q, "JPEG", quality=90)
+                got.append(str(q))
+            except Exception as e:                    # 만료된 CDN 주소 등 — 한 장 실패는 건너뜀
+                err = str(e)[:100]
+        return got, err
+
+    paths, last_err = _dl(imgs)
+    if not paths and kind != "reel":
+        # 저장된 주소가 만료(403/404) → 부계정 세션으로 최신 주소 다시 받아 재시도
         try:
-            r = _rq.get(u, timeout=40)
-            r.raise_for_status()
-            p = tmpdir / (uuid.uuid4().hex[:12] + ".jpg")
-            from PIL import Image as _Img
-            import io as _io
-            _Img.open(_io.BytesIO(r.content)).convert("RGB").save(p, "JPEG", quality=90)
-            paths.append(str(p))
-        except Exception as e:                        # 만료된 CDN 주소 등 — 한 장 실패는 건너뜀
-            last_err = str(e)[:100]
+            fresh = insta_import.fetch_post_images(cfg, BASE, sc)
+        except Exception as e:
+            fresh, last_err = [], f"{last_err} / 재조회 실패: {str(e)[:80]}"
+        if fresh and fresh != imgs:
+            paths, last_err = _dl(fresh)
     if not paths:
         return jsonify(ok=False, error=f"이미지 내려받기 실패(주소 만료 가능): {last_err} — "
                                        "확장으로 게시물을 다시 열어 재수집 후 시도하세요"), 400
