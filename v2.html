@@ -447,6 +447,7 @@
         </div>
       </div>
       <button type="button" data-t="ie">🔄 <span>수입·수출</span></button>
+      <button type="button" data-t="prod">🚀 <span>채널 생산</span></button>
       <button type="button" data-t="refs">📡 <span>레퍼런스</span></button>
       <button type="button" data-t="sched">🗓 <span>예약·승인</span></button>
       <button type="button" data-t="result">📦 <span>결과물</span></button>
@@ -598,10 +599,10 @@
     if(!_booted||prev===t){_booted=true;route(t);return;}    // 최초 로드/같은 탭은 애니 없이
     slideEl($('view'),()=>route(t),tabIdx(t)-tabIdx(prev));   // 탭 순서로 좌우 방향 결정
   }
-  function route(t){({jjal:renderJjal,card:renderCard,autoreel:renderAutoReel,reel:renderReel,thread:renderThread,ie:renderIE,refs:renderRefs,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
+  function route(t){({jjal:renderJjal,card:renderCard,autoreel:renderAutoReel,reel:renderReel,thread:renderThread,ie:renderIE,prod:renderProd,refs:renderRefs,sched:renderSchedule,result:renderResults,members:renderMembers}[t]||renderJjal)();}
 
   /* ===== 좌우 슬라이딩 전환 (탭 · 위저드 단계, 버튼만) ===== */
-  const TAB_ORDER=['jjal','card','autoreel','reel','thread','ie','refs','sched','result','members'];
+  const TAB_ORDER=['jjal','card','autoreel','reel','thread','ie','prod','refs','sched','result','members'];
   const tabIdx=t=>{const i=TAB_ORDER.indexOf(t);return i<0?0:i;};
   const reducedMotion=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
   let _slideActive=null;   // 진행 중 애니 {el, cancel} — 새 전환이 오면 이전 걸 즉시 종료
@@ -4075,16 +4076,14 @@
           <input class="in" id="refHandle" placeholder="@핸들 (예: selectionmgz)">
           <button class="go" style="margin-top:8px" onclick="refUpdate()">📡 수집 + 형식 학습 (2~4분)</button>
           <div class="caphint" style="margin-top:8px">공식 API(business_discovery)만 사용 — 계정 안전.<br>조회 대상은 <b>프로페셔널 계정</b>만 가능.<br>결과는 카드뉴스 <b>스타일/템플릿 프리셋</b>으로 자동 등록돼요 (재실행 = 형식 최신화).</div></div>
-        <div class="step"><div class="sh"><span class="num">2</span><span class="st">역수출 소재 (일본 타겟)</span></div>
-          <button class="btn" style="width:100%" onclick="refKrjp(false)">🔎 한국 소재 스캔</button>
-          <div class="caphint" style="margin-top:8px">커뮤 9곳+뉴스+<b>일본 수요 신호</b>(일본뉴스·급상승 검색어·유튜브 인기)를 7축(🛍한정템/🎭인물/📰사건미담/✅팩트체크/💡꿀팁/📖스토리/🪞반전)으로 선별.<br>소재마다 출처 교차검증(🟢뉴스/🟡커뮤 교차/⚠️단독) + 🇯🇵 일본 반응 확인.<br>논쟁 수위는 유지하되 혐오·정치 소재는 자동 배제.<br>유튜브 인기 급상승은 관리자 탭에 유튜브 키 넣으면 켜져요.</div></div>
+        <div class="step"><div class="sh"><span class="num">2</span><span class="st">만들기는 어디서?</span></div>
+          <div class="caphint">소재 스캔·리메이크·제작은 전부 <b>🚀 채널 생산 탭</b> 하나로 합쳐졌어요.<br>여기는 채널을 <b>학습</b>시키는 곳 — 학습 결과는 생산 탭 제작에 자동 반영됩니다.</div></div>
       </aside>
       <main class="mainpane">
         <div id="jjobs"></div>
-        <div class="panehead"><h2>📡 레퍼런스 채널</h2><span class="n">벤치마크 형식 학습 + 소재 소싱</span></div>
+        <div class="panehead"><h2>📡 레퍼런스 채널</h2><span class="n">벤치마크 형식 학습 (제작은 🚀 채널 생산 탭)</span></div>
         <div id="refList" style="display:flex;flex-direction:column;gap:10px"><div style="color:var(--faint)">불러오는 중…</div></div>
         <div id="refReport" style="display:none;margin-top:14px"></div>
-        <div id="refKrjpBox" style="margin-top:14px"></div>
       </main>
     </div>`;
     refLoad();
@@ -4109,7 +4108,6 @@
         <div style="color:var(--faint);font-size:12px;margin-top:4px">하루 ${s.per_day??'?'}개 · 캐러셀 ${s.carousel_pages??'?'}장 · 좋아요 중앙값 ${s.like_median??'?'} · 댓글율 ${s.comment_ratio??'?'}%</div>
         <div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">
           <button class="btn" onclick="refUpdate('${esch(r.handle)}')">🔄 형식 업데이트</button>
-          <button class="btn primary" onclick="refPosts('${esch(r.handle)}')">🗞 게시물·리메이크</button>
           <button class="btn" onclick="refReport('${esch(r.handle)}')">📄 리포트</button>
           ${isAdmin()?`<button class="btn" style="color:var(--danger)" onclick="refDel('${esch(r.handle)}')">🗑</button>`:''}
         </div></div>`;}).join('');
@@ -4220,16 +4218,18 @@
   }
   async function refMagazine(ix,lang){
     const it=KRJP_ITEMS[ix]; if(!it)return;
+    const ch=PROD_CH||{};
+    lang=lang||ch.lang||'ja';
     const ev=(it.evidence||[]).slice(0,2).map(e=>e.title).join(' · ');
     let context=`결(톤): ${it.tone||''} / 선정 이유: ${it.why||''} / 일본어 후킹 시안: ${it.jp_hook||''} / 원문 제목: ${it.src_title||''}`;
     if(it.src_grade)context+=` / 출처 검증: ${it.src_grade}${ev?` (근거: ${ev})`:''}`;
     if(it.jp_demand)context+=' / 일본에서도 이미 언급·화제 (근거 실재 — "日本でも話題" 각도 사용 가능)';
-    let d; try{d=await apiJson('/api/ref/magazine',{code:code(),topic:it.topic,context,lang});}catch(e){flash('❌ 통신 오류: '+e);return;}
+    let d; try{d=await apiJson('/api/ref/magazine',{code:code(),topic:it.topic,context,lang,handle:ch.ref_handle||'',theme:ch.theme||'jmag'});}catch(e){flash('❌ 통신 오류: '+e);return;}
     if(!d.ok){flash('❌ '+d.error);return;}
     const box=$('jjobs');
     if(box){const div=document.createElement('div');div.id='refrow-'+d.job;
       div.style.cssText='background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:10px 13px;margin-bottom:8px;font-size:13px';
-      div.innerHTML=`<b>🗾 소재 제작${lang==='ja'?' +🇯🇵':''} — ${esch((it.topic||'').slice(0,30))}</b>
+      div.innerHTML=`<b>🚀 ${esch((ch.emoji||'')+' '+(ch.name||'소재 제작'))}${lang==='ja'?' +🇯🇵':''} — ${esch((it.topic||'').slice(0,30))}</b>
         <div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
         <span class="jm" style="color:var(--gold)">접수됨…</span>`;
       box.prepend(div);}
@@ -4262,10 +4262,112 @@
         <div style="color:var(--muted);font-size:12.5px;margin-top:3px">${esch(it.why||'')} — <span style="color:var(--gold)">${esch(it.jp_hook||'')}</span></div>
         ${(it.evidence||[]).length?`<div style="font-size:12px;color:var(--faint);margin-top:4px">근거: ${it.evidence.slice(0,3).map(e=>`<a href="${esch(e.url)}" target="_blank" rel="noopener" style="color:var(--faint)">[${esch(e.src||'')}] ${esch((e.title||'').slice(0,28))} ↗</a>`).join(' · ')}</div>`:''}
         <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn primary" onclick="refMagazine(${ix},'ja')">🗾 일본어판 제작</button>
-          <button class="btn" onclick="refMagazine(${ix},'ko')">🇰🇷 한국판만</button>
+          <button class="btn primary" onclick="refMagazine(${ix})">🚀 ${PROD_CH?esch((PROD_CH.emoji||'')+' '+PROD_CH.name)+' 제작':'제작'}</button>
           <button class="btn" onclick="refCopy(${ix})">📋 복사</button></div>
       </div>`).join('')+'</div>';
+  }
+
+  /* ---- 🚀 채널 생산 (통합 창구): 채널 프로필 → 소재 → 만들기 ---- */
+  let CHANNELS=[],PROD_CH=null,PROD_MAT='scan';
+  async function renderProd(){
+    $('view').innerHTML=`
+    <div class="view">
+      <aside class="side">
+        <div class="step"><div class="sh"><span class="num">1</span><span class="st">어느 채널에 올릴까</span></div>
+          <div id="prodChList" style="display:flex;flex-direction:column;gap:8px"><div style="color:var(--faint)">불러오는 중…</div></div>
+          <div class="caphint" style="margin-top:8px">채널 프로필 = 타겟·언어·미감·학습 소스 묶음.<br>고르면 소재·대본·번역·미감이 전부 자동 적용돼요.</div></div>
+        <div class="step"><div class="sh"><span class="num">3</span><span class="st">직접 입력으로 만들기</span></div>
+          <input class="in" id="prodTopic" placeholder="소재(주제) 한 줄">
+          <textarea class="in" id="prodCtx" rows="2" placeholder="맥락 메모 (선택)" style="margin-top:6px"></textarea>
+          <button class="go" style="margin-top:8px" onclick="prodDirect()">🚀 이 채널로 제작</button></div>
+      </aside>
+      <main class="mainpane">
+        <div id="jjobs"></div>
+        <div class="panehead"><h2>🚀 채널 생산</h2><span class="n"><span class="num" style="margin-right:4px">2</span>소재 고르기 → 만들기</span></div>
+        <div class="chips" style="margin-bottom:10px">
+          <span class="chip on" id="matScan" onclick="prodMat('scan')">🔎 소재 스캔 (갈래별)</span>
+          <span class="chip" id="matPosts" onclick="prodMat('posts')">🗞 레퍼런스 게시물 리메이크</span></div>
+        <div id="refKrjpBox"></div>
+        <div id="prodPosts" style="display:none"></div>
+      </main>
+    </div>`;
+    let d; try{d=await apiJson('/api/channels',{code:code()});}catch(e){$('prodChList').innerHTML='❌ 통신 오류';return;}
+    if(!d.ok){$('prodChList').innerHTML='❌ '+esch(d.error);return;}
+    CHANNELS=d.channels||[];
+    const saved=localStorage.getItem('prodch');
+    PROD_CH=CHANNELS.find(c=>c.id===saved)||CHANNELS[0]||null;
+    prodChRender();
+    prodMat(PROD_MAT,true);
+  }
+  function prodChRender(){
+    const box=$('prodChList'); if(!box)return;
+    box.innerHTML=CHANNELS.map(c=>{
+      const on=PROD_CH&&PROD_CH.id===c.id;
+      return `<div onclick="prodPick('${esch(c.id)}')" style="cursor:pointer;background:${on?'var(--panel2)':'var(--panel)'};border:1px solid ${on?'var(--gold)':'var(--line)'};border-radius:10px;padding:10px 12px">
+        <b style="font-size:13.5px">${esch(c.emoji||'')} ${esch(c.name)}</b>
+        <span style="font-size:11.5px;color:var(--faint)"> ${c.lang==='ja'?'日本語':'한국어'} · ${esch(c.theme||'')} · @${esch(c.ref_handle||'')}</span>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px">${esch(c.desc||'')}</div></div>`;}).join('')
+      ||'<div class="caphint">채널 프로필이 없어요.</div>';
+  }
+  function prodPick(id){
+    PROD_CH=CHANNELS.find(c=>c.id===id)||PROD_CH;
+    localStorage.setItem('prodch',id);
+    prodChRender();
+    prodMat(PROD_MAT,true);
+  }
+  function prodMat(m,force){
+    if(PROD_MAT===m&&!force)return;
+    PROD_MAT=m;
+    const s=$('matScan'),p=$('matPosts');
+    if(s)s.classList.toggle('on',m==='scan');
+    if(p)p.classList.toggle('on',m==='posts');
+    const kb=$('refKrjpBox'),pb=$('prodPosts');
+    if(kb)kb.style.display=m==='scan'?'':'none';
+    if(pb)pb.style.display=m==='posts'?'':'none';
+    if(m==='scan')refKrjp(false);else prodPosts();
+  }
+  async function prodPosts(){
+    const box=$('prodPosts'); if(!box)return;
+    if(!PROD_CH){box.innerHTML='<div class="caphint">채널을 먼저 고르세요.</div>';return;}
+    const h=PROD_CH.ref_handle||'';
+    box.innerHTML=`<div style="color:var(--gold);font-size:13px;padding:8px 0">@${esch(h)} 게시물 불러오는 중…</div>`;
+    let d; try{d=await apiJson('/api/ref/posts',{code:code(),handle:h});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
+    const _lk=(d.posts||[]).map(p=>p.like||0).sort((a,b)=>a-b);
+    const _med=_lk.length?_lk[Math.floor(_lk.length/2)]||1:1;
+    const rows=(d.posts||[]).map(p=>{
+      const img=p.img?`<img src="/refimg/${esch(h)}/${esch(p.img)}" style="width:84px;height:105px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none">`
+                     :`<div style="width:84px;height:105px;border-radius:8px;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--faint);flex:none">${p.type==='VIDEO'?'🎬':'🖼'}</div>`;
+      const mult=(p.like||0)/_med;
+      const hot=mult>=2?`<span style="color:#ff6b57;font-weight:800">🔥 ${mult.toFixed(1)}배</span> · `:'';
+      return `<div style="display:flex;gap:10px;background:var(--panel);border:1px solid ${mult>=2?'#ff6b57':'var(--line)'};border-radius:10px;padding:10px">
+        ${img}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:var(--faint)">${hot}♥${(p.like||0).toLocaleString()} · 💬${(p.comments||0).toLocaleString()}${p.pages?` · ${p.pages}장`:''} ${p.permalink?`· <a href="${esch(p.permalink)}" target="_blank" rel="noopener" style="color:var(--faint)">원본 ↗</a>`:''}</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esch(p.caption||'(캡션 없음)')}</div>
+          <div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">
+            ${p.type!=='VIDEO'?`<button class="btn primary" onclick="refRemake('${esch(h)}','${esch(p.id)}','${esch(PROD_CH.lang||'ko')}')">🚀 ${esch((PROD_CH.emoji||'')+' '+PROD_CH.name)} 리메이크</button>`
+            :`<span style="font-size:12px;color:var(--faint)">영상 게시물 — 리메이크 미지원</span>`}
+          </div></div></div>`;}).join('');
+    box.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="caphint">수집된 게시물이 없어요 — 레퍼런스 탭에서 형식 업데이트를 먼저 돌려주세요.</div>'}</div>`;
+  }
+  async function prodDirect(){
+    if(!PROD_CH){flash('채널을 먼저 고르세요');return;}
+    const topic=($('prodTopic')&&$('prodTopic').value.trim())||'';
+    if(topic.length<4){flash('소재(주제)를 4자 이상 입력하세요');return;}
+    const context=($('prodCtx')&&$('prodCtx').value.trim())||'';
+    let d; try{d=await apiJson('/api/ref/magazine',{code:code(),topic,context,lang:PROD_CH.lang||'ko',handle:PROD_CH.ref_handle||'',theme:PROD_CH.theme||'jmag'});}catch(e){flash('❌ 통신 오류: '+e);return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const box=$('jjobs');
+    if(box){const div=document.createElement('div');div.id='refrow-'+d.job;
+      div.style.cssText='background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:10px 13px;margin-bottom:8px;font-size:13px';
+      div.innerHTML=`<b>🚀 ${esch((PROD_CH.emoji||'')+' '+PROD_CH.name)} — ${esch(topic.slice(0,30))}</b>
+        <div class="jbar" style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
+        <span class="jm" style="color:var(--gold)">접수됨…</span>`;
+      box.prepend(div);}
+    if($('prodTopic'))$('prodTopic').value='';
+    window.scrollTo({top:0,behavior:'smooth'});
+    refPoll(d.job);
   }
 
   let adminSec='members';

@@ -4192,6 +4192,28 @@ def fb_oauth_cb():
 # ──────────────────── 레퍼런스 채널 (MF-001: 핸들→수집→형식 학습) ────────────────────
 KRJP_CACHE = {}   # 역수출 소재 추천 30분 캐시 — 갈래(axis)별 {"time", "data"}
 
+# 운영 채널 프로필 — 생산 탭의 1급 개념. config "channels"로 덮어쓰기 가능.
+# 프로필 하나 = 타겟·언어·테마·학습 소스(레퍼런스)·설명 묶음.
+DEFAULT_CHANNELS = [
+    {"id": "jp1", "name": "일본 채널", "emoji": "🗾", "lang": "ja",
+     "theme": "jmag", "ref_handle": "justdoeatjapan",
+     "desc": "일본 MZ 타겟 · 진짜 한국 이야기 — 당사자화 기획+네이티브 일본어+자가채점"},
+    {"id": "kr1", "name": "한국 매거진", "emoji": "🇰🇷", "lang": "ko",
+     "theme": "smag", "ref_handle": "selectionmgz",
+     "desc": "셀렉션식 큐레이션 매거진 (한국어) — 낚시-반전·참여형 플레이북"},
+]
+
+
+@app.post("/api/channels")
+def api_channels():
+    """운영 채널 프로필 목록 — 생산 탭 1단계(어느 채널에 올릴 건가)."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    chs = cfg.get("channels") or DEFAULT_CHANNELS
+    return jsonify(ok=True, channels=chs)
+
 
 def _run_ref_update(jid, cfg, handle):
     """레퍼런스 채널 형식 업데이트 잡: 수집→비전분석→스타일·템플릿 프리셋 교체."""
@@ -4282,8 +4304,8 @@ def api_ref_del():
     return jsonify(ok=True)
 
 
-def _run_ref_magazine(jid, cfg, topic, context, lang, handle=""):
-    """소재→매거진 제작 잡 (역수출: 한국 소재를 jmag 미감+일본어판으로).
+def _run_ref_magazine(jid, cfg, topic, context, lang, handle="", theme="jmag"):
+    """소재→매거진 제작 잡 (역수출: 한국 소재를 채널 미감+현지화판으로).
     handle이 없으면 테마가 일치하는 레퍼런스 채널의 후킹 시퀀스를 자동으로 쓴다."""
     job = JOBS[jid]
 
@@ -4296,7 +4318,7 @@ def _run_ref_magazine(jid, cfg, topic, context, lang, handle=""):
 
     try:
         result = reference.magazine_build(cfg, BASE, topic, context=context,
-                                          handle=handle, log=log)
+                                          theme=theme, handle=handle, log=log)
         job["result"] = _pack_payload(result)
         _job_set_owner(job)
         if lang == "ja":
@@ -4326,12 +4348,14 @@ def api_ref_magazine():
     lang = "ja" if (data.get("lang") == "ja") else "ko"
     handle = re.sub(r"[^A-Za-z0-9._]", "",
                     (data.get("handle") or "").strip().lstrip("@"))
+    theme = data.get("theme") if data.get("theme") in ("smag", "jmag") else "jmag"
     now = time.time()
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
                  "result": None, "error": None, "ts": now,
                  "code": (data.get("code") or "").strip()}
-    JOBQ.put((jid, _run_ref_magazine, (jid, cfg, topic, context, lang, handle)))
+    JOBQ.put((jid, _run_ref_magazine,
+              (jid, cfg, topic, context, lang, handle, theme)))
     return jsonify(ok=True, job=jid)
 
 
