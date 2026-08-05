@@ -94,6 +94,21 @@ def _loader(cfg, base, log=print):
     return L, user
 
 
+def fetch_post_images(cfg, base, shortcode, log=print):
+    """shortcode → 이미지 URL 목록(캐러셀 전체, 영상 항목 제외). 실패/영상 전용이면 []."""
+    import instaloader
+    L, _ = _loader(cfg, base, log)
+    post = instaloader.Post.from_shortcode(L.context, shortcode)
+    urls = []
+    if post.typename == "GraphSidecar":
+        for n in post.get_sidecar_nodes():
+            if not n.is_video:
+                urls.append(n.display_url)
+    elif not post.is_video:
+        urls.append(post.url)
+    return urls
+
+
 # ── 게시물 조회 ────────────────────────────────────────────────
 def fetch_posts(cfg, base, username, limit=6, log=print):
     """@username 최근 게시물 중 '이미지 전용'(단일/캐러셀, 영상·릴스 제외)만 좋아요순 반환."""
