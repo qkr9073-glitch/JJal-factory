@@ -2850,7 +2850,7 @@
       const trOn=IEB.trSel.has(p.shortcode);
       return `<div class="igcard">
         <div class="igth">${icon}${p.thumb?`<img src="${esch(p.thumb)}" loading="lazy" onerror="this.remove()">`:''}${p.kind==='reel'?`<label class="trpick ${trOn?'on':''}" title="대본 뽑기 선택"><input type="checkbox" data-tr="${esch(p.shortcode)}" ${trOn?'checked':''}>📝</label>`:''}</div>
-        <div class="ib"><div style="font-size:10.5px;color:var(--faint);margin-bottom:2px">${p.kind==='reel'?'🎬':'🖼'+(p.n_img>1?p.n_img:'')} · ${cnt}${p.transcript?' · <span style="color:var(--gold)">📝대본✓</span>':''}</div>
+        <div class="ib"><div style="font-size:10.5px;color:var(--faint);margin-bottom:2px">${p.kind==='reel'?'🎬':'🖼'+(p.n_img>1?p.n_img:'')} · ${cnt}${p.transcript?' · <span style="color:var(--gold)">📝대본✓</span>':''}${p.stale?' · <span style="color:var(--pend)" title="인스타 이미지 주소는 약 5일 뒤 만료됩니다. 게시물을 다시 열면 갱신돼요">⌛주소만료</span>':''}</div>
           <div style="font-size:11px;line-height:1.4;height:31px;overflow:hidden;color:var(--muted)">${esch((p.caption||'').slice(0,44))}</div>
           <div class="collbtns">
             <button class="btn ${p.shortcode===IEB.sc?'collsel':'primary'} collmk" data-src="${esch(p.shortcode)}">${p.shortcode===IEB.sc?'✅ 선택됨':'＋ 소재로'}</button>
@@ -2898,7 +2898,7 @@
     const k=item&&item.kind;
     const ni=(item&&item.n_img)||0;
     const desc=k==='reel'?'🎬 릴스 (영상 대본 → 짤)'
-      :(ni?('🖼 이미지 '+ni+'장')
+      :(ni?('🖼 이미지 '+ni+'장'+((item&&item.stale)?' · <span style="color:var(--pend)">⌛주소 만료 — 게시물 다시 열어 갱신 필요</span>':''))
           :'🖼 이미지 · <span style="color:var(--pend)">원본 미수집</span> — 확장 켜고 그 게시물을 한 번 열면 고화질로 담겨요');
     const el=$('ie_src');
     if(el){

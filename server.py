@@ -7354,6 +7354,7 @@ def api_ie_insta_collected():
             "likeCount": int(it.get("likeCount", 0) or 0),
             "n_img": len(imgs), "thumb": imgs[0] if imgs else it.get("thumbUrl", ""),
             "collected_at": it.get("collected_at", ""),
+            "stale": bool(imgs and (lambda e: e and e < datetime.now())(_cdn_expiry(imgs[0]))),
             "transcript": bool((it.get("transcript") or "").strip()),
         })
     return jsonify(ok=True, items=out[:400])
@@ -7433,6 +7434,18 @@ def _run_reel_make_job(jid, url, cfg, hint="", blur=True, clean="none"):
         job["error"] = str(e)[:220]
 
 
+def _cdn_expiry(url):
+    """인스타 CDN 주소의 만료 시각(oe 파라미터, 16진 epoch) → datetime. 없으면 None."""
+    try:
+        from urllib.parse import parse_qs, urlparse
+        oe = (parse_qs(urlparse(str(url or "")).query).get("oe") or [""])[0]
+        if re.fullmatch(r"[0-9A-Fa-f]{6,12}", oe or ""):
+            return datetime.fromtimestamp(int(oe, 16))
+    except Exception:
+        pass
+    return None
+
+
 @app.post("/api/ie/insta/collect_make")
 def api_ie_insta_collect_make():
     """수집한 이미지 게시물 → 이미지 내려받아 '해외→한국 현지화' 완성팩(템플릿 적용) 생성."""
@@ -7505,7 +7518,14 @@ def api_ie_insta_collect_make():
         if fresh and fresh != imgs:
             paths, last_err = _dl(fresh)
     if not paths:
-        return jsonify(ok=False, error=f"이미지 내려받기 실패(주소 만료 가능): {last_err} — "
+        exp = _cdn_expiry(imgs[0] if imgs else "")
+        if exp and exp < datetime.now():
+            days = (datetime.now() - exp).days
+            return jsonify(ok=False, error=(
+                f"이미지 주소가 만료됐어요 ({exp:%m/%d} 만료 · {days}일 지남). "
+                "인스타 이미지 주소는 약 5일만 살아있어요 — 확장 수집을 켠 채로 "
+                "그 게시물을 다시 열면 새 주소로 갱신되고, 그 뒤 만들기를 누르면 됩니다.")), 400
+        return jsonify(ok=False, error=f"이미지 내려받기 실패: {last_err} — "
                                        "확장으로 게시물을 다시 열어 재수집 후 시도하세요"), 400
     now = time.time()
     jid = uuid.uuid4().hex[:10]
