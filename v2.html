@@ -4329,13 +4329,17 @@
     if(pb)pb.style.display=m==='posts'?'':'none';
     if(m==='scan')refKrjp(false);else prodPosts();
   }
-  async function prodPosts(){
+  let PROD_REF='';
+  async function prodPosts(h){
     const box=$('prodPosts'); if(!box)return;
     if(!PROD_CH){box.innerHTML='<div class="caphint">채널을 먼저 고르세요.</div>';return;}
-    const h=PROD_CH.ref_handle||'';
-    box.innerHTML=`<div style="color:var(--gold);font-size:13px;padding:8px 0">@${esch(h)} 게시물 불러오는 중…</div>`;
-    let d; try{d=await apiJson('/api/ref/posts',{code:code(),handle:h});}catch(e){box.innerHTML='❌ 통신 오류';return;}
-    if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
+    const hs=(PROD_CH.ref_handles&&PROD_CH.ref_handles.length?PROD_CH.ref_handles:[PROD_CH.ref_handle||'']);
+    h=h||(hs.includes(PROD_REF)?PROD_REF:hs[0]);
+    PROD_REF=h;
+    const refChips=hs.length>1?`<div class="chips" style="margin-bottom:8px">${hs.map(x=>`<span class="chip ${x===h?'on':''}" onclick="prodPosts('${esch(x)}')">@${esch(x)}</span>`).join('')}</div>`:'';
+    box.innerHTML=`${refChips}<div style="color:var(--gold);font-size:13px;padding:8px 0">@${esch(h)} 게시물 불러오는 중…</div>`;
+    let d; try{d=await apiJson('/api/ref/posts',{code:code(),handle:h});}catch(e){box.innerHTML=refChips+'❌ 통신 오류';return;}
+    if(!d.ok){box.innerHTML=refChips+'❌ '+esch(d.error);return;}
     const _lk=(d.posts||[]).map(p=>p.like||0).sort((a,b)=>a-b);
     const _med=_lk.length?_lk[Math.floor(_lk.length/2)]||1:1;
     const rows=(d.posts||[]).map(p=>{
@@ -4352,7 +4356,7 @@
             ${p.type!=='VIDEO'?`<button class="btn primary" onclick="refRemake('${esch(h)}','${esch(p.id)}','${esch(PROD_CH.lang||'ko')}')">🚀 ${esch((PROD_CH.emoji||'')+' '+PROD_CH.name)} 리메이크</button>`
             :`<span style="font-size:12px;color:var(--faint)">영상 게시물 — 리메이크 미지원</span>`}
           </div></div></div>`;}).join('');
-    box.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="caphint">수집된 게시물이 없어요 — 레퍼런스 탭에서 형식 업데이트를 먼저 돌려주세요.</div>'}</div>`;
+    box.innerHTML=`${refChips}<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="caphint">수집된 게시물이 없어요 — 레퍼런스 탭에서 형식 업데이트를 먼저 돌려주세요.</div>'}</div>`;
   }
   async function prodDirect(){
     if(!PROD_CH){flash('채널을 먼저 고르세요');return;}
