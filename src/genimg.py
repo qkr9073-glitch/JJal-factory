@@ -34,6 +34,9 @@ EMOTION = ("The emotional read must be instant and STRONG — the situation and 
 
 NEGATIVE = ("Absolutely no text, no words, no letters, no numbers, no captions, "
             "no watermark, no subtitles anywhere in the image. "
+            "This includes phone screens, computer screens, signs and posters — "
+            "any visible screen must show only vague blurred shapes or abstract "
+            "color blocks, never readable UI text or lists. "
             "No trademarked logos or brand marks. No recognizable copyrighted "
             "characters, no superhero costumes or emblems, no celebrity lookalikes — "
             "use generic places, objects and anonymous people only. "
