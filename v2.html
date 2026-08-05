@@ -4329,31 +4329,41 @@
     if(pb)pb.style.display=m==='posts'?'':'none';
     if(m==='scan')refKrjp(false);else prodPosts();
   }
-  let PROD_REF='';
+  let PROD_REF='all';
   async function prodPosts(h){
     const box=$('prodPosts'); if(!box)return;
     if(!PROD_CH){box.innerHTML='<div class="caphint">채널을 먼저 고르세요.</div>';return;}
     const hs=(PROD_CH.ref_handles&&PROD_CH.ref_handles.length?PROD_CH.ref_handles:[PROD_CH.ref_handle||'']);
-    h=h||(hs.includes(PROD_REF)?PROD_REF:hs[0]);
+    if(h===undefined)h=PROD_REF;
+    if(hs.length===1)h=hs[0];
+    else if(h!=='all'&&!hs.includes(h))h='all';
     PROD_REF=h;
-    const refChips=hs.length>1?`<div class="chips" style="margin-bottom:8px">${hs.map(x=>`<span class="chip ${x===h?'on':''}" onclick="prodPosts('${esch(x)}')">@${esch(x)}</span>`).join('')}</div>`:'';
-    box.innerHTML=`${refChips}<div style="color:var(--gold);font-size:13px;padding:8px 0">@${esch(h)} 게시물 불러오는 중…</div>`;
-    let d; try{d=await apiJson('/api/ref/posts',{code:code(),handle:h});}catch(e){box.innerHTML=refChips+'❌ 통신 오류';return;}
-    if(!d.ok){box.innerHTML=refChips+'❌ '+esch(d.error);return;}
-    const _lk=(d.posts||[]).map(p=>p.like||0).sort((a,b)=>a-b);
-    const _med=_lk.length?_lk[Math.floor(_lk.length/2)]||1:1;
-    const rows=(d.posts||[]).map(p=>{
-      const img=p.img?`<img src="/refimg/${esch(h)}/${esch(p.img)}" style="width:84px;height:105px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none">`
+    const chipDefs=hs.length>1?[['all','🌐 통합 베스트'],...hs.map(x=>[x,'@'+x])]:[];
+    const refChips=chipDefs.length?`<div class="chips" style="margin-bottom:8px">${chipDefs.map(([v,l])=>`<span class="chip ${v===h?'on':''}" onclick="prodPosts('${esch(v)}')">${esch(l)}</span>`).join('')}</div>`:'';
+    const targets=h==='all'?hs:[h];
+    box.innerHTML=`${refChips}<div style="color:var(--gold);font-size:13px;padding:8px 0">${h==='all'?`레퍼런스 ${targets.length}곳 통합으로 긁어오는 중…`:`@${esch(h)} 게시물 불러오는 중…`}</div>`;
+    const results=await Promise.all(targets.map(x=>
+      apiJson('/api/ref/posts',{code:code(),handle:x}).then(d=>({h:x,posts:(d.ok&&d.posts)||[]})).catch(()=>({h:x,posts:[]}))));
+    let merged=[];
+    for(const r of results){
+      const lk=r.posts.map(p=>p.like||0).sort((a,b)=>a-b);
+      const med=lk.length?(lk[Math.floor(lk.length/2)]||1):1;
+      for(const p of r.posts)merged.push(Object.assign({},p,{_h:r.h,_mult:(p.like||0)/med}));
+    }
+    merged.sort((a,b)=>b._mult-a._mult);
+    const rows=merged.map(p=>{
+      const ph=p._h;
+      const img=p.img?`<img src="/refimg/${esch(ph)}/${esch(p.img)}" style="width:84px;height:105px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none">`
                      :`<div style="width:84px;height:105px;border-radius:8px;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--faint);flex:none">${p.type==='VIDEO'?'🎬':'🖼'}</div>`;
-      const mult=(p.like||0)/_med;
-      const hot=mult>=2?`<span style="color:#ff6b57;font-weight:800">🔥 ${mult.toFixed(1)}배</span> · `:'';
-      return `<div style="display:flex;gap:10px;background:var(--panel);border:1px solid ${mult>=2?'#ff6b57':'var(--line)'};border-radius:10px;padding:10px">
+      const hot=p._mult>=2?`<span style="color:#ff6b57;font-weight:800">🔥 ${p._mult.toFixed(1)}배</span> · `:'';
+      const src=targets.length>1?`<span style="color:var(--gold);font-weight:700">@${esch(ph)}</span> · `:'';
+      return `<div style="display:flex;gap:10px;background:var(--panel);border:1px solid ${p._mult>=2?'#ff6b57':'var(--line)'};border-radius:10px;padding:10px">
         ${img}
         <div style="flex:1;min-width:0">
-          <div style="font-size:12px;color:var(--faint)">${hot}♥${(p.like||0).toLocaleString()} · 💬${(p.comments||0).toLocaleString()}${p.pages?` · ${p.pages}장`:''} ${p.permalink?`· <a href="${esch(p.permalink)}" target="_blank" rel="noopener" style="color:var(--faint)">원본 ↗</a>`:''}</div>
+          <div style="font-size:12px;color:var(--faint)">${src}${hot}♥${(p.like||0).toLocaleString()} · 💬${(p.comments||0).toLocaleString()}${p.pages?` · ${p.pages}장`:''} ${p.permalink?`· <a href="${esch(p.permalink)}" target="_blank" rel="noopener" style="color:var(--faint)">원본 ↗</a>`:''}</div>
           <div style="font-size:12.5px;color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esch(p.caption||'(캡션 없음)')}</div>
           <div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">
-            ${p.type!=='VIDEO'?`<button class="btn primary" onclick="refRemake('${esch(h)}','${esch(p.id)}','${esch(PROD_CH.lang||'ko')}')">🚀 ${esch((PROD_CH.emoji||'')+' '+PROD_CH.name)} 리메이크</button>`
+            ${p.type!=='VIDEO'?`<button class="btn primary" onclick="refRemake('${esch(ph)}','${esch(p.id)}','${esch(PROD_CH.lang||'ko')}')">🚀 ${esch((PROD_CH.emoji||'')+' '+PROD_CH.name)} 리메이크</button>`
             :`<span style="font-size:12px;color:var(--faint)">영상 게시물 — 리메이크 미지원</span>`}
           </div></div></div>`;}).join('');
     box.innerHTML=`${refChips}<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="caphint">수집된 게시물이 없어요 — 레퍼런스 탭에서 형식 업데이트를 먼저 돌려주세요.</div>'}</div>`;
