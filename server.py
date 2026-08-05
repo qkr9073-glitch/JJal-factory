@@ -7413,6 +7413,18 @@ def api_ie_insta_collect_make():
     blur = data.get("blur") is not False   # 자막 블러(릴스), 기본 켬
     guide = (data.get("guide") or "").strip()
     imgs = item.get("imageUrls") or []
+    kind = (item.get("kind") or "").strip()
+    if not imgs and kind != "reel":
+        # 이미지/캐러셀인데 그리드 수집이라 이미지 목록이 없음 → 부계정 로그인으로 원본 조회
+        try:
+            imgs = insta_import.fetch_post_images(cfg, BASE, sc)
+        except Exception:
+            imgs = []
+        if not imgs and item.get("thumbUrl"):
+            imgs = [item["thumbUrl"]]                 # 최후 폴백: 수집 때 썸네일
+        if not imgs:
+            return jsonify(ok=False, error="이미지를 가져올 수 없어요 — 확장 수집을 켜고 "
+                                           "그 게시물을 한 번 열어본 뒤(원본 화질이 수집됨) 다시 시도하세요"), 400
     if not imgs:
         # 릴스(영상) → 영상 다운로드 + Gemini 영상대본으로 짤 (유튜브 짤 품질)
         url = item.get("url", "")
@@ -7429,8 +7441,9 @@ def api_ie_insta_collect_make():
     tmpdir = BASE / "_covertmp"
     tmpdir.mkdir(exist_ok=True)
     paths = []
-    try:
-        for i, u in enumerate(imgs[:10]):
+    last_err = ""
+    for i, u in enumerate(imgs[:10]):
+        try:
             r = _rq.get(u, timeout=40)
             r.raise_for_status()
             p = tmpdir / (uuid.uuid4().hex[:12] + ".jpg")
@@ -7438,8 +7451,11 @@ def api_ie_insta_collect_make():
             import io as _io
             _Img.open(_io.BytesIO(r.content)).convert("RGB").save(p, "JPEG", quality=90)
             paths.append(str(p))
-    except Exception as e:
-        return jsonify(ok=False, error=f"이미지 내려받기 실패: {str(e)[:100]}"), 400
+        except Exception as e:                        # 만료된 CDN 주소 등 — 한 장 실패는 건너뜀
+            last_err = str(e)[:100]
+    if not paths:
+        return jsonify(ok=False, error=f"이미지 내려받기 실패(주소 만료 가능): {last_err} — "
+                                       "확장으로 게시물을 다시 열어 재수집 후 시도하세요"), 400
     now = time.time()
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중…",

@@ -2896,7 +2896,10 @@
       b.classList.toggle('collsel',on);
     });
     const k=item&&item.kind;
-    const desc=k==='reel'?'🎬 릴스 (영상 대본 → 짤)':('🖼 이미지 '+((item&&item.n_img)||1)+'장');
+    const ni=(item&&item.n_img)||0;
+    const desc=k==='reel'?'🎬 릴스 (영상 대본 → 짤)'
+      :(ni?('🖼 이미지 '+ni+'장')
+          :'🖼 이미지 · <span style="color:var(--pend)">원본 미수집</span> — 확장 켜고 그 게시물을 한 번 열면 고화질로 담겨요');
     const el=$('ie_src');
     if(el){
       el.innerHTML='<div style="font-weight:800;color:var(--gold);font-size:14.5px">✅ 소재 선택됨</div>'
