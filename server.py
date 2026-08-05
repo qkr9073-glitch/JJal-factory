@@ -4194,13 +4194,14 @@ KRJP_CACHE = {}   # 역수출 소재 추천 30분 캐시 — 갈래(axis)별 {"t
 
 # 운영 채널 프로필 — 생산 탭의 1급 개념. config "channels"로 덮어쓰기 가능.
 # 프로필 하나 = 타겟·언어·테마·학습 소스(레퍼런스)·설명 묶음.
+# ⚠️두 채널 모두 타겟=일본 (사용자 확정) — 차이는 미감(스킨)뿐.
 DEFAULT_CHANNELS = [
-    {"id": "jp1", "name": "일본 채널", "emoji": "🗾", "lang": "ja",
+    {"id": "jp1", "name": "일본 채널·저스트두잇형", "emoji": "🗾", "lang": "ja",
      "theme": "jmag", "ref_handle": "justdoeatjapan",
-     "desc": "일본 MZ 타겟 · 진짜 한국 이야기 — 당사자화 기획+네이티브 일본어+자가채점"},
-    {"id": "kr1", "name": "한국 매거진", "emoji": "🇰🇷", "lang": "ko",
+     "desc": "일본 MZ 타겟 · 진짜 한국 이야기 — 빨간띠 미감·당사자화·네이티브 일본어"},
+    {"id": "jp2", "name": "일본 채널·셀렉션형", "emoji": "🎌", "lang": "ja",
      "theme": "smag", "ref_handle": "selectionmgz",
-     "desc": "셀렉션식 큐레이션 매거진 (한국어) — 낚시-반전·참여형 플레이북"},
+     "desc": "일본 MZ 타겟 · 풀블리드 인용문 미감 — 낚시-반전·참여형 플레이북"},
 ]
 
 
