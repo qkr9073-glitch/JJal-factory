@@ -3889,11 +3889,18 @@ def api_card_edit():
 
 
 def _is_ja_account(cfg, account):
-    """일본 계정 판정 — ig_route.story(일본 스토리 계정) 또는 핸들이 .jp 로 끝나면 True.
-    일본 계정엔 한글 CTA 대신 일본어 팔로우 유도 댓글을 단다."""
+    """일본 계정 판정 — ①채널 프로필(lang=ja)의 전용 계정(@real_kankoku·@kininaru_mag)
+    ②ig_route.story(일본 스토리 계정) ③핸들 .jp 접미사 ④config ig_ja_accounts 목록.
+    일본 계정엔 한글 CTA 대신 일본어 팔로우 유도 댓글을 단다 — 한국어 댓글 절대 금지."""
     acc = str(account or "").strip().lower()
     if not acc:
         return False
+    for ch in (cfg.get("channels") or DEFAULT_CHANNELS):
+        if (str(ch.get("account") or "").strip().lower() == acc
+                and ch.get("lang") == "ja"):
+            return True
+    if acc in [str(a).strip().lower() for a in (cfg.get("ig_ja_accounts") or [])]:
+        return True
     story = str((cfg.get("ig_route") or {}).get("story") or "").strip().lower()
     return acc == story or acc.endswith(".jp")
 
@@ -4197,14 +4204,29 @@ KRJP_CACHE = {}   # 역수출 소재 추천 30분 캐시 — 갈래(axis)별 {"t
 # ⚠️두 채널 모두 타겟=일본 (사용자 확정) — 차이는 미감(스킨)뿐.
 DEFAULT_CHANNELS = [
     {"id": "jp1", "name": "일본 채널·저스트두잇형", "emoji": "🗾", "lang": "ja",
-     "theme": "jmag", "ref_handle": "justdoeatjapan",
+     "theme": "jmag", "ref_handle": "justdoeatjapan", "account": "real_kankoku",
      "desc": "일본 MZ 타겟 · 진짜 한국 이야기 — 빨간띠 미감·당사자화·네이티브 일본어"},
     {"id": "jp2", "name": "일본 채널·셀렉션형", "emoji": "🎌", "lang": "ja",
-     "theme": "smag", "ref_handle": "selectionmgz",
+     "theme": "smag", "ref_handle": "selectionmgz", "account": "kininaru_mag",
      "ref_handles": ["selectionmgz", "1mintrend", "1mknow"],
      "desc": "일본 MZ 타겟 · 국가 불문 '궁금한 이야기' 큐레이션 — 셀렉션 시리즈 3계정 "
              "통합 레퍼런스, 한국 내수 난이도 소재는 배제·일본 치환"},
 ]
+
+
+def _stamp_ig_account(pack_dir, account):
+    """생산 팩 meta.json에 전용 업로드 계정을 박는다 — 발행(수동 📤·예약·자동) 시
+    insta.resolve_account가 이 값을 최우선 라우팅해 채널↔계정이 절대 안 엇갈린다."""
+    if not account or not pack_dir:
+        return
+    try:
+        mp = Path(pack_dir) / "meta.json"
+        meta = json.loads(mp.read_text(encoding="utf-8"))
+        meta["ig_account"] = account
+        mp.write_text(json.dumps(meta, ensure_ascii=False, indent=2),
+                      encoding="utf-8")
+    except Exception:
+        pass
 
 
 @app.post("/api/channels")
@@ -4307,9 +4329,11 @@ def api_ref_del():
     return jsonify(ok=True)
 
 
-def _run_ref_magazine(jid, cfg, topic, context, lang, handle="", theme="jmag"):
+def _run_ref_magazine(jid, cfg, topic, context, lang, handle="", theme="jmag",
+                      account=""):
     """소재→매거진 제작 잡 (역수출: 한국 소재를 채널 미감+현지화판으로).
-    handle이 없으면 테마가 일치하는 레퍼런스 채널의 후킹 시퀀스를 자동으로 쓴다."""
+    handle이 없으면 테마가 일치하는 레퍼런스 채널의 후킹 시퀀스를 자동으로 쓴다.
+    account가 있으면 완성팩(한국판·일본어판 모두)에 전용 업로드 계정을 박는다."""
     job = JOBS[jid]
 
     def log(m):
@@ -4322,6 +4346,7 @@ def _run_ref_magazine(jid, cfg, topic, context, lang, handle="", theme="jmag"):
     try:
         result = reference.magazine_build(cfg, BASE, topic, context=context,
                                           theme=theme, handle=handle, log=log)
+        _stamp_ig_account(result["pack"], account)
         job["result"] = _pack_payload(result)
         _job_set_owner(job)
         if lang == "ja":
@@ -4329,6 +4354,7 @@ def _run_ref_magazine(jid, cfg, topic, context, lang, handle="", theme="jmag"):
             job["pct"] = 88
             res2 = card_pipeline.build_translated(result["pack"], cfg, BASE,
                                                   target="ja", log=log)
+            _stamp_ig_account(res2.get("pack"), account)
             job["result"]["ja_pack"] = _pack_payload(res2).get("pack", "")
         job["pct"] = 100
         job["status"] = "done"
@@ -4352,13 +4378,15 @@ def api_ref_magazine():
     handle = re.sub(r"[^A-Za-z0-9._]", "",
                     (data.get("handle") or "").strip().lstrip("@"))
     theme = data.get("theme") if data.get("theme") in ("smag", "jmag") else "jmag"
+    account = re.sub(r"[^A-Za-z0-9._]", "",
+                     (data.get("account") or "").strip().lstrip("@"))
     now = time.time()
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
                  "result": None, "error": None, "ts": now,
                  "code": (data.get("code") or "").strip()}
     JOBQ.put((jid, _run_ref_magazine,
-              (jid, cfg, topic, context, lang, handle, theme)))
+              (jid, cfg, topic, context, lang, handle, theme, account)))
     return jsonify(ok=True, job=jid)
 
 
@@ -4403,9 +4431,10 @@ def api_ref_posts():
     return jsonify(ok=True, posts=posts)
 
 
-def _run_ref_remake(jid, cfg, handle, media_id, lang):
+def _run_ref_remake(jid, cfg, handle, media_id, lang, account=""):
     """레퍼런스 게시물 리메이크 잡: 중심내용 유지 + 후킹·표현 재창조 + AI 썸네일
-    (그 채널 미감 테마) → 완성팩. lang='ja'면 일본어판까지 이어서 제작."""
+    (그 채널 미감 테마) → 완성팩. lang='ja'면 일본어판까지 이어서 제작.
+    account가 있으면 완성팩(한국판·일본어판 모두)에 전용 업로드 계정을 박는다."""
     job = JOBS[jid]
 
     def log(m):
@@ -4420,6 +4449,7 @@ def _run_ref_remake(jid, cfg, handle, media_id, lang):
         audience = "일본 시청자(일본 네티즌)" if lang == "ja" else ""
         result = reference.remake_build(cfg, BASE, handle, media_id,
                                         audience=audience, log=log)
+        _stamp_ig_account(result["pack"], account)
         job["result"] = _pack_payload(result)
         _job_set_owner(job)
         if lang == "ja":
@@ -4428,6 +4458,7 @@ def _run_ref_remake(jid, cfg, handle, media_id, lang):
             cfg2, _g = reference.remake_cfg(cfg, BASE, handle)
             res2 = card_pipeline.build_translated(result["pack"], cfg2, BASE,
                                                   target="ja", log=log)
+            _stamp_ig_account(res2.get("pack"), account)
             p2 = _pack_payload(res2)
             job["result"]["ja_pack"] = p2.get("pack", "")
         job["pct"] = 100
@@ -4449,12 +4480,14 @@ def api_ref_remake():
     if not (handle and media_id):
         return jsonify(ok=False, error="채널·게시물 정보가 없습니다"), 400
     lang = "ja" if (data.get("lang") == "ja") else "ko"
+    account = re.sub(r"[^A-Za-z0-9._]", "",
+                     (data.get("account") or "").strip().lstrip("@"))
     now = time.time()
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
                  "result": None, "error": None, "ts": now,
                  "code": (data.get("code") or "").strip()}
-    JOBQ.put((jid, _run_ref_remake, (jid, cfg, handle, media_id, lang)))
+    JOBQ.put((jid, _run_ref_remake, (jid, cfg, handle, media_id, lang, account)))
     return jsonify(ok=True, job=jid)
 
 

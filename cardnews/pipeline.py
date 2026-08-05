@@ -402,8 +402,8 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
         "teaser": plan.get("teaser", []),
         "created": datetime.now().isoformat(timespec="seconds"),
     }
-    # 원본 팩의 의도·자가채점은 현지화판에도 승계 (업로드 판단은 현지화판에서 하니까)
-    for k in ("intent", "judge", "source", "ref_handle", "cover_ai"):
+    # 원본 팩의 의도·자가채점·전용 업로드 계정은 현지화판에도 승계 (업로드 판단·발행은 현지화판에서)
+    for k in ("intent", "judge", "source", "ref_handle", "cover_ai", "ig_account"):
         if smeta.get(k) is not None and k not in meta:
             meta[k] = smeta[k]
     (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),

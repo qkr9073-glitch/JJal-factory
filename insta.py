@@ -29,14 +29,20 @@ def _accounts(cfg):
     return accs
 
 
-def _pack_kind(pack_dir):
+def _pack_meta(pack_dir):
     try:
-        meta = json.loads((Path(pack_dir) / "meta.json").read_text(encoding="utf-8"))
-        if meta.get("template") == "story":   # 스토리카드 → 스토리 계정
-            return "story"
-        return "cardnews" if meta.get("type") == "cardnews" else "meme"
+        return json.loads((Path(pack_dir) / "meta.json").read_text(encoding="utf-8"))
     except Exception:
+        return {}
+
+
+def _pack_kind(pack_dir):
+    meta = _pack_meta(pack_dir)
+    if not meta:
         return "meme"
+    if meta.get("template") == "story":   # 스토리카드 → 스토리 계정
+        return "story"
+    return "cardnews" if meta.get("type") == "cardnews" else "meme"
 
 
 def resolve_account(cfg, pack_dir=None, account=None):
@@ -70,6 +76,17 @@ def resolve_account(cfg, pack_dir=None, account=None):
             raise RuntimeError(
                 f"'{story_key}'는 스토리카드 전용 계정이에요 — 짤·카드뉴스는 올릴 수 없어요.")
         return account, _pick(account)
+    # 팩 meta에 박힌 전용 계정(채널 생산 탭이 스탬프) — 명시 지정 없으면 최우선.
+    # ⚠️ 미연동이어도 다른 계정으로 절대 폴백하지 않는다(일본 채널 팩이 한국 계정으로
+    #    새는 사고 방지) — 발행을 막고 연동을 요구한다.
+    meta_acct = str(_pack_meta(pack_dir).get("ig_account") or "").strip().lstrip("@") \
+        if pack_dir else ""
+    if meta_acct and meta_acct != story_key:
+        if meta_acct not in accs:
+            raise RuntimeError(
+                f"이 팩의 전용 계정 '@{meta_acct}'이 아직 등록 전이에요 — "
+                f"관리자 탭 계정 추가(또는 ig_accounts.json)에 넣어주세요.")
+        return meta_acct, _pick(meta_acct)
     key = route.get(kind) if kind else None
     key = key or route.get("default")
     if key == story_key:      # 방어: 기본 라우팅이 story 계정을 가리켜도 차단
