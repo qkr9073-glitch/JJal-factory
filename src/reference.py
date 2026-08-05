@@ -1017,6 +1017,23 @@ KRJP_RSS_QUERIES = ["편의점 신상", "한정판 콜라보", "한국 미담 �
 KRJP_JP_QUERIES = ["韓国 SNS 話題", "韓国 バズる", "韓国 ネット民 反応",
                    "韓国グルメ 人気", "K-POP 話題", "韓国 面白い"]
 
+# 갈래 지정 스캔용 — 그 갈래 소재가 몰려 있는 전용 검색 줄기
+KRJP_AXIS_QUERIES = {
+    "한정템": ["편의점 신상 한정판", "콜라보 굿즈 출시", "품절 대란"],
+    "인물": ["유명인 논란 화제", "연예인 미담", "스타 근황 화제"],
+    "사건미담": ["훈훈한 미담 화제", "황당 사건 화제", "공분 논란"],
+    "팩트체크": ["알고보니 가짜", "사실 확인 논란", "잘못 알려진 사실"],
+    "꿀팁": ["한국 여행 꿀팁", "편의점 이용 꿀팁", "알아두면 유용한 정보",
+             "한국 지하철 팁", "현지인 맛집 팁"],
+    "스토리": ["황당 사연 화제", "감동 사연", "레전드 썰 화제", "직장인 에피소드"],
+    "반전": ["알고보니 반전", "의외의 사실 화제", "오해와 진실", "겉과 달리 사실은"],
+}
+
+KRJP_AXIS_NOTE = """
+⚡ 이번 스캔은 '{axis}' 갈래 전용이다 — 후보 중 이 갈래에 정확히 맞는 소재만 골라라
+(다른 갈래는 아무리 좋아도 탈락). axis는 전부 "{axis}"로 표기. 최대 10개.
+"""
+
 
 def _trends_kr(n=8):
     """구글 트렌드 KR 급상승 검색어 RSS — 지금 한국에서 터지는 것 (관련 기사 포함)."""
@@ -1897,12 +1914,17 @@ def _krjp_verify(cfg, items, cands, log=print):
     return items
 
 
-def suggest_krjp(cfg, base, log=print):
-    """커뮤 인기글 + 뉴스RSS → 일본 타겟 소재 후보 (4축 분류 + 수위 가드 + 출처 검증)."""
+def suggest_krjp(cfg, base, axis="", log=print):
+    """커뮤 인기글 + 뉴스RSS → 일본 타겟 소재 후보 (7축 분류 + 수위 가드 + 출처 검증).
+    axis를 주면 그 갈래 전용 스캔 (전용 검색 줄기 추가 + 그 갈래만 선별)."""
     key = (cfg.get("gemini_api_key") or "").strip()
     if not key:
         raise RuntimeError("Gemini API 키가 없습니다")
-    log("소재 수집 중 (커뮤 9곳 + 뉴스 12줄기 + 일본 수요 신호)...")
+    axis = (axis or "").strip()
+    if axis and axis not in KRJP_AXIS_QUERIES:
+        raise RuntimeError(f"모르는 갈래: {axis}")
+    log(f"소재 수집 중 (커뮤 9곳 + 뉴스 + 일본 수요 신호"
+        + (f" + '{axis}' 전용 줄기)..." if axis else ")..."))
     cands = []
     try:
         from src import hunter
@@ -1913,6 +1935,9 @@ def suggest_krjp(cfg, base, log=print):
         log(f"커뮤 수집 일부 실패(뉴스로 계속): {str(e)[:80]}")
     for q in KRJP_RSS_QUERIES:
         for it in _rss_titles(q, n=4):
+            cands.append({"title": it["title"], "url": it["url"], "src": "뉴스"})
+    for q in KRJP_AXIS_QUERIES.get(axis, []):
+        for it in _rss_titles(q, n=5):
             cands.append({"title": it["title"], "url": it["url"], "src": "뉴스"})
     # 일본 수요 신호 — 일본 매체가 다루는 한국 + 한국 실시간 급상승 + 유튜브 인기
     for q in KRJP_JP_QUERIES:
@@ -1927,8 +1952,9 @@ def suggest_krjp(cfg, base, log=print):
     listing = "\n".join(f"- [{c['src']}] {c['title']} | {c['url']}"
                         for c in cands[:140])
     log(f"후보 {min(len(cands), 140)}개 → Gemini 선별 중...")
+    ptxt = KRJP_PROMPT + listing + (KRJP_AXIS_NOTE.format(axis=axis) if axis else "")
     body = {
-        "contents": [{"role": "user", "parts": [{"text": KRJP_PROMPT + listing}]}],
+        "contents": [{"role": "user", "parts": [{"text": ptxt}]}],
         "generationConfig": {"response_mime_type": "application/json",
                              "temperature": 0.5, "maxOutputTokens": 4096,
                              "thinkingConfig": {"thinkingBudget": 0}},

@@ -4190,7 +4190,7 @@ def fb_oauth_cb():
 
 
 # ──────────────────── 레퍼런스 채널 (MF-001: 핸들→수집→형식 학습) ────────────────────
-KRJP_CACHE = {"time": 0.0, "data": None}   # 역수출 소재 추천 30분 캐시
+KRJP_CACHE = {}   # 역수출 소재 추천 30분 캐시 — 갈래(axis)별 {"time", "data"}
 
 
 def _run_ref_update(jid, cfg, handle):
@@ -4343,16 +4343,16 @@ def api_ref_krjp():
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     now = time.time()
-    if (not data.get("refresh") and KRJP_CACHE["data"]
-            and now - KRJP_CACHE["time"] < 1800):
-        return jsonify(ok=True, items=KRJP_CACHE["data"], cached=True)
+    axis = str(data.get("axis") or "").strip()
+    ent = KRJP_CACHE.get(axis)
+    if not data.get("refresh") and ent and now - ent["time"] < 1800:
+        return jsonify(ok=True, items=ent["data"], cached=True, axis=axis)
     try:
-        items = reference.suggest_krjp(cfg, BASE, log=lambda m: None)
+        items = reference.suggest_krjp(cfg, BASE, axis=axis, log=lambda m: None)
     except Exception as e:
         return jsonify(ok=False, error=f"소재 스캔 실패: {e}"), 500
-    KRJP_CACHE["data"] = items
-    KRJP_CACHE["time"] = now
-    return jsonify(ok=True, items=items, cached=False)
+    KRJP_CACHE[axis] = {"data": items, "time": now}
+    return jsonify(ok=True, items=items, cached=False, axis=axis)
 
 
 @app.get("/refimg/<handle>/<path:fn>")

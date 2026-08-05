@@ -4236,15 +4236,19 @@
     window.scrollTo({top:0,behavior:'smooth'});
     refPoll(d.job);
   }
-  async function refKrjp(refresh){
+  let KRJP_AXIS='';
+  async function refKrjp(refresh,axis){
+    if(axis!==undefined)KRJP_AXIS=axis;
     const box=$('refKrjpBox'); if(!box)return;
-    box.innerHTML='<div style="color:var(--gold);font-size:13px;padding:8px 0">🔎 커뮤 9곳+뉴스 스캔 + 출처 교차검증 중… (1~2분, 창 유지)</div>';
-    let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    box.innerHTML=`<div style="color:var(--gold);font-size:13px;padding:8px 0">🔎 ${KRJP_AXIS?`'${KRJP_AXIS}' 갈래 전용 수색`:'커뮤 9곳+뉴스 스캔'} + 출처 교차검증 중… (1~2분, 창 유지)</div>`;
+    let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh,axis:KRJP_AXIS});}catch(e){box.innerHTML='❌ 통신 오류';return;}
     if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
     KRJP_ITEMS=d.items||[];
     const AX={'한정템':'🛍','인물':'🎭','사건미담':'📰','팩트체크':'✅','꿀팁':'💡','스토리':'📖','반전':'🪞'};
     const TONE={'비판':['🔥','#ff6b57'],'국뽕':['🇰🇷','#4da3ff'],'음지':['🌚','#b98cff']};
+    const chips=['',...Object.keys(AX)].map(a=>`<span class="chip ${KRJP_AXIS===a?'on':''}" onclick="refKrjp(false,'${a}')">${a?AX[a]+' '+a:'🌐 전체'}</span>`).join('');
     box.innerHTML=`<div class="panehead" style="margin-top:4px"><h2>🇯🇵 역수출 소재 후보</h2><span class="n">${d.cached?'30분 캐시':'방금 스캔'} · <a style="cursor:pointer;color:var(--gold)" onclick="refKrjp(true)">🔄 새로 스캔</a></span></div>
+      <div class="chips" style="margin-bottom:10px">${chips}</div>
       <div style="display:flex;flex-direction:column;gap:8px">`+
       KRJP_ITEMS.map((it,ix)=>`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px">
         <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
