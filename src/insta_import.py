@@ -91,7 +91,37 @@ def _loader(cfg, base, log=print):
             log(f"      (@{user} 세션 없음 + 비밀번호 없음 → 익명 시도)")
     except Exception as e:
         log(f"      IG 로그인 실패({str(e)[:90]}) — 익명으로 시도")
+    _inject_ext_cookies(L, base, log)
     return L, user
+
+
+def _inject_ext_cookies(L, base, log=print):
+    """확장 '🍪 쿠키 보내기'로 저장된 부계정 쿠키(ig_cookies.txt)를 세션에 주입.
+    로그인/세션이 없을 때도 익명 차단을 우회한다(읽기 전용)."""
+    ck = Path(base) / "ig_cookies.txt"
+    if not ck.exists():
+        return False
+    try:
+        import http.cookiejar
+        jar = http.cookiejar.MozillaCookieJar(str(ck))
+        jar.load(ignore_discard=True, ignore_expires=True)
+        sess = getattr(L.context, "_session", None)
+        if sess is None:
+            return False
+        n = 0
+        for c in jar:
+            if "instagram.com" in (c.domain or ""):
+                sess.cookies.set(c.name, c.value, domain=c.domain, path=c.path or "/")
+                n += 1
+        csrf = sess.cookies.get("csrftoken")
+        if csrf:
+            sess.headers.update({"X-CSRFToken": csrf})
+        if n:
+            log(f"      확장 쿠키 {n}개 주입(부계정 세션)")
+        return bool(n)
+    except Exception as e:
+        log(f"      쿠키 주입 실패(무시): {str(e)[:70]}")
+        return False
 
 
 def fetch_post_images(cfg, base, shortcode, log=print):
