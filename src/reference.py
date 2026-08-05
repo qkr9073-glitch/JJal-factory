@@ -1333,6 +1333,7 @@ REMAKE_PROMPT = """당신은 인스타그램 캐러셀 '리메이크' 편집자�
 
 JSON만 출력:
 {{
+  "intent": "⭐가장 먼저: 원본이 반응을 얻은 핵심 의도 1문장 — 무엇이 웃음/충격/공감/부러움 버튼인지. 이하 모든 기획(표지·beats·캡션)은 이 버튼을 보존해야 하며, 번역·재구성 과정에서 이 버튼이 죽으면 실패다",
   "title_top": "표지 인용/배지용 짧은 후킹 한 줄 (따옴표 없이, 18자 이내). ⚠️'저장필수'·'팔로우' 같은 상용구 금지 — 렌더러가 저장 배지를 따로 붙인다. 사건 속 대사나 궁금증 문구로",
   "title_main": "표지 헤드라인 (22자 이내, 원본과 다른 표현)",
   "subtitle": "서브라인 한 줄 (충격 디테일·반전 등, 25자 이내, 없으면 빈 문자열)",
@@ -1456,6 +1457,7 @@ JUDGE_PROMPT = """당신은 인스타 벤치마킹 심판이다. [A]는 우리�
 우리 목표: [B] 채널의 미감·후킹·형식을 완전 재현하되 내용만 다른 것. 팬심 없이 냉정하게 채점하라.
 
 채널 형식 기준: {rubric}
+소재의 핵심 의도(기획이 선언한 감정 버튼): {intent}
 
 10점 만점(소수점 1자리):
 - hook: 표지 문구가 [B]급으로 스크롤을 멈추는가
@@ -1463,15 +1465,17 @@ JUDGE_PROMPT = """당신은 인스타 벤치마킹 심판이다. [A]는 우리�
 - emotion: 표지의 감정 타격(경악·억울·폭소 등)이 [B] 원본급으로 즉각적인가 — 감정이 약화됐으면 확실히 감점
 - sequence: 장별 흐름이 기준 시퀀스대로 굴러가는가
 - copy: 문구·대본 문체가 채널 기준과 일치하는가
+- intent: 위 '핵심 의도'의 감정 버튼이 카드에서 실제로 작동하는가 — 버튼이 흐려지거나
+  설명조가 됐으면 확실히 감점 (의도 미명시면 카드 내용에서 추정해 채점)
 
 JSON만 출력:
-{{"scores": {{"hook": 0.0, "visual": 0.0, "emotion": 0.0, "sequence": 0.0, "copy": 0.0}}, "total": 0.0,
+{{"scores": {{"hook": 0.0, "visual": 0.0, "emotion": 0.0, "sequence": 0.0, "copy": 0.0, "intent": 0.0}}, "total": 0.0,
   "weak": "가장 아쉬운 점 1가지 (구체적으로)",
   "fix": "hook/visual/emotion이 7 미만일 때만 — 표지 이미지 재생성에 반영할 영문 장면 보강 지시 1문장 (감정을 어떻게 키울지 포함). 아니면 빈 문자열",
   "verdict": "한 줄 총평"}}"""
 
 
-def _judge_pack(cfg2, base, handle, plan, pack, cards, log=print):
+def _judge_pack(cfg2, base, handle, plan, pack, cards, intent="", log=print):
     """완성 카드를 레퍼런스 원본 인기 표지와 나란히 놓고 AI 심판 채점.
     표지 점수(후킹/미감)가 낮으면 심판의 지시로 표지를 1회 보수(같은 장면 유지)."""
     from cardnews import render as card_render
@@ -1492,7 +1496,9 @@ def _judge_pack(cfg2, base, handle, plan, pack, cards, log=print):
         (hooks.get("typography") or {}).get("cover", ""),
         (hooks.get("script_style") or "")[:120]] if x)
     log("      벤치마킹 자가채점 — 원본 인기 표지와 나란히 비교 중...")
-    parts = [{"text": JUDGE_PROMPT.format(rubric=rubric or "(리포트 없음)")},
+    parts = [{"text": JUDGE_PROMPT.format(rubric=rubric or "(리포트 없음)",
+                                          intent=(intent or "").strip()
+                                          or "(미명시 — 카드에서 추정)")},
              {"text": "[A] 우리 결과물 (표지부터 순서대로):"}]
     for c in cards[:3]:
         parts.append(_inline(Path(c).read_bytes(), max_side=768))
@@ -1615,7 +1621,8 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
     _jh = (meta_extra or {}).get("ref_handle") or ""
     if _jh and cfg2.get("card_ref_judge", True):
         try:
-            judge = _judge_pack(cfg2, base, _jh, plan, pack, cards, log=log)
+            judge = _judge_pack(cfg2, base, _jh, plan, pack, cards,
+                                intent=str(rp.get("intent") or ""), log=log)
         except Exception as e:
             log(f"      (자가채점 실패: {str(e)[:60]})")
 
@@ -1637,6 +1644,7 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
         "cover_image": str(cfg2.get("cover_image") or ""),
         "cta_image": str(cfg2.get("_cta_image") or ""),
         "cover_ai": bool(cfg2.get("_cover_ai")),
+        "intent": str(rp.get("intent") or ""),
         "created": datetime.now().isoformat(timespec="seconds"),
     }
     meta.update(meta_extra or {})
@@ -1723,6 +1731,7 @@ people (East Asian)"처럼 영문으로. 안 쓰면 서양인으로 그려져 �
 
 JSON만 출력:
 {{
+  "intent": "⭐가장 먼저: 이 소재로 노릴 핵심 감정 버튼 1문장 (참고 정보의 선정 이유·결을 반영 — 무엇이 웃음/충격/공감/부러움인지). 이하 모든 기획은 이 버튼을 보존해야 한다",
   "title_top": "표지 배지용 짧은 후킹 (18자 이내). ⚠️'저장필수'·'팔로우' 같은 상용구 금지 — 렌더러가 저장 배지를 따로 붙인다",
   "title_main": "표지 헤드라인 (22자 이내)",
   "subtitle": "서브라인 (부러움/충격 포인트, 25자 이내, 없으면 빈 문자열)",
