@@ -284,6 +284,7 @@ JSON만 출력:
   ],
   "tone_mix": "결(톤) 배합 한 줄 (예: 충격 50% + 유머 30% + 공감 20%, 어떤 소재에 어떤 결)",
   "headline_stats": "표지 카피 통계 — 평균 글자수·줄수·기호 사용 경향(따옴표/느낌표/물음표/말줄임) 1~2문장",
+  "signature_keywords": "표지 카피에 반복 노출되는 시그니처 키워드 실측 — 국가명·고정 단어 등이 몇 장 중 몇 장에 박히는지와 그 역할 1문장 (예: '일본' 8장 중 5장 — 채널 정체성 시그널), 없으면 '없음'",
   "spice": "섹시 코드·야한 드립 사용 분석 — 쓴다면 어떤 소재에서 어떤 방식(암시·언어유희·노출 연출 등)·어느 수위·비중까지 구체적으로 1~2문장, 안 쓰면 '사용 안 함'",
   "extra_notes": ["스키마 밖의 특이한 무기·장치 발견 시 (예: 캡처 박스 삽입, 시리즈 연속극, 업로드 시간대) 0~4개"],
   "hook_guide": "제작 프롬프트에 그대로 주입할 후킹 지침 — '- ' 불릿 5~8개. 표지 문구 작법(비중 1위 유형 중심), 장별 역할 순서, 이미지 연출, 대본 문체, 지속률 장치를 명령형으로."
@@ -832,6 +833,7 @@ def _report_md(handle, bd, stats, rep):
 
 ### 표지 카피 규격
 {hooks.get('headline_stats', '')}
+- 시그니처 키워드: {hooks.get('signature_keywords', '(미측정)')}
 
 ### 대본 전개 형식
 {hooks.get('script_style', '')}
@@ -1297,6 +1299,10 @@ def _hook_guide_text(rep):
     hs2 = (hooks.get("headline_stats") or "").strip()
     if hs2:
         out += f"\n- 표지 카피 규격(글자수·기호 이대로): {hs2}"
+    sk = (hooks.get("signature_keywords") or "").strip()
+    if sk and "없음" not in sk[:4]:
+        out += (f"\n- 시그니처 키워드(실측): {sk} — 우리 표지에도 같은 역할의 키워드를 "
+                "박아라 (일본 타겟 콘텐츠면 '한국'/「韓国」)")
     sp = (hooks.get("spice") or "").strip()
     if sp and "안 함" not in sp:
         out += (f"\n- 수위 코드(채널 실측): {sp} — 같은 수위로 재현하라. "
