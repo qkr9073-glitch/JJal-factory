@@ -103,7 +103,14 @@ def _reel_entries(cfg, pack, meta, plan, items, log=print):
     import requests
     cached = meta.get("reel_entries")
     if cached:
-        return [{"num": i + 1, "title": t} for i, t in enumerate(cached)]
+        out = []
+        for i, t in enumerate(cached):
+            if isinstance(t, dict):
+                out.append({"num": i + 1, "title": t.get("t") or t.get("title", ""),
+                            "value": t.get("v") or t.get("value", "")})
+            else:
+                out.append({"num": i + 1, "title": str(t)})
+        return out
     title = (plan.get("title_main") or plan.get("title") or "").strip()
     lang = meta.get("lang") or cfg.get("card_lang", "ko")
     m = _re.search(r"TOP\s*(\d+)|(\d+)\s*選|(\d+)\s*가지", title, _re.I)
@@ -116,11 +123,13 @@ def _reel_entries(cfg, pack, meta, plan, items, log=print):
         mat = "\n".join(f"- {it.get('title', '')} :: {str(it.get('body', ''))[:220]}"
                         for it in items)
         lang_word = "일본어 네이티브" if lang == "ja" else "한국어"
-        prompt = (f"인스타 릴스 단일 프레임(순위·리스트 표)용 항목을 만들어라.\n"
+        prompt = (f"인스타 릴스 단일 프레임(순위·리스트 '표')용 항목을 만들어라.\n"
                   f"제목: {title}\n재료:\n{mat}\n\n"
-                  f"{n}개, 각 6~16자, {lang_word}, 명사형 리스트 톤(서사 문장 금지), "
-                  f"재료와 보편 상식 범위만(수치·사실 날조 금지), 중복 금지.\n"
-                  f'JSON만: {{"entries": ["..."]}}')
+                  f"{n}개, 항목명 t=각 6~16자, {lang_word}, 명사형 리스트 톤(서사 문장 "
+                  f"금지), 재료와 보편 상식 범위만(수치·사실 날조 금지), 중복 금지.\n"
+                  f"v=값 열(순위표에 어울리는 실측 가능한 값 — 나이·금액·%% 등. "
+                  f"근거 없으면 반드시 빈 문자열, 지어내기 절대 금지).\n"
+                  f'JSON만: {{"entries": [{{"t": "항목", "v": ""}}]}}')
         body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
                 "generationConfig": {"response_mime_type": "application/json",
                                      "temperature": 0.6,
@@ -131,15 +140,20 @@ def _reel_entries(cfg, pack, meta, plan, items, log=print):
             params={"key": key}, json=body, timeout=120)
         if resp.status_code != 200:
             raise RuntimeError(f"항목 생성 {resp.status_code}")
-        ents = [str(e).strip() for e in
-                ((_parse_json(_gem_text(resp)) or {}).get("entries") or [])
-                if str(e).strip()][:n]
+        ents = []
+        for e in ((_parse_json(_gem_text(resp)) or {}).get("entries") or [])[:n]:
+            if isinstance(e, dict) and str(e.get("t", "")).strip():
+                ents.append({"t": str(e["t"]).strip(),
+                             "v": str(e.get("v", "")).strip()})
+            elif not isinstance(e, dict) and str(e).strip():
+                ents.append({"t": str(e).strip(), "v": ""})
         if len(ents) >= 3:
             meta["reel_entries"] = ents
             (pack / "meta.json").write_text(
                 _json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
             log(f"      📋 릴스 리스트 항목 {len(ents)}개 생성 (캐시됨)")
-            return [{"num": i + 1, "title": t} for i, t in enumerate(ents)]
+            return [{"num": i + 1, "title": t["t"], "value": t["v"]}
+                    for i, t in enumerate(ents)]
     except Exception as e:
         log(f"      (릴스 항목 생성 실패 — 카드 제목 사용: {str(e)[:60]})")
     return [{"num": it.get("num") or i + 1, "title": it.get("title", "")}

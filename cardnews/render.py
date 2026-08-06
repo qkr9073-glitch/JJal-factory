@@ -2538,79 +2538,143 @@ def render_reel_frame(plan, items, cfg, out_path):
         _LOCAL.lang = "ko"
 
 
+def _glow_text_center(canvas, cx, y, text, font, fill, glow, radius=16):
+    """벤치마크 실측 재현: 네온 글로우 텍스트(가운데 정렬). 반환: 그린 폭."""
+    d = ImageDraw.Draw(canvas)
+    tw = int(_tw(d, text, font))
+    x = int(cx - tw / 2)
+    ov = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(ov).text((x, y), text, font=font, fill=glow + (230,))
+    ov = ov.filter(ImageFilter.GaussianBlur(radius))
+    canvas.paste(ov, (0, 0), ov)
+    d.text((x, y), text, font=font, fill=fill)
+    return tw
+
+
 def _reel_frame_impl(plan, items, cfg, out_path):
+    """벤치마크(1분트렌드·셀렉션군) 상위 릴스 실물 해부 재현:
+    검은 배경(+주제 이미지 은은히) / 가운데 정렬 제목 = (保存必須)+인용 후킹(노랑 글로우)
+    → 주제 초대형 흰색 / 계정 크레딧 줄 / 흰 라인 '표'(번호열+내용열+값열, 반투명 셀)
+    / 하단 *詳しくはキャプションで* 푸터."""
     RW, RH = 2160, 3840
     ja = (_lang() == "ja")
+    CX = RW // 2
+    c = Image.new("RGB", (RW, RH), (8, 8, 10))
+    # 주제 이미지: 어둡게 눌러 표 뒤에 은은하게 (실측 top1 하트 일러스트 방식)
     src = cfg.get("cover_image")
-    c = None
     if src and Path(str(src)).exists():
         try:
             img = Image.open(src).convert("RGB")
-            sc = max(RW / img.width, RH / img.height)
+            sc = max(RW / img.width, (RH * 0.62) / img.height)
             img = img.resize((int(img.width * sc) + 1, int(img.height * sc) + 1),
                              Image.LANCZOS)
+            img = img.filter(ImageFilter.GaussianBlur(6))
+            from PIL import ImageEnhance
+            img = ImageEnhance.Brightness(img).enhance(0.34)
             x = (img.width - RW) // 2
-            y = (img.height - RH) // 3
-            c = img.crop((x, y, x + RW, y + RH))
+            c.paste(img.crop((x, 0, x + RW, min(img.height, int(RH * 0.62)))),
+                    (0, int(RH * 0.30)))
         except Exception:
-            c = None
-    if c is None:
-        c = Image.new("RGB", (RW, RH), SMAG_BG)
-    ov = Image.new("L", (RW, RH), 0)
-    od = ImageDraw.Draw(ov)
-    for i in range(RH):                       # 위 100 → 아래 225 세로 그라데이션
-        od.line([(0, i), (RW, i)], fill=int(100 + 125 * (i / RH)))
-    c.paste(Image.new("RGB", (RW, RH), (0, 0, 0)), (0, 0), ov)
+            pass
     d = ImageDraw.Draw(c)
 
-    rows = [it for it in (items or []) if (it.get("title") or "").strip()][:8]
-    # 세로 중앙 정렬을 위해 제목 블록을 먼저 계산
-    title = (plan.get("title_main") or plan.get("title") or "").strip()
-    tf, ts, tlines = _fit_mag(d, title, "xbold", 215, RW - M * 2, 132, max_lines=2)
-    y = 250
-    d.text((M, y), "（保存必須）" if ja else "(저장필수)",
-           font=_font("xbold", 118), fill=SMAG_GOLD)
-    y += 205
-    for ln in tlines:
-        d.text((M, y), ln, font=tf, fill=SMAG_TEXT)
-        y += int(ts * 1.16)
-    y += 110
+    rows = []
+    for i, it in enumerate((items or [])[:10], 1):
+        t = re.sub(r"\s+", " ", str(it.get("title", ""))).strip()
+        if t:
+            rows.append({"num": it.get("num") or i, "t": t,
+                         "v": re.sub(r"\s+", " ", str(it.get("value", ""))).strip()})
+    has_val = any(r["v"] for r in rows)
 
+    # ── 제목 블록 (가운데 정렬) ──
+    y = 300
+    kick = "（保存必須）" if ja else "(저장필수)"
+    quote = (plan.get("title_top") or "").strip()
+    if quote:
+        q = quote if quote[:1] in "「『“\"'" else f"「{quote}」"
+        line1 = f"{kick} {q}"
+        lf, _ls = _fit_font(d, line1, "xbold", 118, RW - M * 2, min_size=84)
+        _glow_text_center(c, CX, y, line1, lf, SMAG_GOLD, (255, 200, 60))
+        y += int(_ls * 1.35)
+    else:
+        lf = _font("xbold", 112)
+        _glow_text_center(c, CX, y, kick, lf, SMAG_GOLD, (255, 200, 60))
+        y += 152
+    title = (plan.get("title_main") or plan.get("title") or "").strip()
+    tf, ts, tlines = _fit_mag(d, title, "xbold", 235, RW - M * 2, 140, max_lines=2)
+    for ln in tlines:
+        _glow_text_center(c, CX, y, ln, tf, (255, 255, 255), (160, 160, 170),
+                          radius=10)
+        y += int(ts * 1.14)
+    # ── 계정 크레딧 줄 (실측: 크로스 크레딧 자리) ──
+    hd = (cfg.get("_reel_handle") or "").strip()
+    if hd:
+        label = cfg.get("_reel_brand") or ("気になるマガジン" if ja else "")
+        cred = f"@{hd.lstrip('@')}" + (f" - {label}" if label else "")
+        crf = _font("semi", 62)
+        d.text((CX - _tw(d, cred, crf) / 2, y + 28), cred, font=crf,
+               fill=(225, 225, 230))
+        y += 62 + 56
+    y += 40
+
+    # ── 표 (흰 라인 + 반투명 셀) ──
     if rows:
-        avail = RH - 340 - y
-        size, metas, used = 176, [], 0        # 크게 시작 — 실측은 화면이 빽빽하다
-        while size > 68:
-            f, line_h, used, metas = _font("xbold", size), int(size * 1.34), 0, []
-            for it in rows:
-                t = re.sub(r"\s+", " ", str(it.get("title", ""))).strip()
+        foot_h = 250
+        avail = RH - foot_h - y
+        NUM_W = 240
+        VAL_W = 460 if has_val else 0
+        tx0, tx1 = M - 20, RW - M + 20
+        body_w = (tx1 - tx0) - NUM_W - VAL_W
+        size = 150
+        while size > 62:
+            f = _font("xbold", size)
+            heights, wraps = [], []
+            for r in rows:
                 wrap = (_wrap_ja if ja else _wrap_mag)(
-                    d, t, f, RW - M * 2 - 200, max_lines=2)
-                metas.append((it, wrap))
-                used += len(wrap) * line_h + 54
-            if used <= avail:
+                    d, r["t"], f, body_w - 90, max_lines=2)
+                wraps.append(wrap)
+                heights.append(max(1, len(wrap)) * int(size * 1.22) + 76)
+            if sum(heights) <= avail:
                 break
             size -= 6
-        f, nf, line_h = (_font("xbold", size), _font("xbold", size),
-                         int(size * 1.34))
-        # 리스트를 남는 세로 공간의 가운데로 — 아래가 텅 비지 않게
-        y += max(0, (avail - used) // 2)
-        box = Image.new("RGBA", (RW, RH), (0, 0, 0, 0))
-        ImageDraw.Draw(box).rounded_rectangle(
-            [M - 48, y - 56, RW - M + 48, y + used + 64], 52, fill=(0, 0, 0, 122))
-        c.paste(box, (0, 0), box)
-        for i, (it, wrap) in enumerate(metas, 1):
-            d.text((M, y), str(it.get("num") or i), font=nf, fill=SMAG_GOLD)
+        f = _font("xbold", size)
+        nf = _font("xbold", int(size * 1.02))
+        vf = _font("xbold", int(size * 0.98))
+        total_h = sum(heights)
+        ty = y + max(0, (avail - total_h) // 3)
+        # 셀 배경(반투명 검정 — 뒤 이미지 비침)
+        bg = Image.new("RGBA", (RW, RH), (0, 0, 0, 0))
+        ImageDraw.Draw(bg).rectangle([tx0, ty, tx1, ty + total_h],
+                                     fill=(0, 0, 0, 150))
+        c.paste(bg, (0, 0), bg)
+        LINE_C, LW = (250, 250, 252), 4
+        ry = ty
+        for i, (r, wrap, rh) in enumerate(zip(rows, wraps, heights)):
+            d.line([(tx0, ry), (tx1, ry)], fill=LINE_C, width=LW)
+            mid = ry + rh // 2
+            d.text((tx0 + NUM_W // 2 - _tw(d, str(r["num"]), nf) / 2,
+                    mid - int(size * 0.62)), str(r["num"]), font=nf,
+                   fill=(255, 255, 255))
+            bx = tx0 + NUM_W + 45
+            th = len(wrap) * int(size * 1.22)
+            wy = mid - th // 2 - int(size * 0.06)
             for ln in wrap:
-                d.text((M + 200, y), ln, font=f, fill=SMAG_TEXT)
-                y += line_h
-            y += 54
+                d.text((bx, wy), ln, font=f, fill=(255, 255, 255))
+                wy += int(size * 1.22)
+            if has_val and r["v"]:
+                d.text((tx1 - VAL_W + (VAL_W - _tw(d, r["v"], vf)) / 2,
+                        mid - int(size * 0.6)), r["v"], font=vf,
+                       fill=(255, 255, 255))
+            ry += rh
+        d.line([(tx0, ry), (tx1, ry)], fill=LINE_C, width=LW)
+        for vx in ([tx0, tx0 + NUM_W, tx1 - VAL_W, tx1] if has_val
+                   else [tx0, tx0 + NUM_W, tx1]):
+            d.line([(vx, ty), (vx, ry)], fill=LINE_C, width=LW)
+        y = ry
 
-    hd = (cfg.get("_reel_handle") or "").strip()   # 팩 전용 계정 (강사 브랜딩 금지)
-    if hd:
-        d.text((M, RH - 200), "@" + hd.lstrip("@"),
-               font=_font("semi", 72), fill=(212, 212, 218))
-    cta = "保存して見返してね" if ja else "저장해두고 보세요"
-    sf = _font("xbold", 88)
-    d.text((RW - M - _tw(d, cta, sf), RH - 210), cta, font=sf, fill=SMAG_GOLD)
+    foot = "*詳しくはキャプションで*" if ja else "*자세한 내용 본문 참고*"
+    ff = _font("xbold", 76)
+    d.text((CX - _tw(d, foot, ff) / 2, RH - 190), foot, font=ff,
+           fill=(240, 240, 244))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
