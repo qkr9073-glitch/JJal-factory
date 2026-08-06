@@ -2959,6 +2959,13 @@ def api_packs():
             is_story = meta.get("template") == "story"
             nimg = len(list(d.glob("[0-9][0-9].jpg")))
             exportable = (d / "items.json").exists() or (d / "source.json").exists()
+            has_reel = (d / "video.mp4").exists()
+            reel_pub = f"{d.name}::reel" in pub
+            try:                       # 팩 용량(MB) — 업로드 후 정리 대상 파악용
+                mb = round(sum(f.stat().st_size for f in d.iterdir()
+                               if f.is_file()) / 1048576, 1)
+            except OSError:
+                mb = 0
             packs.append({"name": d.name,
                           "title": meta.get("title") or d.name,
                           "created": meta.get("created", ""),
@@ -2973,10 +2980,54 @@ def api_packs():
                           "lang": meta.get("lang", "ko"),
                           "video": (meta.get("video") or ""),
                           "used": len(checked), "archived": show_arch,
-                          "scheduled": sched,
-                          "published": d.name in pub})
+                          "scheduled": sched, "mb": mb,
+                          "reel": has_reel, "reel_pub": reel_pub,
+                          "published": d.name in pub or reel_pub})
     return jsonify(ok=True, packs=packs, managers=mgrs, need=need,
                    used_dir=used_dir, archived=show_arch)
+
+
+@app.post("/api/packs/cleanup")
+def api_packs_cleanup():
+    """업로드 완료된 팩의 무거운 영상(video.mp4)을 결과물/_휴지통/으로 이동해 용량 확보.
+    dry=true면 대상 목록·회수 용량만 미리보기(이동 없음). 카드·메타·발행 기록은 유지.
+    하드삭제 아님 — 휴지통에서 복구 가능. 관리자 전용."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="정리는 관리자만 가능합니다"), 403
+    dry = bool(data.get("dry", True))
+    pub = insta.load_published(BASE)
+    trash = OUTPUT / "_휴지통" / "_정리된영상"
+    items, moved, freed = [], 0, 0.0
+    for d in sorted(OUTPUT.iterdir()):
+        if not d.is_dir() or d.name.startswith("_"):
+            continue
+        v = d / "video.mp4"
+        if not v.exists():
+            continue
+        if not (d.name in pub or f"{d.name}::reel" in pub):
+            continue                     # 미업로드 영상은 절대 건드리지 않는다
+        mb = round(v.stat().st_size / 1048576, 1)
+        items.append({"pack": d.name, "mb": mb})
+        if not dry:
+            trash.mkdir(parents=True, exist_ok=True)
+            dest = trash / f"{d.name}__video.mp4"
+            n = 1
+            while dest.exists():
+                n += 1
+                dest = trash / f"{d.name}__video_{n}.mp4"
+            v.rename(dest)
+            if dest.exists() and not v.exists():
+                moved += 1
+                freed += mb
+            else:
+                return jsonify(ok=False, error=f"{d.name} 이동 검증 실패"), 500
+    total = round(sum(i["mb"] for i in items), 1)
+    return jsonify(ok=True, dry=dry, items=items, total_mb=total,
+                   moved=moved, freed_mb=round(freed, 1))
 
 
 @app.post("/api/pack/delete")

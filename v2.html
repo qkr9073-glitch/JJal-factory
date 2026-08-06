@@ -3151,7 +3151,19 @@
         ${L(rUp==='up','up','setUp','<span style="color:var(--insta)">●</span>','업로드완료',nUp)}</div>
       <div><p class="rlabel">종류</p>
         ${L(rKind==='all','all','setKind','▦','전체',PACKS.length)}
-        ${KINDS.map(([k,ic,lab])=>L(rKind===k,k,'setKind',ic,lab,cnt[k])).join('')}</div>`;
+        ${KINDS.map(([k,ic,lab])=>L(rKind===k,k,'setKind',ic,lab,cnt[k])).join('')}</div>
+      ${isAdmin()?`<div><p class="rlabel">용량 정리</p>
+        <div class="rlink" onclick="packsCleanup()" title="업로드 완료된 팩의 video.mp4를 휴지통으로 옮겨 용량 확보 (카드·발행기록 유지, 복구 가능)"><span class="ic">🧹</span> 업로드완료 영상 정리</div></div>`:''}`;
+  }
+  async function packsCleanup(){
+    const pre=await api('/api/packs/cleanup',{dry:true});
+    if(!pre.ok){flash(pre.error||'조회 실패');return;}
+    if(!(pre.items||[]).length){flash('정리할 영상이 없어요 (업로드 완료 + video.mp4 보유 팩 기준)');return;}
+    if(!confirm(`업로드 완료된 영상 ${pre.items.length}개, 총 ${pre.total_mb}MB를 휴지통(결과물/_휴지통/_정리된영상)으로 옮길까요?\n카드·메타·발행 기록은 그대로 남고, 필요하면 복구할 수 있어요.`))return;
+    const r=await api('/api/packs/cleanup',{dry:false});
+    if(!r.ok){flash(r.error||'정리 실패');return;}
+    flash(`🧹 ${r.moved}개 영상 이동, ${r.freed_mb}MB 확보`);
+    loadPacks();
   }
   function filtered(){
     return PACKS.filter(p=>{
@@ -3178,7 +3190,7 @@
           <video class="cvid" src="${vsrc}" muted loop playsinline preload="none" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;transition:opacity .2s"></video>
           <div class="cchips"><span class="mchip count">🎬 릴스</span>${stat}</div>
           <div class="hovercta"><span>클릭해서 편집·대표컷 →</span></div></div>
-          <div class="meta"><div class="t">${iconOf(p)} ${esch(p.title)}</div><div class="d">${esch((p.created||'').replace('T',' ').slice(0,16))}</div></div>`;
+          <div class="meta"><div class="t">${iconOf(p)} ${esch(p.title)}</div><div class="d">${esch((p.created||'').replace('T',' ').slice(0,16))}${p.mb?` · ${p.mb}MB`:''}</div></div>`;
         const vid=card.querySelector('.cvid');
         card.addEventListener('mouseenter',()=>{vid.style.opacity=1;try{vid.currentTime=0;vid.play();}catch(_){}} );
         card.addEventListener('mouseleave',()=>{vid.style.opacity=0;try{vid.pause();}catch(_){}} );
@@ -3189,10 +3201,10 @@
       const pv=encodeURIComponent(p.tv||p.created||'');
       card.innerHTML=`<div class="thumb">
         <img class="cimg" src="${base}/${p.thumb}?v=${pv}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">
-        <div class="cchips"><span class="mchip count">🖼 ${p.n||0}장</span>${jp}${stat}</div>
+        <div class="cchips"><span class="mchip count">🖼 ${p.n||0}장</span>${p.reel?'<span class="mchip count">🎞</span>':''}${jp}${stat}</div>
         <div class="dots">${Array.from({length:Math.max(1,p.n||1)},(_,i)=>`<i class="${i===0?'on':''}"></i>`).join('')}</div>
         <div class="hovercta"><span>클릭해서 편집·업로드 →</span></div></div>
-        <div class="meta"><div class="t">${iconOf(p)} ${esch(p.title)}</div><div class="d">${esch((p.created||'').replace('T',' ').slice(0,16))}</div></div>`;
+        <div class="meta"><div class="t">${iconOf(p)} ${esch(p.title)}</div><div class="d">${esch((p.created||'').replace('T',' ').slice(0,16))}${p.reel&&p.mb?` · 🎞${p.mb}MB`:''}</div></div>`;
       const img=card.querySelector('.cimg'), dots=[...card.querySelectorAll('.dots i')];
       if((p.n||0)>1){
         card.addEventListener('mouseenter',()=>{let i=1;
