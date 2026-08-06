@@ -32,11 +32,12 @@ EMOTION = ("The emotional read must be instant and STRONG — the situation and 
            "facial expressions should hit the viewer in the first half second, "
            "as punchy as a viral news photo.")
 
-# 인물 기본값 안전망: 기획이 국적을 빼먹어도 한국/일본 느낌으로 (중국풍=최악, 사용자 확정)
+# 인물 기본값 안전망: 기획이 국적을 빼먹으면 일본인 느낌으로 (시청자=일본인,
+# 한국 소재는 기획이 Korean을 명시하는 규칙 — 중국풍=최악, 사용자 확정)
 PEOPLE = ("If the scene includes anonymous people and no nationality is specified, "
-          "depict contemporary South Korean or Japanese people with modern Korean/"
-          "Japanese fashion, hairstyles and urban settings (as seen in Seoul or "
-          "Tokyo today). Do NOT render generic pan-Asian or Chinese-styled looks, "
+          "depict contemporary Japanese people with modern Japanese fashion, "
+          "hairstyles and urban settings (as seen in Tokyo today). "
+          "Do NOT render generic pan-Asian or Chinese-styled looks, "
           "clothing or interiors unless the scene explicitly requires them.")
 
 NEGATIVE = ("Absolutely no text, no words, no letters, no numbers, no captions, "
