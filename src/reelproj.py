@@ -351,11 +351,20 @@ def state_public(base, pid):
     edit = None
     if st.get("edl") and (pdir(base, pid) / "edit" / "preview.mp4").exists():
         try:
+            # 브라우저가 영상을 받기 전에 인덱스를 앞당겨 둔다(중간에 멈추는 현상 방지)
+            ensure_faststart(pdir(base, pid) / "edit" / "preview.mp4")
+        except Exception:
+            pass
+        try:
             edit = edit_public(base, pid, st)
         except Exception:
             edit = None
     final = None
     if st.get("final") and (pdir(base, pid) / "edit" / "final.mp4").exists():
+        try:
+            ensure_faststart(pdir(base, pid) / "edit" / "final.mp4")
+        except Exception:
+            pass
         final = {"video": f"/reelproj/{pid}/edit/final.mp4"}
     return {"pid": pid, "script": st.get("script", ""), "topic": st.get("topic", ""),
             "category": st.get("category", ""), "clips": clips_public(pid, st), "tts": tts, "edit": edit,
