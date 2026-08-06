@@ -1320,7 +1320,11 @@ REMAKE_PROMPT = """당신은 인스타그램 캐러셀 '리메이크' 편집자�
 🎣 후킹: 형식 지침에 '후킹 지침'과 '장별 시퀀스'가 있으면 그대로 따르라 — 표지 문구는 이
 채널에서 검증된 후킹 유형으로 쓰고, beats는 시퀀스의 역할 순서(도입→고조→반전 등)를 그대로 밟는다.
 📷 모든 image_query에는 인물의 국적·외모를 원본 사건과 일치시켜라 — 한국 사건이면
-"anonymous Korean students (East Asian)"처럼 영문으로 명시. 안 쓰면 서양인으로 그려져 어색해진다.
+"anonymous Korean students (East Asian)"처럼 영문으로 명시. **국가가 불분명한 보편
+소재도 기본은 East Asian**(소재가 명시적으로 서양일 때만 서양인). 안 쓰면 서양인으로
+그려져 어색해진다.
+📷 표지의 주인공은 원글의 '재밌는 요소' 그 자체다 — 포인트가 사물(음식·물건·상황)이면
+그 사물 클로즈업이 화면 중심, 인물은 리액션·배경으로만. 인물이 핵심 요소를 가리면 실패.
 🔞 형식 지침에 '수위 코드'가 있으면 그 수위의 야한 드립·암시는 그대로 쓴다 —
 단 노출·노골적 성 묘사는 금지(계정 정지 리스크), 언어유희·암시 수준까지만.
 😜 인물이 나오는 장면은 표정을 과장 연출하라 — 놀리는/약올리는/황당/억울/능청 등
@@ -1717,6 +1721,11 @@ K팝 최정상급 등 일본에서도 확실히 아는 인물만 예외.
 심리·세계 이야기)면 국가 키워드를 강제하지 마라 — 그런 소재는 궁금증 자체로 후킹한다.
 문장이 어색해지면 어느 쪽이든 억지로 넣지 않는다.
 😜 인물 장면은 표정을 과장 연출 — 놀리는/약올리는/황당/억울/능청 표정이 후킹이다 (영문 명시).
+🎯 원글 포인트 사수: 표지·제목·전개는 소재의 **구체적 포인트**(실제로 일어난 그 사건,
+실제 그 대사, 실제 그 반전)를 그대로 박아라. "한국인의 유머 감각이 대단하다",
+"일본인도 충격받은 한국 이야기" 같은 **메타 서술·일반론 표지는 실패다** — 소재를
+소개하지 말고 소재 그 자체가 되어라. 원글이 웃긴/충격인 이유 한 가지를 문구로 옮겨야
+한다. 소재가 유머 글이면 그 글의 펀치라인이 표지 카피다.
 
 ⚡ 이 채널은 밋밋한 소개 채널이 아니다. 참고 정보에 '결'이 있으면 그 결로, 없으면 소재에
 맞는 결을 골라 확실히 태워라:
@@ -1750,7 +1759,14 @@ K팝 최정상급 등 일본에서도 확실히 아는 인물만 예외.
 🎣 아래에 '후킹 지침'과 '장별 시퀀스'가 있으면 그대로 따르라 — 표지 문구는 검증된 후킹
 유형으로, beats는 시퀀스의 역할 순서대로.
 📷 모든 image_query에 인물의 국적·외모를 명시하라 — 한국 소재면 "anonymous Korean
-people (East Asian)"처럼 영문으로. 안 쓰면 서양인으로 그려져 어색해진다.
+people (East Asian)"처럼 영문으로. **국가 불문·보편 소재도 기본은 East Asian**이다
+(우리 시청자 정서 + 벤치마크 표지 실측 — 서양인은 소재가 명시적으로 서양 인물·서양
+무대일 때만). 안 쓰면 서양인으로 그려져 어색해진다.
+📷 표지의 주인공은 소재의 '재밌는 요소' 그 자체다 — 웃긴/충격/신기 포인트가
+사물(음식·물건·상황·비교 대상)이면 **그 사물의 클로즈업이 화면 중심**이고 인물은
+리액션·배경으로만. 인물을 습관적으로 주인공 삼아 핵심 요소를 가리면 실패다
+(실사고: 양파 소재 표지에서 양파가 안 보였음). 원채널 장치도 '사물 디테일 강조
+클로즈업'이 핵심이다.
 
 {guide}
 
@@ -1760,7 +1776,7 @@ JSON만 출력:
   "title_top": "표지 배지용 짧은 후킹 (18자 이내). ⚠️'저장필수'·'팔로우' 같은 상용구 금지 — 렌더러가 저장 배지를 따로 붙인다",
   "title_main": "표지 헤드라인 (22자 이내)",
   "subtitle": "서브라인 (부러움/충격 포인트, 25자 이내, 없으면 빈 문자열)",
-  "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면 (1~2문장). 먼저 표지가 유발할 감정을 정하고(경악/억울/폭소/부러움 등) 그 감정이 '극대화된 순간'을 묘사하라 — 감정이 약한 밋밋한 장면이면 실패다. 연출 강도·분위기는 원채널의 이미지 장치 전략을 그대로 수용하라(가벼운 소재도 과장·드라마틱 연출 OK — 그게 원채널의 무기다). ⚠️브랜드명·저작권 캐릭터·유명인 이름 금지 — 분위기·소품으로 우회 묘사. 폰·간판 등 화면에 글자를 그리게 하지 마라",
+  "image_query": "표지 AI 이미지 장면 묘사 — 영문, 글자 없는 장면 (1~2문장). 먼저 표지가 유발할 감정을 정하고(경악/억울/폭소/부러움 등) 그 감정이 '극대화된 순간'을 묘사하라 — 감정이 약한 밋밋한 장면이면 실패다. 포인트가 사물인 소재면 그 사물의 클로즈업이 프레임 중심(인물 얼굴로 가리지 마라). 연출 강도·분위기는 원채널의 이미지 장치 전략을 그대로 수용하라(가벼운 소재도 과장·드라마틱 연출 OK — 그게 원채널의 무기다). ⚠️브랜드명·저작권 캐릭터·유명인 이름 금지 — 분위기·소품으로 우회 묘사. 폰·간판 등 화면에 글자를 그리게 하지 마라",
   "callout_target": "표지에서 빨간 원+돋보기 줌으로 강조할 핵심 대상 — 영문 2~5단어. 특정 사물·디테일을 콕 짚는 게 후킹인 소재일 때만, 아니면 빈 문자열",
   "beats": [
     {{"role": "이 장이 장별 시퀀스에서 맡는 역할 (예: 맥락/고조/반전, 6자 이내)",
@@ -2017,15 +2033,17 @@ def _krjp_verify(cfg, items, cands, log=print):
     return items
 
 
-def suggest_krjp(cfg, base, axis="", log=print):
+def suggest_krjp(cfg, base, axis="", exclude=None, log=print):
     """커뮤 인기글 + 뉴스RSS → 일본 타겟 소재 후보 (7축 분류 + 수위 가드 + 출처 검증).
-    axis를 주면 그 갈래 전용 스캔 (전용 검색 줄기 추가 + 그 갈래만 선별)."""
+    axis를 주면 그 갈래 전용 스캔 (전용 검색 줄기 추가 + 그 갈래만 선별).
+    exclude(이미 제시한 주제 목록)를 주면 '더보기' — 겹치지 않는 새 주제만 뽑는다."""
     key = (cfg.get("gemini_api_key") or "").strip()
     if not key:
         raise RuntimeError("Gemini API 키가 없습니다")
     axis = (axis or "").strip()
     if axis and axis not in KRJP_AXIS_QUERIES:
         raise RuntimeError(f"모르는 갈래: {axis}")
+    exclude = [str(t).strip() for t in (exclude or []) if str(t).strip()]
     log(f"소재 수집 중 (커뮤 9곳 + 뉴스 + 일본 수요 신호"
         + (f" + '{axis}' 전용 줄기)..." if axis else ")..."))
     cands = []
@@ -2056,6 +2074,10 @@ def suggest_krjp(cfg, base, axis="", log=print):
                         for c in cands[:140])
     log(f"후보 {min(len(cands), 140)}개 → Gemini 선별 중...")
     ptxt = KRJP_PROMPT + listing + (KRJP_AXIS_NOTE.format(axis=axis) if axis else "")
+    if exclude:
+        ptxt += ("\n\n[이미 제시한 주제 — 아래와 같거나 사실상 같은 사건·인물·소재는 "
+                 "절대 다시 내지 마라. 완전히 다른 새 주제만 선별하라]\n"
+                 + "\n".join(f"- {t}" for t in exclude[:30]))
     body = {
         "contents": [{"role": "user", "parts": [{"text": ptxt}]}],
         "generationConfig": {"response_mime_type": "application/json",
@@ -2070,6 +2092,13 @@ def suggest_krjp(cfg, base, axis="", log=print):
     raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
     items = (_parse_json(raw) or {}).get("items", [])
     items = [i for i in items if isinstance(i, dict) and i.get("topic")][:12]
+    if exclude:                      # Gemini가 그래도 반복한 주제는 후필터로 제거
+        exset = {t for t in exclude}
+        items = [i for i in items
+                 if str(i.get("topic") or "").strip() not in exset
+                 and not any(t and (t in str(i.get("topic") or "")
+                                    or str(i.get("topic") or "").strip() in t)
+                             for t in exset)]
     log(f"소재 {len(items)}개 선별 → 출처 교차검증 중...")
     items = _krjp_verify(cfg, items, cands, log=log)
     log(f"✅ 소재 {len(items)}개 선별")

@@ -4241,17 +4241,46 @@
     refPoll(d.job);
   }
   let KRJP_AXIS='';
-  async function refKrjp(refresh,axis){
+  function krjpGauge(label){
+    return `<div style="background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:10px 13px;font-size:13px">
+      <b>🔎 ${esch(label)}</b>
+      <div style="height:8px;background:var(--panel2);border-radius:6px;margin:7px 0;overflow:hidden"><div id="krjpFill" style="height:100%;width:3%;background:var(--gold);border-radius:6px;transition:width .5s"></div></div>
+      <span id="krjpMsg" style="color:var(--gold)">접수됨… (1~2분 — 다른 탭 봐도 돼요, 완료되면 여기 뜹니다)</span></div>`;
+  }
+  async function krjpPoll(jid){
+    let d; try{const r=await fetch(`/api/job/${jid}?code=${encodeURIComponent(code())}`);d=await r.json();}
+    catch(e){setTimeout(()=>krjpPoll(jid),2500);return;}
+    const fill=$('krjpFill'),jm=$('krjpMsg');
+    if(d.ok===false){if(jm)jm.textContent='❌ '+(d.error||'오류');return;}
+    if(d.status==='queued'){if(jm){const ahead=Math.max(0,(d.pos||1)-1);jm.textContent=ahead?`🕐 대기 중 — 앞에 ${ahead}개`:'🕐 곧 시작…';}}
+    else{if(fill)fill.style.width=(d.pct||5)+'%';if(jm)jm.textContent='⏳ '+(d.msg||'수색 중…');}
+    if(d.status==='error'){if(jm)jm.textContent='❌ '+d.error;return;}
+    if(d.status==='done'){if(fill)fill.style.width='100%';
+      const r=d.result||{};krjpRender({items:r.items||[],cached:false});flash('✅ 소재 수색 완료');return;}
+    setTimeout(()=>krjpPoll(jid),1500);
+  }
+  async function refKrjp(refresh,axis,more){
     if(axis!==undefined)KRJP_AXIS=axis;
     const box=$('refKrjpBox'); if(!box)return;
-    box.innerHTML=`<div style="color:var(--gold);font-size:13px;padding:8px 0">🔎 ${KRJP_AXIS?`'${KRJP_AXIS}' 갈래 전용 수색`:'커뮤 9곳+뉴스 스캔'} + 출처 교차검증 중… (1~2분, 창 유지)</div>`;
-    let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh,axis:KRJP_AXIS});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    const label=(KRJP_AXIS?`'${KRJP_AXIS}' 갈래 전용 수색`:'커뮤 9곳+뉴스 스캔')+(more?' — 다른 주제 더보기':'')+' + 출처 교차검증';
+    let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh,more:!!more,axis:KRJP_AXIS});}catch(e){box.innerHTML='❌ 통신 오류';return;}
     if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
+    if(d.job){
+      const row=$('krjpMoreRow');
+      if(more&&row)row.innerHTML=krjpGauge(label);   // 더보기: 기존 목록 유지, 하단에 게이지
+      else box.innerHTML=krjpGauge(label);
+      krjpPoll(d.job);
+      return;
+    }
+    krjpRender(d);
+  }
+  function krjpRender(d){
+    const box=$('refKrjpBox'); if(!box)return;
     KRJP_ITEMS=d.items||[];
     const AX={'한정템':'🛍','인물':'🎭','사건미담':'📰','팩트체크':'✅','꿀팁':'💡','스토리':'📖','반전':'🪞'};
     const TONE={'비판':['🔥','#ff6b57'],'국뽕':['🇰🇷','#4da3ff'],'음지':['🌚','#b98cff']};
     const chips=['',...Object.keys(AX)].map(a=>`<span class="chip ${KRJP_AXIS===a?'on':''}" onclick="refKrjp(false,'${a}')">${a?AX[a]+' '+a:'🌐 전체'}</span>`).join('');
-    box.innerHTML=`<div class="panehead" style="margin-top:4px"><h2>🇯🇵 역수출 소재 후보</h2><span class="n">${d.cached?'30분 캐시':'방금 스캔'} · <a style="cursor:pointer;color:var(--gold)" onclick="refKrjp(true)">🔄 새로 스캔</a></span></div>
+    box.innerHTML=`<div class="panehead" style="margin-top:4px"><h2>🇯🇵 역수출 소재 후보</h2><span class="n">${d.cached?'30분 캐시':'방금 스캔'} · ${KRJP_ITEMS.length}개 · <a style="cursor:pointer;color:var(--gold)" onclick="refKrjp(true)">🔄 새로 스캔</a></span></div>
       <div class="chips" style="margin-bottom:10px">${chips}</div>
       <div style="display:flex;flex-direction:column;gap:8px">`+
       KRJP_ITEMS.map((it,ix)=>`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px">
@@ -4268,7 +4297,9 @@
         <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn primary" onclick="refMagazine(${ix})">🚀 ${PROD_CH?esch((PROD_CH.emoji||'')+' '+PROD_CH.name)+' 제작':'제작'}</button>
           <button class="btn" onclick="refCopy(${ix})">📋 복사</button></div>
-      </div>`).join('')+'</div>';
+      </div>`).join('')+`</div>
+      <div id="krjpMoreRow" style="margin-top:10px;display:flex;justify-content:center">
+        <button class="btn" onclick="refKrjp(false,undefined,true)">➕ ${KRJP_AXIS?`'${esch(KRJP_AXIS)}' 갈래에서`:'전체에서'} 다른 주제 더보기</button></div>`;
   }
 
   /* ---- 🚀 채널 생산 (통합 창구): 채널 프로필 → 소재 → 만들기 ---- */

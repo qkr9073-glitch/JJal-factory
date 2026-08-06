@@ -4397,24 +4397,61 @@ def api_ref_magazine():
     return jsonify(ok=True, job=jid)
 
 
+def _run_ref_krjp(jid, cfg, axis, exclude):
+    """소재 스캔 잡 — 진행 로그를 게이지(pct/msg)로 흘린다.
+    exclude(이미 보여준 주제)가 있으면 '더보기': 새 주제만 뽑아 기존 목록 뒤에 합친다."""
+    job = JOBS[jid]
+
+    def log(m):
+        m = str(m).strip()
+        if not m:
+            return
+        job["msg"] = m
+        for pat, pct in (("스캔", 15), ("후보", 40), ("선별 중", 55),
+                         ("교차검증", 75), ("✅", 95)):
+            if pat in m:
+                job["pct"] = max(job["pct"], pct)
+
+    try:
+        job["pct"] = max(job["pct"], 8)
+        job["msg"] = "커뮤 9곳 + 뉴스 RSS 수집 중..."
+        items = reference.suggest_krjp(cfg, BASE, axis=axis, exclude=exclude, log=log)
+        if exclude:                      # 더보기: 기존 목록 유지 + 새 주제 추가
+            prev = (KRJP_CACHE.get(axis) or {}).get("data") or []
+            seen = {str(i.get("topic") or "").strip() for i in prev}
+            items = prev + [i for i in items
+                            if str(i.get("topic") or "").strip() not in seen]
+        KRJP_CACHE[axis] = {"data": items, "time": time.time()}
+        job["result"] = {"krjp": True, "items": items, "axis": axis}
+        job["pct"] = 100
+        job["status"] = "done"
+    except Exception as e:
+        job["error"] = f"소재 스캔 실패: {e}"
+        job["status"] = "error"
+
+
 @app.post("/api/ref/krjp")
 def api_ref_krjp():
-    """역수출(일본 타겟) 한국 소재 추천 — 커뮤 인기글+뉴스RSS를 4축 분류. 30분 캐시."""
+    """역수출(일본 타겟) 한국 소재 추천 — 커뮤 인기글+뉴스RSS를 갈래 분류. 30분 캐시.
+    캐시 히트=items 즉답 / 미스·refresh·more=잡 접수(job) → 게이지 폴링."""
     data = request.get_json(silent=True) or {}
     cfg = load_config()
     if not _check_code(cfg, data.get("code")):
         return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
     now = time.time()
     axis = str(data.get("axis") or "").strip()
+    more = bool(data.get("more"))
     ent = KRJP_CACHE.get(axis)
-    if not data.get("refresh") and ent and now - ent["time"] < 1800:
+    if not data.get("refresh") and not more and ent and now - ent["time"] < 1800:
         return jsonify(ok=True, items=ent["data"], cached=True, axis=axis)
-    try:
-        items = reference.suggest_krjp(cfg, BASE, axis=axis, log=lambda m: None)
-    except Exception as e:
-        return jsonify(ok=False, error=f"소재 스캔 실패: {e}"), 500
-    KRJP_CACHE[axis] = {"data": items, "time": now}
-    return jsonify(ok=True, items=items, cached=False, axis=axis)
+    exclude = [str(i.get("topic") or "").strip()
+               for i in ((ent or {}).get("data") or [])] if more else []
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
+                 "result": None, "error": None, "ts": now,
+                 "code": (data.get("code") or "").strip()}
+    JOBQ.put((jid, _run_ref_krjp, (jid, cfg, axis, exclude)))
+    return jsonify(ok=True, job=jid, axis=axis)
 
 
 @app.get("/refimg/<handle>/<path:fn>")

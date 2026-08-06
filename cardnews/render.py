@@ -2228,25 +2228,27 @@ def _jmag_cover(plan, cfg, out_path):
     c = img if img is not None else Image.new("RGB", (W, H), JMAG_BG)
     d = ImageDraw.Draw(c)
     d.rectangle([0, 0, W, 30], fill=JMAG_RED)
-    _grad_overlay(c, int(H * 0.48), H, alpha_to=240)
+    _grad_overlay(c, int(H * 0.40), H, alpha_to=240)   # 킥커 줄까지 덮게 넉넉히
     d = ImageDraw.Draw(c)
     _ai_notice(d, cfg, right=True)
 
-    badge = (plan.get("title_top") or "").strip()
-    if badge:
-        bf, _bs = _fit_font(d, badge, "xbold", 96, W - M * 2 - 96, min_size=68)
-        bw = _tw(d, badge, bf)
-        d.rounded_rectangle([M, 120, M + bw + 96, 300], radius=28, fill=JMAG_GREEN)
-        d.text((M + 48, 210 - _bs // 2), badge, font=bf, fill=(10, 38, 20))
-
+    # ⚠️초록 배지 금지 — 원채널 표지 실측 공식은 '흰 헤드라인 2~3줄 + 서브라인'뿐
+    # (배지는 초기 눈대중 디자인이 실측과 어긋났던 것, 사용자 지적으로 제거)
     title = (plan.get("title_main") or plan.get("title") or "").strip()
     tf, ts, lines = _fit_mag(d, title, "xbold", 235, W - M * 2, 150, max_lines=3)
     lh = int(ts * 1.15)
+    top = (plan.get("title_top") or "").strip()
+    pf, _ps = (_fit_font(d, top, "xbold", 100, W - M * 2, min_size=66)
+               if top else (None, 0))
+    top_h = 165 if top else 0
     sub = (plan.get("subtitle") or "").strip()
     sf = _font("xbold", 112)
     sub_lines = _wrap_mag(d, sub, sf, W - M * 2, max_lines=2) if sub else []
-    block_h = len(lines) * lh + (len(sub_lines) * 164 + 50 if sub_lines else 0)
+    block_h = top_h + len(lines) * lh + (len(sub_lines) * 164 + 50 if sub_lines else 0)
     y = H - 240 - block_h
+    if top:                               # 킥커 한 줄 — 헤드라인과 같은 흰 글씨(작게)
+        d.text(((W - _tw(d, top, pf)) / 2, y), top, font=pf, fill=(255, 255, 255))
+        y += top_h
     for ln in lines:                      # 원본처럼 중앙 정렬
         d.text(((W - _tw(d, ln, tf)) / 2, y), ln, font=tf, fill=(255, 255, 255))
         y += lh
