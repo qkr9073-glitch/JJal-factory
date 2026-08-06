@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import uuid
+import threading
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -48,6 +49,32 @@ def load(base, pid):
 
 def exists(base, pid):
     return (pdir(base, pid) / "state.json").exists()
+
+
+_SAVE_LOCKS = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _plock(pid):
+    with _LOCKS_GUARD:
+        lk = _SAVE_LOCKS.get(str(pid))
+        if lk is None:
+            lk = _SAVE_LOCKS[str(pid)] = threading.Lock()
+        return lk
+
+
+def patch(base, pid, st, keys):
+    """긴 작업이 끝난 뒤 '자기가 만든 필드만' 디스크의 최신 상태에 병합 저장.
+    통째 저장(save)을 쓰면 작업 도중 사용자가 고친 값(끊어읽기 등)이 옛 값으로 되돌아간다."""
+    with _plock(pid):
+        fresh = load(base, pid)
+        for k in keys:
+            if k in st:
+                fresh[k] = st[k]
+            else:
+                fresh.pop(k, None)
+        save(base, pid, fresh)
+        return fresh
 
 
 def save(base, pid, st):
@@ -292,7 +319,7 @@ def collect_clips(cfg, base, pid, urls, log=print):
                 (pdir(base, pid) / tmp).unlink(missing_ok=True)
             except Exception:
                 pass
-        save(base, pid, st)   # 영상 하나 끝날 때마다 자동저장
+        patch(base, pid, st, ("clips", "src_urls"))   # 영상 하나 끝날 때마다 자동저장(내 필드만)
     fail_base = {u.split("?")[0] for u in failed}
     clip_counts = {}
     for c in st["clips"]:
@@ -304,7 +331,7 @@ def collect_clips(cfg, base, pid, urls, log=print):
             u["status"] = "실패"
         elif clip_counts.get(k):
             u["status"] = f"클립 {clip_counts[k]}개"
-    save(base, pid, st)
+    patch(base, pid, st, ("clips", "src_urls"))
     return {"clips": clips_public(pid, st), "failed": failed, "skipped": skipped}
 
 
@@ -825,7 +852,7 @@ def set_block_blur(base, pid, idx, blur):
         raise RuntimeError("잘못된 블록")
     edl[idx]["blur"] = blur or None
     _assemble_edit(base, pid, st, only_idx=idx)
-    save(base, pid, st)
+    st = patch(base, pid, st, ("edl", "subs_style", "subs_rendered", "wm_rendered"))
     _sync_final(base, pid)          # BGM 완성본이 있으면 자동 재합치기(⑦ 다시 안 눌러도 반영)
     return edit_public(base, pid, st)
 
@@ -903,7 +930,7 @@ def restyle_subs(base, pid):
     if not (pdir(base, pid) / "edit" / "video.mp4").exists():
         raise RuntimeError("먼저 ⑥ 정밀 컷을 생성하세요")
     _mux_subs(base, pid, st)
-    save(base, pid, st)
+    st = patch(base, pid, st, ("subs_style", "subs_rendered", "wm_rendered"))
     _sync_final(base, pid)          # 자막 바뀌면 BGM 완성본도 자동 재합치기(무효화 대신 갱신)
     return edit_public(base, pid, st)
 
@@ -921,7 +948,7 @@ def build_edit(cfg, base, pid, log=print):
     log("[3/3] 미리보기 합성(음성+자막)…")
     _assemble_edit(base, pid, st)
     st["edit"] = {"preview": "edit/preview.mp4"}
-    save(base, pid, st)
+    st = patch(base, pid, st, ("edl", "edit", "subs_style", "subs_rendered", "wm_rendered"))
     return edit_public(base, pid, st)
 
 
@@ -937,7 +964,7 @@ def reroll_block(base, pid, idx):
     e["clip_id"] = e["cands"][e["used"]]
     e.pop("blur", None)             # 새 클립엔 이전 블러 영역이 안 맞음 → 초기화
     _assemble_edit(base, pid, st, only_idx=idx)
-    save(base, pid, st)
+    st = patch(base, pid, st, ("edl", "subs_style", "subs_rendered", "wm_rendered"))
     _sync_final(base, pid)          # 완성본 있으면 자동 재합치기
     return edit_public(base, pid, st)
 
@@ -1003,7 +1030,7 @@ def build_final(cfg, base, pid, bgm_code="", bgm_file="", bgm_db=-20.0, log=prin
         shutil.copy(str(prev), str(final))
     st["bgm"] = {"code": bgm_code, "file": bgm_file, "db": bgm_db}
     st["final"] = {"video": "edit/final.mp4"}
-    save(base, pid, st)
+    st = patch(base, pid, st, ("bgm", "final"))
     return {"video": f"/reelproj/{pid}/edit/final.mp4", "bgm": st["bgm"]}
 
 
