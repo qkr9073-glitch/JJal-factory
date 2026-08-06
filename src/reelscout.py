@@ -476,6 +476,78 @@ def find_sns_field(cfg, base, top_n=5, log=print):
     return new
 
 
+def find_hashtag_field(cfg, base, tags=None, top_n=8, log=print):
+    """인스타 해시태그 검색(공식 ig_hashtag_search — 실측 검증됨)으로 터진 영상 발굴.
+    ⚠️공식 한도: 계정당 7일에 고유 해시태그 30개 → 장부(_hashtag_ledger.json)로 예산 관리.
+    tags 미지정 시 config field_hashtags 사용. 반환: 신규 후보 수."""
+    import datetime
+    tok = (cfg.get("fb_long_token") or "").strip()
+    uid = str(cfg.get("fb_bd_ig_id") or "").strip()
+    if not (tok and uid):
+        raise RuntimeError("fb_long_token/fb_bd_ig_id가 없습니다")
+    tags = [t.lstrip("#") for t in (tags or cfg.get("field_hashtags") or [])]
+    if not tags:
+        log("      (해시태그 없음 — config field_hashtags에 추가)")
+        return 0
+    lpath = Path(base) / REFS_DIRNAME / "_hashtag_ledger.json"
+    try:
+        ledger = json.loads(lpath.read_text(encoding="utf-8"))
+    except Exception:
+        ledger = {}
+    now = datetime.datetime.now()
+    week = {t for t, d in ledger.items()
+            if (now - datetime.datetime.fromisoformat(d)).days < 7}
+    rows = _field_load(base)
+    seen = {r.get("video_url") for r in rows} | {r.get("post_url") for r in rows}
+    new = 0
+    for tag in tags:
+        if tag not in week and len(week) >= 28:
+            log(f"      (#{tag} 건너뜀 — 주간 해시태그 예산 소진: {len(week)}/30)")
+            continue
+        try:
+            r = requests.get("https://graph.facebook.com/v23.0/ig_hashtag_search",
+                             params={"user_id": uid, "q": tag, "access_token": tok},
+                             timeout=30)
+            data = (r.json().get("data") or []) if r.status_code == 200 else []
+            if not data:
+                log(f"      (#{tag} 검색 실패 {r.status_code}: {r.text[:80]})")
+                continue
+            ledger[tag] = now.isoformat()
+            week.add(tag)
+            hid = data[0]["id"]
+            r2 = requests.get(f"https://graph.facebook.com/v23.0/{hid}/top_media",
+                              params={"user_id": uid, "access_token": tok,
+                                      "fields": "id,media_type,permalink,caption,"
+                                                "like_count,comments_count",
+                                      "limit": 25}, timeout=30)
+            vids = [m for m in (r2.json().get("data") or [])
+                    if m.get("media_type") == "VIDEO" and m.get("permalink")]
+            vids.sort(key=lambda m: -(m.get("like_count") or 0))
+            got = 0
+            for m in vids[:top_n]:
+                url = m["permalink"]
+                if url in seen:
+                    continue
+                cap = re.sub(r"\s+", " ", m.get("caption") or "")[:80]
+                rows.append({"title": cap, "post_url": url, "video_url": url,
+                             "site": f"IG#{tag}", "direct": False, "referer": "",
+                             "recs": int(m.get("like_count") or 0),
+                             "replies": int(m.get("comments_count") or 0)})
+                seen.add(url)
+                new += 1
+                got += 1
+            log(f"      #️⃣ #{tag}: 영상 {len(vids)}개 중 신규 {got}개")
+            time.sleep(1.0)
+        except Exception as e:
+            log(f"      (#{tag} 오류: {str(e)[:80]})")
+    lpath.parent.mkdir(parents=True, exist_ok=True)
+    lpath.write_text(json.dumps(ledger, ensure_ascii=False, indent=1),
+                     encoding="utf-8")
+    _field_save(base, rows)
+    log(f"      #️⃣ 해시태그 소싱 신규 {new}개 (누적 {len(rows)}개, 주간 예산 {len(week)}/30)")
+    return new
+
+
 FIELD_PROMPT = """이 영상이 아래 채널의 '릴스 소재'로 적합한지 냉정하게 채점하라.
 
 채널: 일본 시청자에게 '진짜 한국'을 보여주는 릴스 채널.
