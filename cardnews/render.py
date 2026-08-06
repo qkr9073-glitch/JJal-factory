@@ -2524,3 +2524,93 @@ def render_story_cta(plan, cfg, out_path):
     if _theme(cfg) == "hunter":
         return _hunter_story_cta(plan, cfg, out_path)
     return _cream_story_cta(plan, cfg, out_path)
+
+
+def render_reel_frame(plan, items, cfg, out_path):
+    """릴스 네이티브 단일 프레임(9:16) — jp2 실측 공식 그대로: 한 화면에 제목+리스트
+    전부를 빽빽하게 담아 5~15초 정지화면으로 저장을 유도한다. 슬라이드쇼 아님.
+    (실측: 사진슬라이드 76%·컷 0·'저장 필수'+노란 강조+순위 표)
+    items: [{"num", "title"}] — 릴스용 항목(짧은 리스트 엔트리)이 이상적."""
+    _LOCAL.lang = cfg.get("card_lang", "ko")
+    try:
+        return _reel_frame_impl(plan, items, cfg, out_path)
+    finally:
+        _LOCAL.lang = "ko"
+
+
+def _reel_frame_impl(plan, items, cfg, out_path):
+    RW, RH = 2160, 3840
+    ja = (_lang() == "ja")
+    src = cfg.get("cover_image")
+    c = None
+    if src and Path(str(src)).exists():
+        try:
+            img = Image.open(src).convert("RGB")
+            sc = max(RW / img.width, RH / img.height)
+            img = img.resize((int(img.width * sc) + 1, int(img.height * sc) + 1),
+                             Image.LANCZOS)
+            x = (img.width - RW) // 2
+            y = (img.height - RH) // 3
+            c = img.crop((x, y, x + RW, y + RH))
+        except Exception:
+            c = None
+    if c is None:
+        c = Image.new("RGB", (RW, RH), SMAG_BG)
+    ov = Image.new("L", (RW, RH), 0)
+    od = ImageDraw.Draw(ov)
+    for i in range(RH):                       # 위 100 → 아래 225 세로 그라데이션
+        od.line([(0, i), (RW, i)], fill=int(100 + 125 * (i / RH)))
+    c.paste(Image.new("RGB", (RW, RH), (0, 0, 0)), (0, 0), ov)
+    d = ImageDraw.Draw(c)
+
+    rows = [it for it in (items or []) if (it.get("title") or "").strip()][:8]
+    # 세로 중앙 정렬을 위해 제목 블록을 먼저 계산
+    title = (plan.get("title_main") or plan.get("title") or "").strip()
+    tf, ts, tlines = _fit_mag(d, title, "xbold", 215, RW - M * 2, 132, max_lines=2)
+    y = 250
+    d.text((M, y), "（保存必須）" if ja else "(저장필수)",
+           font=_font("xbold", 118), fill=SMAG_GOLD)
+    y += 205
+    for ln in tlines:
+        d.text((M, y), ln, font=tf, fill=SMAG_TEXT)
+        y += int(ts * 1.16)
+    y += 110
+
+    if rows:
+        avail = RH - 340 - y
+        size, metas, used = 176, [], 0        # 크게 시작 — 실측은 화면이 빽빽하다
+        while size > 68:
+            f, line_h, used, metas = _font("xbold", size), int(size * 1.34), 0, []
+            for it in rows:
+                t = re.sub(r"\s+", " ", str(it.get("title", ""))).strip()
+                wrap = (_wrap_ja if ja else _wrap_mag)(
+                    d, t, f, RW - M * 2 - 200, max_lines=2)
+                metas.append((it, wrap))
+                used += len(wrap) * line_h + 54
+            if used <= avail:
+                break
+            size -= 6
+        f, nf, line_h = (_font("xbold", size), _font("xbold", size),
+                         int(size * 1.34))
+        # 리스트를 남는 세로 공간의 가운데로 — 아래가 텅 비지 않게
+        y += max(0, (avail - used) // 2)
+        box = Image.new("RGBA", (RW, RH), (0, 0, 0, 0))
+        ImageDraw.Draw(box).rounded_rectangle(
+            [M - 48, y - 56, RW - M + 48, y + used + 64], 52, fill=(0, 0, 0, 122))
+        c.paste(box, (0, 0), box)
+        for i, (it, wrap) in enumerate(metas, 1):
+            d.text((M, y), str(it.get("num") or i), font=nf, fill=SMAG_GOLD)
+            for ln in wrap:
+                d.text((M + 200, y), ln, font=f, fill=SMAG_TEXT)
+                y += line_h
+            y += 54
+
+    hd = (cfg.get("_reel_handle") or "").strip()   # 팩 전용 계정 (강사 브랜딩 금지)
+    if hd:
+        d.text((M, RH - 200), "@" + hd.lstrip("@"),
+               font=_font("semi", 72), fill=(212, 212, 218))
+    cta = "保存して見返してね" if ja else "저장해두고 보세요"
+    sf = _font("xbold", 88)
+    d.text((RW - M - _tw(d, cta, sf), RH - 210), cta, font=sf, fill=SMAG_GOLD)
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)

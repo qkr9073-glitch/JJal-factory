@@ -93,3 +93,113 @@ def build(cfg, base, pack_dir, per_card=3.2, cover_sec=3.0, cta_sec=2.0,
     log(f"      ✅ 릴스 완성: {out_mp4.name} ({out_mp4.stat().st_size // 1024}KB, "
         f"{total:.0f}초)")
     return str(out_mp4)
+
+
+def _reel_entries(cfg, pack, meta, plan, items, log=print):
+    """릴스 프레임용 짧은 리스트 항목 — 실측 공식(순위·표 밀집)에 맞게 카드 비트를
+    간결한 엔트리로 변환(Gemini 1회, meta.reel_entries 캐시). 실패 시 카드 제목 사용."""
+    import json as _json
+    import re as _re
+    import requests
+    cached = meta.get("reel_entries")
+    if cached:
+        return [{"num": i + 1, "title": t} for i, t in enumerate(cached)]
+    title = (plan.get("title_main") or plan.get("title") or "").strip()
+    lang = meta.get("lang") or cfg.get("card_lang", "ko")
+    m = _re.search(r"TOP\s*(\d+)|(\d+)\s*選|(\d+)\s*가지", title, _re.I)
+    n = int(next((g for g in (m.groups() if m else []) if g), 0) or 0) or 6
+    n = max(3, min(8, n))
+    try:
+        from .reference import GEMINI_URL, _parse_json
+        from .reelscout import _gem_text
+        key = (cfg.get("gemini_api_key") or "").strip()
+        mat = "\n".join(f"- {it.get('title', '')} :: {str(it.get('body', ''))[:220]}"
+                        for it in items)
+        lang_word = "일본어 네이티브" if lang == "ja" else "한국어"
+        prompt = (f"인스타 릴스 단일 프레임(순위·리스트 표)용 항목을 만들어라.\n"
+                  f"제목: {title}\n재료:\n{mat}\n\n"
+                  f"{n}개, 각 6~16자, {lang_word}, 명사형 리스트 톤(서사 문장 금지), "
+                  f"재료와 보편 상식 범위만(수치·사실 날조 금지), 중복 금지.\n"
+                  f'JSON만: {{"entries": ["..."]}}')
+        body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"response_mime_type": "application/json",
+                                     "temperature": 0.6,
+                                     "maxOutputTokens": 1024,
+                                     "thinkingConfig": {"thinkingBudget": 0}}}
+        resp = requests.post(GEMINI_URL.format(
+            model=cfg.get("gemini_model", "gemini-2.5-flash")),
+            params={"key": key}, json=body, timeout=120)
+        if resp.status_code != 200:
+            raise RuntimeError(f"항목 생성 {resp.status_code}")
+        ents = [str(e).strip() for e in
+                ((_parse_json(_gem_text(resp)) or {}).get("entries") or [])
+                if str(e).strip()][:n]
+        if len(ents) >= 3:
+            meta["reel_entries"] = ents
+            (pack / "meta.json").write_text(
+                _json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+            log(f"      📋 릴스 리스트 항목 {len(ents)}개 생성 (캐시됨)")
+            return [{"num": i + 1, "title": t} for i, t in enumerate(ents)]
+    except Exception as e:
+        log(f"      (릴스 항목 생성 실패 — 카드 제목 사용: {str(e)[:60]})")
+    return [{"num": it.get("num") or i + 1, "title": it.get("title", "")}
+            for i, it in enumerate(items)]
+
+
+def build_single(cfg, base, pack_dir, sec=9.0, bgm_code="무난", bgm_file="",
+                 log=print):
+    """jp2 릴스 공식 그대로의 릴스: 정보 밀집 '단일 프레임' 정지화면 + BGM.
+    실측 근거 — 사진슬라이드 76%·대부분 5~15초·컷 0·한 화면에 제목+리스트 전부·저장 유도.
+    (카드 슬라이드쇼 방식(build)은 공식과 달라 기본에서 제외 — 사용자 지적)"""
+    import json as _json
+    from cardnews import render as _render
+    pack = Path(pack_dir)
+    data = _json.loads((pack / "items.json").read_text(encoding="utf-8"))
+    plan, items = data.get("plan") or {}, data.get("items") or []
+    meta = {}
+    try:
+        meta = _json.loads((pack / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    cfg2 = dict(cfg)
+    cfg2["card_lang"] = meta.get("lang") or cfg.get("card_lang", "ko")
+    cfg2["_reel_handle"] = (meta.get("ig_account") or "").strip()
+    cov = str(meta.get("cover_image") or "")
+    if not cov and meta.get("source_pack"):       # 현지화판: 원본 팩의 표지를 찾아온다
+        sp = pack.parent / str(meta["source_pack"])
+        for fn in ("_cover_clean.jpg", "_cover.jpg"):
+            if (sp / fn).exists():
+                cov = str(sp / fn)
+                break
+    if cov.endswith("_cover.jpg") and Path(cov[:-4] + "_clean.jpg").exists():
+        cov = cov[:-4] + "_clean.jpg"     # 원 강조 전 원본이 있으면 그쪽 (릴스는 깨끗하게)
+    if cov and Path(cov).exists():
+        cfg2["cover_image"] = cov
+    rows = _reel_entries(cfg, pack, meta, plan, items, log=log)
+    frame = pack / "reel.jpg"
+    _render.render_reel_frame(plan, rows, cfg2, frame)
+    log(f"      🖼 릴스 단일 프레임 렌더 — {len(rows)}항목, {sec:.0f}초 정지화면")
+    out_mp4 = pack / "video.mp4"
+    tmp_v = pack / "_reel_single.mp4"
+    _run([FFMPEG, "-y", "-loop", "1", "-t", f"{sec:.2f}", "-i", str(frame),
+          "-vf", "scale=1080:1920,format=yuv420p", "-r", "30",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", str(tmp_v)])
+    bgm = bgm_file or _pick_bgm(base, bgm_code)
+    if bgm:
+        fade = max(0.5, sec - 1.2)
+        _run([FFMPEG, "-y", "-i", str(tmp_v), "-stream_loop", "-1", "-i", bgm,
+              "-filter_complex",
+              f"[1:a]volume=0.5,afade=t=out:st={fade:.1f}:d=1.2[a]",
+              "-map", "0:v", "-map", "[a]", "-shortest",
+              "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+              "-movflags", "+faststart", str(out_mp4)])
+        log(f"      🎵 BGM: {Path(bgm).stem}")
+    else:
+        tmp_v.replace(out_mp4)
+    try:
+        tmp_v.unlink()
+    except OSError:
+        pass
+    log(f"      ✅ 릴스 완성(단일 프레임): video.mp4 "
+        f"({out_mp4.stat().st_size // 1024}KB, {sec:.0f}초)")
+    return str(out_mp4)

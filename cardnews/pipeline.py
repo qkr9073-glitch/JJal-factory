@@ -406,7 +406,7 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     # 원본 팩의 의도·자가채점·원본 출처·전용 업로드 계정은 현지화판에도 승계
     # (업로드 판단·발행·원본 대조 검수는 현지화판에서 하니까)
     for k in ("intent", "judge", "source", "ref_handle", "ref_post", "src_link",
-              "cover_ai", "ig_account"):
+              "cover_ai", "ig_account", "cover_image", "cta_image"):
         if smeta.get(k) is not None and k not in meta:
             meta[k] = smeta[k]
     (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
