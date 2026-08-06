@@ -166,6 +166,21 @@ def _upload_video(key, path, log=print):
     return uri
 
 
+def _gem_text(resp):
+    """Gemini 200 응답에서 텍스트 추출 — 안전성 차단 등 candidates 부재 시 사유를 에러로."""
+    j = resp.json()
+    cands = j.get("candidates") or []
+    if not cands:
+        reason = (j.get("promptFeedback") or {}).get("blockReason") or "candidates 없음"
+        raise RuntimeError(f"응답 차단({reason})")
+    c = cands[0]
+    parts = (c.get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts)
+    if not text:
+        raise RuntimeError(f"본문 없음(finishReason={c.get('finishReason')})")
+    return text
+
+
 REEL_PROMPT = """이 인스타 릴스를 벤치마킹 관점에서 해부하라. 감이 아니라 화면에 실제로
 보이는 것 기준으로. JSON만 출력:
 {"production": "원본영상+자막|AI생성영상|사진슬라이드|화면녹화|혼합|기타",
@@ -205,8 +220,7 @@ def analyze_reels(cfg, base, handle, limit=10, log=print):
                                  params={"key": key}, json=body, timeout=240)
             if resp.status_code != 200:
                 raise RuntimeError(f"분석 호출 {resp.status_code}")
-            r["analysis"] = _parse_json(
-                resp.json()["candidates"][0]["content"]["parts"][0]["text"]) or {}
+            r["analysis"] = _parse_json(_gem_text(resp)) or {}
             done += 1
             log(f"      🔬 @{handle} 릴스 분석 {done}/{limit} — "
                 f"{str((r['analysis'] or {}).get('production'))[:20]}")
@@ -316,12 +330,24 @@ def thumb_sheet(base, group, out_dir, per_sheet=40, cols=5, log=print):
 # 큐레이션한다 — 인기글에 박힌 영상 링크를 뽑아 yt-dlp로 받고 Gemini가 jp1 감성 판정.
 _VIDEO_PAT = re.compile(
     r"https?://(?:www\.)?(?:"
-    r"youtube\.com/(?:watch\?v=|shorts/)[\w-]+"
+    r"youtube\.com/(?:watch\?v=|shorts/|embed/)[\w-]+"
     r"|youtu\.be/[\w-]+"
     r"|(?:vm|vt)\.tiktok\.com/[\w]+"
     r"|tiktok\.com/@[^\s\"'<>]+/video/\d+"
     r"|(?:twitter|x)\.com/[^\s\"'<>]+/status/\d+"
     r")")
+
+# 커뮤별 Referer (extractors의 사이트별 관행과 동일 — 한글 사이트명을 넘기면 헤더 인코딩 깨짐)
+_REFERERS = {"dcinside": "https://gall.dcinside.com/",
+             "ruliweb": "https://bbs.ruliweb.com/",
+             "fmkorea": "https://www.fmkorea.com/"}
+
+
+def _referer_for(url):
+    for k, v in _REFERERS.items():
+        if k in url:
+            return v
+    return None
 
 FIELD_FILE = "_field_videos.json"
 
@@ -356,17 +382,28 @@ def find_field_videos(cfg, base, per_source=8, log=print):
         if not url or url in seen:
             continue
         try:
-            soup = extractors.fetch_html(url, p.get("site", ""))
+            from urllib.parse import urljoin
+            soup = extractors.fetch_html(url, _referer_for(url))
             html = str(soup)
             links = list(dict.fromkeys(_VIDEO_PAT.findall(html)))
             og = soup.find("meta", property="og:video")
             if og and og.get("content", "").startswith("http"):
                 links.append(og["content"])
+            # 커뮤 자체 호스팅 영상 (<video>/<source> 직접 mp4 — 루리웹 등.
+            # 디시는 동적 로드라 정적 HTML에서 안 잡힘 = 커버리지 한계)
+            for v in soup.find_all("video"):
+                for s in [v.get("src") or ""] + [x.get("src") or ""
+                                                 for x in v.find_all("source")]:
+                    if ".mp4" in s:
+                        links.append(urljoin(url, s))
+            links = list(dict.fromkeys(links))
             for v in links[:2]:
                 if v in seen:
                     continue
                 rows.append({"title": p.get("title", ""), "post_url": url,
                              "video_url": v, "site": p.get("site", ""),
+                             "direct": ".mp4" in v,
+                             "referer": _referer_for(url) or url,
                              "recs": p.get("recs", 0), "replies": p.get("replies", 0)})
                 seen.add(v)
                 new += 1
@@ -410,15 +447,23 @@ def scout_field_videos(cfg, base, max_judge=6, log=print):
         dest = vdir / f"{vid}.mp4"
         try:
             if not (dest.exists() and dest.stat().st_size > 50_000):
-                p = subprocess.run(
-                    ["yt-dlp", "--no-playlist", "-f", "bv*+ba/b",
-                     "--merge-output-format", "mp4", "--max-filesize", "80M",
-                     "-o", str(dest), "--quiet", "--no-warnings",
-                     r["video_url"]],
-                    capture_output=True, text=True, encoding="utf-8",
-                    errors="replace", timeout=300)
+                if r.get("direct"):          # 커뮤 자체 호스팅 mp4 — 직접 다운로드
+                    resp = requests.get(
+                        r["video_url"], timeout=180,
+                        headers={"User-Agent": "Mozilla/5.0",
+                                 "Referer": r.get("referer") or r.get("post_url", "")})
+                    if resp.status_code == 200 and len(resp.content) > 50_000:
+                        dest.write_bytes(resp.content)
+                else:
+                    p = subprocess.run(
+                        ["yt-dlp", "--no-playlist", "-f", "bv*+ba/b",
+                         "--merge-output-format", "mp4", "--max-filesize", "80M",
+                         "-o", str(dest), "--quiet", "--no-warnings",
+                         r["video_url"]],
+                        capture_output=True, text=True, encoding="utf-8",
+                        errors="replace", timeout=300)
                 if not (dest.exists() and dest.stat().st_size > 50_000):
-                    r["dead"] = (p.stderr or "다운로드 실패")[-80:]
+                    r["dead"] = "다운로드 실패"
                     continue
             r["file"] = str(dest)
             uri = _upload_video(key, dest, log=log)
@@ -433,8 +478,7 @@ def scout_field_videos(cfg, base, max_judge=6, log=print):
                                  params={"key": key}, json=body, timeout=240)
             if resp.status_code != 200:
                 raise RuntimeError(f"채점 {resp.status_code}")
-            r["judge"] = _parse_json(
-                resp.json()["candidates"][0]["content"]["parts"][0]["text"]) or {}
+            r["judge"] = _parse_json(_gem_text(resp)) or {}
             done += 1
             log(f"      🎯 적합도 {r['judge'].get('fit', '?')}/10 — "
                 f"{str(r['judge'].get('topic'))[:30]}")
@@ -488,8 +532,7 @@ def synth_group(cfg, base, group, log=print):
                          json=body, timeout=180)
     if resp.status_code != 200:
         raise RuntimeError(f"종합 호출 실패 {resp.status_code}")
-    formula = _parse_json(
-        resp.json()["candidates"][0]["content"]["parts"][0]["text"]) or {}
+    formula = _parse_json(_gem_text(resp)) or {}
     formula["group"] = group
     formula["handles"] = handles
     formula["analyzed"] = len(rows)
