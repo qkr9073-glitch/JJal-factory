@@ -3322,6 +3322,18 @@
           <input class="in" id="cvL2" placeholder="2줄 — 핵심·반전 (예: 손선풍기?!)">
           <button class="btn primary" style="margin-top:7px;width:100%" onclick="coverMake()">🖼 썸네일 만들어 대표컷으로 지정</button>
         </div>
+        ${(d.reel_entries&&d.reel_entries.length)?`<div style="border-top:1px solid var(--line);padding-top:10px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">🇯🇵→🇰🇷 해석본 검수 ${d.risk?`<span style="color:var(--danger);font-weight:600;font-size:11.5px">⚠️ ${esch(d.risk)}</span>`:''}</div>
+          <div style="max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:9px">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              ${d.reel_entries.map((e,i)=>`<tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:5px 8px;color:var(--gold);font-weight:800">${i+1}</td>
+                <td style="padding:5px 8px">${esch((e.t||e.title||'')+(e.v?' — '+e.v:''))}</td>
+                <td style="padding:5px 8px;color:var(--faint)">${esch((d.entries_ko||[])[i]||'')}</td></tr>`).join('')}
+            </table></div>
+          ${d.caption_ko?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--faint)">캡션 한국어 해석 펼치기</summary>
+            <div style="white-space:pre-wrap;font-size:12px;color:var(--faint);padding:8px;background:var(--panel2);border-radius:8px;margin-top:4px">${esch(d.caption_ko)}</div></details>`:''}
+        </div>`:''}
         <div style="display:flex;flex-direction:column;flex:1">
           <div style="font-weight:700;font-size:13px;margin-bottom:6px">📝 캡션 (대본 기반 CTA 자동생성 · 수정 가능)</div>
           <textarea id="reelCap" style="flex:1;min-height:150px;width:100%;resize:vertical;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);padding:10px;font:inherit;line-height:1.5">${esch(d.caption||'')}</textarea>
@@ -4356,6 +4368,14 @@
           <input class="in" id="prodTopic" placeholder="소재(주제) 한 줄">
           <textarea class="in" id="prodCtx" rows="2" placeholder="맥락 메모 (선택) — 원문 링크를 붙이면 실사진을 표지·컷으로 사용" style="margin-top:6px"></textarea>
           <button class="go" style="margin-top:8px" onclick="prodDirect()">🚀 이 채널로 제작</button></div>
+        <div class="step"><div class="sh"><span class="num">4</span><span class="st">🎬 릴스 (표·그리드 한 장)</span></div>
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <button class="btn" onclick="reelTopics(false)">💡 주제 후보</button>
+            <button class="btn" onclick="reelTopics(true)" title="실측 143개로 이식·창조 주제 재생성 (1분 내)">🔄 새로 뽑기</button></div>
+          <div id="reelTopicList" style="max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:5px;margin-bottom:6px"></div>
+          <input class="in" id="reelTopic" placeholder="주제 (후보 클릭 또는 직접 입력)">
+          <button class="go" style="margin-top:8px" onclick="reelGen()">🎬 릴스 생성 (해석본 검수 포함)</button>
+          <div class="caphint" style="margin-top:6px">완성되면 결과물 모달에서 🇯🇵→🇰🇷 해석본으로 검수 → 📤 발행</div></div>
       </aside>
       <main class="mainpane">
         <div id="jjobs"></div>
@@ -4385,6 +4405,38 @@
         <div style="font-size:12px;color:var(--muted);margin-top:3px">${esch(c.desc||'')}</div>
         <div style="font-size:11.5px;margin-top:4px;color:${c.account?'var(--gold)':'var(--faint)'}">${c.account?'📤 업로드 계정 @'+esch(c.account)+' (완성팩에 자동 지정)':'📤 업로드 계정 미지정'}</div></div>`;}).join('')
       ||'<div class="caphint">채널 프로필이 없어요.</div>';
+  }
+  async function reelTopics(fresh){
+    const box=$('reelTopicList'); if(!box)return;
+    box.innerHTML='<div class="caphint">주제 뽑는 중…</div>';
+    let d; try{d=await api('/api/reel/topics',{fresh:!!fresh});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    if(!d.ok){box.innerHTML='❌ '+esch(d.error||'');return;}
+    const paint=(res)=>{
+      const chip=(t,tag,ev)=>`<div onclick="$('reelTopic').value=this.dataset.t" data-t="${esch(t.title_ko||t.title_ja||'')}" style="cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px">
+        <b>${tag}</b> ${esch(t.title_ja||'')}<div style="color:var(--faint);font-size:11px">${esch(t.title_ko||'')}${ev?` · 근거 ${esch(ev)}`:''}</div></div>`;
+      box.innerHTML=(res['import']||[]).map(t=>chip(t,'📥',t.evidence||'')).join('')
+        +(res['create']||[]).map(t=>chip(t,'✨','')).join('')||'<div class="caphint">후보 없음 — 🔄 새로 뽑기</div>';
+    };
+    if(d.job){
+      const poll=async()=>{let j;try{const r=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(poll,2000);return;}
+        if(j.status==='error'){box.innerHTML='❌ '+esch(j.error||'');return;}
+        if(j.status==='done'){paint(j.result||{});return;}
+        setTimeout(poll,1800);};
+      poll();
+    } else paint(d);
+  }
+  async function reelGen(){
+    const topic=($('reelTopic')&&$('reelTopic').value.trim())||'';
+    if(topic.length<4){flash('주제를 입력하거나 후보를 클릭해주세요');return;}
+    const acct=PROD_CH&&PROD_CH.account||'';
+    flash('🎬 릴스 생성 중… (그리드형은 일러스트 10장이라 2~4분)');
+    let d; try{d=await api('/api/reel/generate',{topic,account:acct});}catch(e){flash('❌ 통신 오류');return;}
+    if(!d.ok){flash('❌ '+esch(d.error||''));return;}
+    const poll=async()=>{let j;try{const r=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(poll,2500);return;}
+      if(j.status==='error'){flash('❌ '+esch(j.error||''));return;}
+      if(j.status==='done'){const p=(j.result||{}).pack;flash('✅ 릴스 완성 — 해석본 검수 후 발행하세요'+((j.result||{}).risk?' ⚠️'+(j.result||{}).risk:''));if(p)openReelModal(p);return;}
+      flash('🎬 '+(j.msg||'생성 중…')); setTimeout(poll,2200);};
+    poll();
   }
   function prodPick(id){
     PROD_CH=CHANNELS.find(c=>c.id===id)||PROD_CH;

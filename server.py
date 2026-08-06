@@ -3099,6 +3099,13 @@ def api_pack_detail():
         "ebook": (d / "ebook.pdf").exists(),
         "hooks": meta.get("hooks", []),
         "cards_ko": meta.get("cards_ko", []),   # 카드별 본문 한국어 해석(오역 확인용)
+        "reel_entries": meta.get("reel_entries", []),   # 릴스 표/그리드 항목(JA)
+        "entries_ko": meta.get("entries_ko", []),       # 항목 한국어 해석
+        "caption_ko": meta.get("caption_ko", ""),       # 캡션 한국어 해석
+        "reel_template": meta.get("reel_template", ""),
+        "topic": meta.get("topic", ""),
+        "risk": meta.get("risk", ""),
+        "ig_account": meta.get("ig_account", ""),
         "story": meta.get("template") == "story",
         "srcs": sorted(p.name for p in d.glob("src[0-9][0-9].jpg")),  # 커버 교체용 원본사진
         "thumb_src": meta.get("thumb_src", ""),
@@ -4171,6 +4178,85 @@ def api_insta_publish():
                      args=(jid, pack_dir, lead,
                            bool(data.get("force")), cfg,
                            (data.get("account") or "").strip() or None), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/reel/topics")
+def api_reel_topics():
+    """릴스 주제 후보 — 이식(벤치 실측 ♥근거)+창조. fresh=true면 재생성(잡),
+    아니면 캐시 파일 즉답. 사용자가 후보에서 골라 /api/reel/generate로 생성한다."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    cache = BASE / "레퍼런스" / "_reel_topics_jp2.json"
+    if not data.get("fresh") and cache.exists():
+        try:
+            return jsonify(ok=True, cached=True,
+                           **json.loads(cache.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "running", "pct": 30, "msg": "실측 143개로 주제 뽑는 중...",
+                 "result": None, "error": None, "ts": time.time()}
+
+    def _run(jid=jid, cfg=cfg):
+        job = JOBS[jid]
+        try:
+            from src import reelscout
+            res = reelscout.suggest_reel_topics(cfg, BASE, "jp2", n=10)
+            job["result"] = {"import": res.get("import") or [],
+                             "create": res.get("create") or []}
+            job["pct"] = 100
+            job["status"] = "done"
+        except Exception as e:
+            job["error"] = str(e)[:200]
+            job["status"] = "error"
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/reel/generate")
+def api_reel_generate():
+    """선정한 주제 → 릴스 완성팩(표/그리드 자동, 일본 당사자화) — 주제는 사용자가
+    후보에서 고르거나 직접 입력. 완성 후 결과물 모달에서 해석본 검수."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    topic = (data.get("topic") or "").strip()[:200]
+    if len(topic) < 4:
+        return jsonify(ok=False, error="주제를 입력해주세요"), 400
+    acct = (data.get("account") or "").strip()
+    if not acct:
+        chs = cfg.get("channels") or DEFAULT_CHANNELS
+        acct = next((c.get("account") for c in chs if c.get("id") == "jp2"),
+                    "") or "kininaru_mag"
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "running", "pct": 20, "msg": "릴스 콘텐츠 쓰는 중...",
+                 "result": None, "error": None, "ts": time.time(),
+                 "code": (data.get("code") or "").strip()}
+
+    def _run(jid=jid, cfg=cfg, topic=topic, acct=acct):
+        job = JOBS[jid]
+        try:
+            from src import reelgen
+            res = reelgen.generate_reel(
+                cfg, BASE, topic, n=int(data.get("n") or 10), account=acct,
+                log=lambda m: job.update(msg=str(m).strip(), pct=60))
+            pk = Path(res["pack"]).name
+            job["result"] = {"pack": pk, "title": res.get("title", ""),
+                             "risk": res.get("risk", ""),
+                             "video": f"/packs/{quote(pk)}/video.mp4"}
+            _job_set_owner(job)
+            job["pct"] = 100
+            job["status"] = "done"
+        except Exception as e:
+            job["error"] = str(e)[:200]
+            job["status"] = "error"
+
+    threading.Thread(target=_run, daemon=True).start()
     return jsonify(ok=True, job=jid)
 
 

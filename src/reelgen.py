@@ -151,6 +151,7 @@ def generate_reel(cfg, base, topic, n=10, account="kininaru_mag", lang="ja",
             "title": title, "topic": topic, "lang": lang,
             "ig_account": account, "video": "video.mp4",
             "reel_entries": entries, "bgm": mood,
+            "entries_ko": [str(x) for x in (data.get("entries_ko") or [])],
             "caption_ko": str(data.get("caption_ko", "")),
             "risk": str(data.get("risk", "")),
             "created": datetime.now().isoformat(timespec="seconds")}
