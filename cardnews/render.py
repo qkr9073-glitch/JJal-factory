@@ -219,6 +219,30 @@ def _ja_run(ch):
     return None
 
 
+def _is_kanji(ch):
+    return "一" <= ch <= "鿿" or "㐀" <= ch <= "䶿"
+
+
+def _cut_badness(rest, c):
+    """절단점 나쁨 점수 (낮을수록 좋은 절단점).
+    구두점 뒤 0 < 가나→한자 1 < 한자→가나 2 < 기타 3 < 한자|한자(복합어 中) 6 <
+    가타카나/영숫자 연쇄 中 9. 日本·衝撃 같은 한자 복합어가 쪼개지는 사고 방지."""
+    a, b = rest[c - 1], rest[c]
+    if a in _JA_BREAK_AFTER:
+        return 0
+    ra, rb = _ja_run(a), _ja_run(b)
+    if ra and ra == rb:
+        return 9
+    ka, kb = _is_kanji(a), _is_kanji(b)
+    if ka and kb:
+        return 6
+    if not ka and kb:
+        return 1
+    if ka and not kb:
+        return 2
+    return 3
+
+
 def _wrap_ja(draw, text, font, max_w, max_lines=3):
     """일본어 균형 줄바꿈: 줄 수를 먼저 정하고 비슷한 길이로 나눈다.
     구두점 뒤 절단 우선, 금칙 문자 줄머리/줄끝 금지, 외톨이 한 글자 줄 방지."""
@@ -237,10 +261,15 @@ def _wrap_ja(draw, text, font, max_w, max_lines=3):
         while hi > 2 and _tw(draw, rest[:hi], font) > max_w:
             hi -= 1
         cut = min(target, hi)
-        for c in range(min(cut + 4, hi), max(2, cut - 4) - 1, -1):
-            if rest[c - 1] in _JA_BREAK_AFTER:  # 구두점 바로 뒤에서 끊는 게 최선
-                cut = c
+        # 목표점 ±4 창에서 '가장 자연스러운' 절단점 선택 (동점=목표에 가까운 쪽)
+        best, best_score = cut, 99
+        for c in range(max(3, cut - 4), min(cut + 4, hi) + 1):
+            if c >= len(rest):
                 break
+            s = _cut_badness(rest, c) + abs(c - cut) * 0.1
+            if s < best_score:
+                best, best_score = c, s
+        cut = best
         while 2 < cut < len(rest) and (rest[cut] in _KINSOKU_HEAD
                                        or rest[cut - 1] in _KINSOKU_TAIL):
             cut -= 1
