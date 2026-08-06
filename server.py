@@ -4135,15 +4135,16 @@ def api_pack_reel():
     pack_dir = OUTPUT / pack
     if not pack or "/" in pack or "\\" in pack or not pack_dir.is_dir():
         return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    bgm = re.sub(r"[\\/.]", "", str(data.get("bgm") or "무난"))[:20]
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "running", "pct": 15, "msg": "릴스 굽는 중...",
                  "result": None, "error": None, "ts": time.time()}
 
-    def _run(jid=jid, pack_dir=pack_dir, cfg=cfg):
+    def _run(jid=jid, pack_dir=pack_dir, cfg=cfg, bgm=bgm):
         job = JOBS[jid]
         try:
             from src import cardreel
-            cardreel.build(cfg, BASE, pack_dir,
+            cardreel.build(cfg, BASE, pack_dir, bgm_code=bgm,
                            log=lambda m: job.update(msg=str(m).strip(), pct=60))
             job["result"] = {"reel": f"/packs/{pack_dir.name}/video.mp4"}
             job["pct"] = 100

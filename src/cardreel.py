@@ -26,9 +26,14 @@ def _run(cmd):
 
 
 def _pick_bgm(base, bgm_code="7777"):
-    d = Path(base) / "bgm" / str(bgm_code)
-    files = [p for p in d.glob("*") if p.suffix.lower() in (".mp3", ".wav", ".m4a")]
-    return str(random.choice(files)) if files else ""
+    # 무드 폴더(미스터리/감동/락/무난) 우선, 비었으면 무난→7777 순 폴백
+    for code in dict.fromkeys([str(bgm_code), "무난", "7777"]):
+        d = Path(base) / "bgm" / code
+        files = [p for p in d.glob("*")
+                 if p.suffix.lower() in (".mp3", ".wav", ".m4a")]
+        if files:
+            return str(random.choice(files))
+    return ""
 
 
 def build(cfg, base, pack_dir, per_card=3.2, cover_sec=3.0, cta_sec=2.0,
