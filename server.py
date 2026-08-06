@@ -5044,6 +5044,30 @@ def _ig_extra_save(d):
                                     encoding="utf-8")
 
 
+@app.post("/api/admin/faststart")
+def api_admin_faststart():
+    """(관리자) 영상 인덱스(moov) 위치 확인 + 보정 시도 — 실패 사유를 그대로 돌려줌."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    pid = Path(str(data.get("pid") or "")).name
+    name = Path(str(data.get("name") or "preview.mp4")).name
+    f = BASE / "reelproj" / pid / "edit" / name
+    if not f.exists():
+        return jsonify(ok=False, error=f"파일 없음: {f}"), 404
+    before = reelproj._moov_first(f)
+    err = ""
+    done = False
+    try:
+        done = reelproj.ensure_faststart(f)
+    except Exception as e:
+        err = f"{type(e).__name__}: {str(e)[:200]}"
+    return jsonify(ok=True, moov_first_before=before, repaired=done,
+                   moov_first_after=reelproj._moov_first(f),
+                   size_mb=round(f.stat().st_size / 1048576, 1), error=err)
+
+
 @app.post("/api/admin/keyinfo")
 def api_admin_keyinfo():
     """(관리자) 저장된 키의 '모양'만 확인 — 값은 절대 반환하지 않음.
