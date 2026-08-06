@@ -1526,7 +1526,9 @@ def _judge_pack(cfg2, base, handle, plan, pack, cards, intent="", log=print):
     except (TypeError, ValueError):
         cover_low = False
     cover_p = cfg2.get("cover_image")
-    if fix and cover_low and cover_p and Path(cover_p).exists():
+    # 실사진 표지는 자동 보수(AI 재생성) 금지 — 실제 자료를 AI 컷으로 바꿔치기하면 안 됨
+    if fix and cover_low and cover_p and Path(cover_p).exists() \
+            and cfg2.get("_cover_ai"):
         log(f"      🔧 표지 자동 보수: {str(judge.get('weak', ''))[:60]}")
         try:
             # 깨끗한 원본(원 강조 전)을 기준으로 같은 장면 유지 보강 — 연속 컷 일관성 보존
@@ -1559,40 +1561,57 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
     n = len(items)
     pack = card_pipeline._make_pack_dir(Path(base) / cfg2.get("output_dir", "결과물"),
                                         plan)
-    log(f"[2/4] AI 이미지 생성 중 — 표지 + 전개 연속 컷 {len(items)}장 (채널 미감)...")
     from src import genimg
     cover_p = pack / "_cover.jpg"
-    for attempt, scene in enumerate([
-            plan["image_query"] or plan["title_main"],
-            # 재시도: 브랜드/캐릭터 언급이 거부됐을 가능성 — 일반화 장면으로 우회
-            f"Atmospheric editorial photo evoking the topic '{plan['title_main']}' "
-            f"without any brands, characters or celebrities. Generic objects and mood only."]):
-        try:
-            genimg.generate_cover(cfg2, scene, cover_p, theme=theme, log=log)
-            cfg2["cover_image"] = str(cover_p)
-            cfg2["_cover_ai"] = True
-            break
-        except Exception as e:
-            log(f"      (AI 표지 {attempt + 1}차 실패: {str(e)[:70]})")
-    if not cfg2.get("_cover_ai"):
-        log("      (표지 생성 전부 실패 — 텍스트 표지로 진행)")
-    # 안쪽 장: 표지와 '같은 사건의 연속 사진 세트'로 — 레퍼런스 채널의 이미지 위주 전개
-    if cover_p.exists():
-        for i, (it, b) in enumerate(zip(items, beats), 1):
-            scene = str(b.get("image_query") or "").strip()
-            if not scene:
-                continue
-            bp = pack / f"_b{i}.jpg"
-            try:
-                genimg.generate_variation(cfg2, cover_p, scene, bp, theme=theme, log=log)
+    # 실사진 우선: 소재 원문(src_link)에서 실제 자료 사진을 뽑았으면 AI 생성 대신 쓴다
+    # (레퍼런스 채널 방식 — 실제 사건·자료 사진이 표지·중간 컷의 주인공)
+    real = _fetch_real_images(cfg2.get("_src_link"), pack / "_real", log=log) \
+        if cfg2.get("_src_link") else []
+    if real:
+        log(f"[2/4] 원문 실사진 {len(real)}장 사용 — 표지 + 전개 컷 (AI 생성 대체)")
+        cover_p.write_bytes(Path(real[0]).read_bytes())
+        cfg2["cover_image"] = str(cover_p)
+        cfg2["_cover_ai"] = False
+        for i, (it, _b) in enumerate(zip(items, beats), 1):
+            if i < len(real):
+                bp = pack / f"_b{i}.jpg"
+                bp.write_bytes(Path(real[i]).read_bytes())
                 it["image"] = str(bp)
+            # 실사진이 모자란 비트는 표지 재사용(폴백과 동일) — AI 컷과 혼합하지 않는다
+    else:
+        log(f"[2/4] AI 이미지 생성 중 — 표지 + 전개 연속 컷 {len(items)}장 (채널 미감)...")
+        for attempt, scene in enumerate([
+                plan["image_query"] or plan["title_main"],
+                # 재시도: 브랜드/캐릭터 언급이 거부됐을 가능성 — 일반화 장면으로 우회
+                f"Atmospheric editorial photo evoking the topic '{plan['title_main']}' "
+                f"without any brands, characters or celebrities. Generic objects and mood only."]):
+            try:
+                genimg.generate_cover(cfg2, scene, cover_p, theme=theme, log=log)
+                cfg2["cover_image"] = str(cover_p)
+                cfg2["_cover_ai"] = True
+                break
             except Exception as e:
-                log(f"      (컷 {i} 실패 — 표지 재사용: {str(e)[:60]})")
+                log(f"      (AI 표지 {attempt + 1}차 실패: {str(e)[:70]})")
+        if not cfg2.get("_cover_ai"):
+            log("      (표지 생성 전부 실패 — 텍스트 표지로 진행)")
+        # 안쪽 장: 표지와 '같은 사건의 연속 사진 세트'로 — 레퍼런스 채널의 이미지 위주 전개
+        if cover_p.exists():
+            for i, (it, b) in enumerate(zip(items, beats), 1):
+                scene = str(b.get("image_query") or "").strip()
+                if not scene:
+                    continue
+                bp = pack / f"_b{i}.jpg"
+                try:
+                    genimg.generate_variation(cfg2, cover_p, scene, bp, theme=theme, log=log)
+                    it["image"] = str(bp)
+                except Exception as e:
+                    log(f"      (컷 {i} 실패 — 표지 재사용: {str(e)[:60]})")
 
     # 원 강조+돋보기 줌: 연속 컷 생성이 끝난 뒤에 그린다 (컷들이 원을 물려받지 않게)
+    # 실사진 표지에도 적용 — 레퍼런스 채널의 원 강조는 원래 실사진 위 장치다
     ct = str(rp.get("callout_target") or "").strip()
     cfg2["_callout_target"] = ct
-    if ct and cfg2.get("_cover_ai") and cover_p.exists():
+    if ct and cover_p.exists():
         try:
             (pack / "_cover_clean.jpg").write_bytes(cover_p.read_bytes())
             cfg2["_cover_clean"] = str(pack / "_cover_clean.jpg")
@@ -1770,12 +1789,47 @@ def _theme_guide(base, theme, handle=""):
         return "", ent.get("handle", "")
 
 
-def magazine_build(cfg, base, topic, context="", theme="jmag", handle="", log=print):
+def _fetch_real_images(src_link, dest_dir, log=print, max_images=6):
+    """소재 원문(커뮤 글 등)에서 실사진 추출 — 레퍼런스 채널처럼 실제 자료 사진을
+    표지·전개 컷으로 쓰기 위해. 실패하면 빈 리스트(AI 생성으로 폴백)."""
+    if not src_link or not str(src_link).startswith("http"):
+        return []
+    try:
+        from src import extractors
+        data = extractors.extract(str(src_link))
+        urls = data.get("image_urls") or []
+        if not urls:
+            return []
+        dest = Path(dest_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+        files = extractors.download_images(urls, data.get("referer") or str(src_link),
+                                           dest, max_images=max_images)
+        out = []
+        from PIL import Image as _Img
+        for f in files:                      # 아이콘·짤막한 이미지 걸러내기
+            try:
+                with _Img.open(f) as im:
+                    if im.width >= 480 and im.height >= 360:
+                        out.append(str(f))
+            except Exception:
+                continue
+        if out:
+            log(f"      📷 원문 실사진 {len(out)}장 확보 ({str(src_link)[:50]}...)")
+        return out
+    except Exception as e:
+        log(f"      (원문 사진 추출 실패 — AI 생성으로 진행: {str(e)[:60]})")
+        return []
+
+
+def magazine_build(cfg, base, topic, context="", theme="jmag", handle="",
+                   src_link="", log=print):
     """소재(주제 문장) → 매거진 완성팩. 역수출 소재 스캔 결과를 바로 제작하는 경로 —
-    리메이크와 같은 품질(AI 표지+연속 컷+채널 미감)이되 원본 게시물 없이 주제에서 출발."""
+    리메이크와 같은 품질(AI 표지+연속 컷+채널 미감)이되 원본 게시물 없이 주제에서 출발.
+    src_link(소재 원문 URL)가 있으면 실사진을 추출해 표지·전개 컷으로 우선 사용."""
     cfg2 = dict(cfg)
     cfg2["card_theme"] = theme if theme in ("smag", "jmag") else "jmag"
     cfg2["card_brand_context"] = cfg.get("card_brand_context_mag") or NEUTRAL_BRAND
+    cfg2["_src_link"] = str(src_link or "").strip()
     key = (cfg2.get("gemini_api_key") or "").strip()
     if not key:
         raise RuntimeError("Gemini API 키가 없습니다")

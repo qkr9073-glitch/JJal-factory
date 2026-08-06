@@ -4330,10 +4330,11 @@ def api_ref_del():
 
 
 def _run_ref_magazine(jid, cfg, topic, context, lang, handle="", theme="jmag",
-                      account=""):
+                      account="", src_link=""):
     """소재→매거진 제작 잡 (역수출: 한국 소재를 채널 미감+현지화판으로).
     handle이 없으면 테마가 일치하는 레퍼런스 채널의 후킹 시퀀스를 자동으로 쓴다.
-    account가 있으면 완성팩(한국판·일본어판 모두)에 전용 업로드 계정을 박는다."""
+    account가 있으면 완성팩(한국판·일본어판 모두)에 전용 업로드 계정을 박는다.
+    src_link(소재 원문 URL)가 있으면 실사진을 추출해 표지·전개 컷으로 우선 사용."""
     job = JOBS[jid]
 
     def log(m):
@@ -4345,7 +4346,8 @@ def _run_ref_magazine(jid, cfg, topic, context, lang, handle="", theme="jmag",
 
     try:
         result = reference.magazine_build(cfg, BASE, topic, context=context,
-                                          theme=theme, handle=handle, log=log)
+                                          theme=theme, handle=handle,
+                                          src_link=src_link, log=log)
         _stamp_ig_account(result["pack"], account)
         job["result"] = _pack_payload(result)
         _job_set_owner(job)
@@ -4380,13 +4382,18 @@ def api_ref_magazine():
     theme = data.get("theme") if data.get("theme") in ("smag", "jmag") else "jmag"
     account = re.sub(r"[^A-Za-z0-9._]", "",
                      (data.get("account") or "").strip().lstrip("@"))
+    # 소재 원문 링크: 명시 파라미터 우선, 없으면 직접 입력 맥락 속 URL 자동 감지
+    src_link = str(data.get("src_link") or "").strip()
+    if not src_link.startswith("http"):
+        m = re.search(r"https?://\S+", context)
+        src_link = m.group(0).rstrip(")].,>\"'") if m else ""
     now = time.time()
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "queued", "pct": 0, "msg": "대기 중...",
                  "result": None, "error": None, "ts": now,
                  "code": (data.get("code") or "").strip()}
     JOBQ.put((jid, _run_ref_magazine,
-              (jid, cfg, topic, context, lang, handle, theme, account)))
+              (jid, cfg, topic, context, lang, handle, theme, account, src_link)))
     return jsonify(ok=True, job=jid)
 
 

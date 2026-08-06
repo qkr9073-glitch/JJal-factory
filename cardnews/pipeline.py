@@ -290,6 +290,7 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
     base_dir = Path(base_dir)
     data = json.loads((src / "items.json").read_text(encoding="utf-8"))
     plan = dict(data["plan"])
+    ko_plan = dict(plan)          # 번역 전 원문 스냅샷 — 미리보기 해석 병기용
     items = data.get("items", [])
     try:
         smeta = json.loads((src / "meta.json").read_text(encoding="utf-8"))
@@ -418,11 +419,43 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
             zf.write(c, c.name)
         zf.write(pack / "caption.txt", "caption.txt")
 
-    cards_html = "\n".join(f'<img src="{c.name}">' for c in cards)
+    # 미리보기에 카드별 원문 해석 병기 — 일본어를 몰라도 검수 가능 (추가 API 호출 없음:
+    # 현지화판은 한국어 팩을 원본으로 만들어져 원문이 이미 손에 있다)
+    def _e(s):
+        return str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+
+    def _itxt(it):
+        body = " ".join((ln.get("text") or "").strip()
+                        for ln in (it or {}).get("lines", []) if ln.get("text"))
+        return f"{(it or {}).get('title', '')} — {body}".strip(" —")
+
+    notes = [(" · ".join(filter(None, [plan.get("title_top"), plan.get("title_main"),
+                                       plan.get("subtitle")])),
+              " · ".join(filter(None, [ko_plan.get("title_top"), ko_plan.get("title_main"),
+                                       ko_plan.get("subtitle")])))]
+    for i in range(0, len(teaser_items), per_card):
+        chunk = teaser_items[i:i + per_card]
+        notes.append((" / ".join(_itxt(it) for it in chunk),
+                      " / ".join(_itxt(_orig_by_num.get(it.get("num"))) for it in chunk)))
+    while len(notes) < len(cards):
+        notes.append(("", ""))     # CTA 등 해석 불필요 카드
+    parts = []
+    for c, (ja, ko) in zip(cards, notes):
+        cap = ""
+        if ko.strip() and ko.strip() != ja.strip():
+            cap = ('<div style="margin:8px 4px 18px;font-size:13.5px;line-height:1.65;'
+                   'text-align:left;background:#f6f5f2;border-radius:8px;padding:10px 14px">'
+                   f'<div>🇯🇵 {_e(ja)}</div>'
+                   f'<div style="color:#1a7a4a;margin-top:4px">🇰🇷 {_e(ko)}</div></div>')
+        parts.append(f'<img src="{c.name}">{cap}')
+    cards_html = "\n".join(parts)
+    _ko_cap = str(ko_plan.get("caption") or "").strip()
+    rv_caption = caption + (f"\n\n―― 🇰🇷 원문(해석용, 업로드엔 미포함) ――\n{_ko_cap}"
+                            if _ko_cap and _ko_cap != caption.strip() else "")
     (pack / "review.html").write_text(REVIEW_TEMPLATE.format(
         title=meta["title"], num_cards=len(cards), num_pages=0,
         keyword=meta["keyword"], zip_name=zip_path.name,
-        caption=caption.replace("&", "&amp;").replace("<", "&lt;"),
+        caption=rv_caption.replace("&", "&amp;").replace("<", "&lt;"),
         cards_html=cards_html), encoding="utf-8")
 
     return {"pack": pack, "meta": meta, "caption": caption,

@@ -201,6 +201,85 @@ def _fit_font(draw, text, kind, size, max_w, min_size=60):
     return _font(kind, size), size
 
 
+# ---- 일본어 줄바꿈 (매거진 테마) ---------------------------------------------
+# 일본어는 띄어쓰기가 없어 단어 줄바꿈이 불가 — 글자 단위로 자르면 "ヤバ/い"처럼
+# 마지막 한 글자만 넘어가는 사고가 난다(실측). 균형 분배 + 금칙(禁則) 처리로 해결.
+_KANA_RE = re.compile(r"[ぁ-んァ-ヶ]")
+_KINSOKU_HEAD = set("、。，．・：；？！ー〜…”’」』）｝】＞≫ぁぃぅぇぉっゃゅょんァィゥェォッャュョン々")
+_KINSOKU_TAIL = set("「『（｛【＜≪“‘")
+_JA_BREAK_AFTER = "、。！？…・」』）"     # 이 글자 '뒤'가 최적 절단점
+
+
+def _ja_run(ch):
+    """끊으면 안 되는 연쇄의 종류: 가타카나 단어 / 영숫자. 아니면 None."""
+    if "ァ" <= ch <= "ヶ" or ch == "ー":
+        return "kata"
+    if ch.isascii() and ch.isalnum():
+        return "alnum"
+    return None
+
+
+def _wrap_ja(draw, text, font, max_w, max_lines=3):
+    """일본어 균형 줄바꿈: 줄 수를 먼저 정하고 비슷한 길이로 나눈다.
+    구두점 뒤 절단 우선, 금칙 문자 줄머리/줄끝 금지, 외톨이 한 글자 줄 방지."""
+    text = (text or "").strip()
+    if not text:
+        return [""]
+    total = _tw(draw, text, font)
+    n = min(max_lines, max(1, -(-int(total) // int(max_w))))   # ceil
+    if n == 1:
+        return [text]
+    lines, rest = [], text
+    for li in range(n - 1):
+        remain = n - li
+        target = max(2, round(len(rest) / remain))
+        hi = len(rest) - 1                      # 다음 줄 몫 최소 1글자는 남긴다
+        while hi > 2 and _tw(draw, rest[:hi], font) > max_w:
+            hi -= 1
+        cut = min(target, hi)
+        for c in range(min(cut + 4, hi), max(2, cut - 4) - 1, -1):
+            if rest[c - 1] in _JA_BREAK_AFTER:  # 구두점 바로 뒤에서 끊는 게 최선
+                cut = c
+                break
+        while 2 < cut < len(rest) and (rest[cut] in _KINSOKU_HEAD
+                                       or rest[cut - 1] in _KINSOKU_TAIL):
+            cut -= 1
+        while cut > 2 and _tw(draw, rest[:cut], font) > max_w:
+            cut -= 1
+        # 가타카나 단어(マンション 등)·영숫자 연쇄는 중간에서 절대 자르지 않는다
+        while 3 < cut < len(rest) and _ja_run(rest[cut - 1]) and \
+                _ja_run(rest[cut]) and _ja_run(rest[cut - 1]) == _ja_run(rest[cut]):
+            cut -= 1
+        if len(rest) - cut == 1:                # 마지막 줄 외톨이 한 글자 방지
+            cut = max(2, cut - 1)
+        lines.append(rest[:cut])
+        rest = rest[cut:]
+    if rest:
+        lines.append(rest)
+    return lines
+
+
+def _wrap_mag(draw, text, font, max_w, max_lines=3):
+    """매거진 테마 줄바꿈: 가나가 섞인 무공백 텍스트=일본어 균형 분배, 그 외 기존 방식."""
+    text = (text or "").strip()
+    if _KANA_RE.search(text) and " " not in text:
+        return _wrap_ja(draw, text, font, max_w, max_lines)
+    return _wrap(draw, text, font, max_w)[:max_lines]
+
+
+def _fit_mag(draw, text, kind, start, max_w, min_size, max_lines=3):
+    """매거진 제목 맞춤: 균형 줄바꿈 기준으로 들어가는 가장 큰 폰트를 고른다.
+    반환 (font, size, lines)."""
+    size = start
+    while True:
+        f = _font(kind, size)
+        lines = _wrap_mag(draw, text, f, max_w, max_lines)
+        if size <= min_size or (len(lines) <= max_lines
+                                and all(_tw(draw, ln, f) <= max_w for ln in lines)):
+            return f, size, lines
+        size -= 8
+
+
 def _bg():
     """세로 크림 그라데이션 캔버스"""
     grad = Image.new("RGB", (1, H))
@@ -1994,29 +2073,27 @@ def _smag_cover(plan, cfg, out_path):
     _ai_notice(d, cfg)
 
     title = (plan.get("title_main") or plan.get("title") or "").strip()
-    tf, ts = _fit_font(d, title, "xbold", 148, W - M * 2, min_size=92)
-    lines = _wrap(d, title, tf, W - M * 2)[:3]
+    tf, ts, lines = _fit_mag(d, title, "xbold", 235, W - M * 2, 150, max_lines=3)
     lh = int(ts * 1.14)
     quote = (plan.get("title_top") or "").strip()
-    qf = _font("xbold", 86)
-    q_h = 128 if quote else 0
-    badge_h = 96
+    q_h = 220 if quote else 0
+    badge_h = 175
     block_h = badge_h + q_h + len(lines) * lh
-    y = H - 205 - block_h
+    y = H - 240 - block_h
 
-    d.text((M, y), "(저장필수)", font=_font("xbold", 62), fill=SMAG_TEXT)
+    d.text((M, y), "(저장필수)", font=_font("xbold", 108), fill=SMAG_TEXT)
     y += badge_h
     if quote:
         qt = quote if quote[:1] in "“\"'「" else f"“{quote}”"
-        qtf, _qs = _fit_font(d, qt, "xbold", 86, W - M * 2, min_size=62)
+        qtf, _qs = _fit_font(d, qt, "xbold", 148, W - M * 2, min_size=104)
         d.text((M, y), qt, font=qtf, fill=SMAG_TEXT)
         y += q_h
     for ln in lines:
         d.text((M, y), ln, font=tf, fill=SMAG_TEXT)
         y += lh
     foot = "*자세한 내용 본문 참고*"
-    ff = _font("xbold", 46)
-    d.text((W - M - _tw(d, foot, ff), H - 132), foot, font=ff, fill=SMAG_TEXT)
+    ff = _font("xbold", 78)
+    d.text((W - M - _tw(d, foot, ff), H - 160), foot, font=ff, fill=SMAG_TEXT)
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2050,32 +2127,33 @@ def _smag_items_card(plan, items, cfg, out_path):
     d = ImageDraw.Draw(c)
     it = items[0]
     num = it.get("num", 1)
-    d.text((M, 88), f"#{num:02d}", font=_font("xbold", 56), fill=SMAG_GOLD)
-    y = 186
-    hf, hs = _fit_font(d, it.get("title", ""), "xbold", 96, W - M * 2, min_size=70)
-    for ln in _wrap(d, it.get("title", ""), hf, W - M * 2)[:3]:
+    d.text((M, 96), f"#{num:02d}", font=_font("xbold", 92), fill=SMAG_GOLD)
+    y = 250
+    hf, hs, hlines = _fit_mag(d, it.get("title", ""), "xbold", 160, W - M * 2, 112,
+                              max_lines=2)
+    for ln in hlines:
         d.text((M, y), ln, font=hf, fill=SMAG_TEXT)
         y += int(hs * 1.16)
     # 본문: 하단 그라데이션 위에 아래서부터 쌓기
-    bf = _font("semi", 58)
+    bf = _font("semi", 92)
     rows = []
     for lnobj in it.get("lines", []):
         txt = (lnobj.get("text") or "").strip()
         if txt:
-            rows.extend(_wrap(d, txt, bf, W - M * 2))
+            rows.extend(_wrap_mag(d, txt, bf, W - M * 2, max_lines=4))
             rows.append("")
     while rows and not rows[-1]:
         rows.pop()
-    body_h = sum(88 if r else 26 for r in rows)
-    _grad_overlay(c, max(int(H * 0.5), H - body_h - 400), H, alpha_to=242)
+    body_h = sum(136 if r else 40 for r in rows)
+    _grad_overlay(c, max(int(H * 0.5), H - body_h - 520), H, alpha_to=242)
     d = ImageDraw.Draw(c)
-    y = H - 150 - body_h
+    y = H - 170 - body_h
     for r in rows:
         if r:
             d.text((M, y), r, font=bf, fill=(240, 240, 244))
-            y += 88
+            y += 136
         else:
-            y += 26
+            y += 40
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2085,29 +2163,30 @@ def _smag_items_text(plan, items, cfg, out_path):
     c = _smag_canvas(cfg)
     d = ImageDraw.Draw(c)
     num = items[0].get("num", 1) if items else 1
-    d.text((M, 170), f"#{num:02d}", font=_font("xbold", 60), fill=SMAG_GOLD)
-    d.line([M, 268, W - M, 268], fill=(90, 90, 100), width=3)
-    y = 350
+    d.text((M, 150), f"#{num:02d}", font=_font("xbold", 92), fill=SMAG_GOLD)
+    d.line([M, 300, W - M, 300], fill=(90, 90, 100), width=4)
+    y = 390
     for it in items:
         cat = (it.get("category") or "").strip()
         if cat:
-            d.text((M, y), cat, font=_font("semi", 48), fill=SMAG_GOLD)
-            y += 84
-        hf, hs = _fit_font(d, it.get("title", ""), "xbold", 92, W - M * 2, min_size=68)
-        for ln in _wrap(d, it.get("title", ""), hf, W - M * 2):
+            d.text((M, y), cat, font=_font("semi", 74), fill=SMAG_GOLD)
+            y += 122
+        hf, hs, hlines = _fit_mag(d, it.get("title", ""), "xbold", 140, W - M * 2,
+                                  102, max_lines=3)
+        for ln in hlines:
             d.text((M, y), ln, font=hf, fill=SMAG_TEXT)
             y += int(hs * 1.18)
-        y += 26
-        bf = _font("reg", 56)
+        y += 36
+        bf = _font("reg", 84)
         for lnobj in it.get("lines", []):
             txt = (lnobj.get("text") or "").strip()
             if not txt:
                 continue
-            for ln in _wrap(d, txt, bf, W - M * 2):
+            for ln in _wrap_mag(d, txt, bf, W - M * 2, max_lines=4):
                 d.text((M, y), ln, font=bf, fill=SMAG_SUB)
-                y += 84
-            y += 12
-        y += 66
+                y += 124
+            y += 18
+        y += 90
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2126,19 +2205,19 @@ def _smag_cta(plan, cfg, out_path):
     c = _cta_photo(cfg) or _smag_canvas(cfg)
     _grad_overlay(c, int(H * 0.30), H, alpha_to=235)
     d = ImageDraw.Draw(c)
-    y = int(H * 0.52)
+    y = int(H * 0.48)
     b = "(저장필수)"
-    d.text(((W - _tw(d, b, _font("xbold", 68))) / 2, y), b,
-           font=_font("xbold", 68), fill=SMAG_GOLD)
-    y += 170
+    d.text(((W - _tw(d, b, _font("xbold", 108))) / 2, y), b,
+           font=_font("xbold", 108), fill=SMAG_GOLD)
+    y += 240
     l1, l2 = "여러분의 생각은?", "댓글로 알려주세요!"
-    f1, s1 = _fit_two_lines(d, l1, l2, "xbold", 150, W - M * 2, min_size=96)
+    f1, s1 = _fit_two_lines(d, l1, l2, "xbold", 230, W - M * 2, min_size=150)
     d.text(((W - _tw(d, l1, f1)) / 2, y), l1, font=f1, fill=SMAG_TEXT)
     y += int(s1 * 1.25)
     d.text(((W - _tw(d, l2, f1)) / 2, y), l2, font=f1, fill=SMAG_GOLD)
-    y += int(s1 * 1.25) + 110
+    y += int(s1 * 1.25) + 140
     foot = "저장 + 팔로우하면 다음 이슈도 놓치지 않아요"
-    ff = _font("semi", 54)
+    ff = _font("semi", 84)
     d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff, fill=(225, 225, 230))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
@@ -2155,28 +2234,27 @@ def _jmag_cover(plan, cfg, out_path):
 
     badge = (plan.get("title_top") or "").strip()
     if badge:
-        bf, _bs = _fit_font(d, badge, "xbold", 56, W - M * 2 - 64, min_size=40)
+        bf, _bs = _fit_font(d, badge, "xbold", 96, W - M * 2 - 96, min_size=68)
         bw = _tw(d, badge, bf)
-        d.rounded_rectangle([M, 88, M + bw + 64, 190], radius=18, fill=JMAG_GREEN)
-        d.text((M + 32, 139 - _bs // 2), badge, font=bf, fill=(10, 38, 20))
+        d.rounded_rectangle([M, 120, M + bw + 96, 300], radius=28, fill=JMAG_GREEN)
+        d.text((M + 48, 210 - _bs // 2), badge, font=bf, fill=(10, 38, 20))
 
     title = (plan.get("title_main") or plan.get("title") or "").strip()
-    tf, ts = _fit_font(d, title, "xbold", 150, W - M * 2, min_size=94)
-    lines = _wrap(d, title, tf, W - M * 2)[:3]
+    tf, ts, lines = _fit_mag(d, title, "xbold", 235, W - M * 2, 150, max_lines=3)
     lh = int(ts * 1.15)
     sub = (plan.get("subtitle") or "").strip()
-    sf = _font("xbold", 66)
-    sub_lines = _wrap(d, sub, sf, W - M * 2)[:2] if sub else []
-    block_h = len(lines) * lh + (len(sub_lines) * 96 + 30 if sub_lines else 0)
-    y = H - 190 - block_h
+    sf = _font("xbold", 112)
+    sub_lines = _wrap_mag(d, sub, sf, W - M * 2, max_lines=2) if sub else []
+    block_h = len(lines) * lh + (len(sub_lines) * 164 + 50 if sub_lines else 0)
+    y = H - 240 - block_h
     for ln in lines:                      # 원본처럼 중앙 정렬
         d.text(((W - _tw(d, ln, tf)) / 2, y), ln, font=tf, fill=(255, 255, 255))
         y += lh
     if sub_lines:
-        y += 30
+        y += 50
         for ln in sub_lines:
             d.text(((W - _tw(d, ln, sf)) / 2, y), ln, font=sf, fill=JMAG_YELLOW)
-            y += 96
+            y += 164
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2191,12 +2269,12 @@ def _jmag_items_card(plan, items, cfg, out_path):
     d = ImageDraw.Draw(c)
     d.rectangle([0, 0, W, 30], fill=JMAG_RED)
     it = items[0]
-    hf, hs = _fit_font(d, it.get("title", ""), "xbold", 88, W - M * 2, min_size=64)
-    tlines = _wrap(d, it.get("title", ""), hf, W - M * 2)[:2]
+    hf, hs, tlines = _fit_mag(d, it.get("title", ""), "xbold", 156, W - M * 2, 108,
+                              max_lines=2)
     block_h = len(tlines) * int(hs * 1.18)
-    _grad_overlay(c, H - block_h - 420, H, alpha_to=225)
+    _grad_overlay(c, H - block_h - 560, H, alpha_to=225)
     d = ImageDraw.Draw(c)
-    y = H - 160 - block_h
+    y = H - 200 - block_h
     for ln in tlines:
         d.text(((W - _tw(d, ln, hf)) / 2, y), ln, font=hf, fill=(255, 255, 255))
         y += int(hs * 1.18)
@@ -2210,32 +2288,33 @@ def _jmag_items_text(plan, items, cfg, out_path):
     d = ImageDraw.Draw(c)
     d.rectangle([0, 0, W, 30], fill=JMAG_RED)
     num = items[0].get("num", 1) if items else 1
-    d.text((M, 150), f"{num:02d}", font=_font("xbold", 130), fill=JMAG_RED)
-    nw = _tw(d, f"{num:02d}", _font("xbold", 130))
-    d.rectangle([M, 310, M + max(int(nw), 150), 324], fill=JMAG_GREEN)
-    y = 400
+    d.text((M, 140), f"{num:02d}", font=_font("xbold", 190), fill=JMAG_RED)
+    nw = _tw(d, f"{num:02d}", _font("xbold", 190))
+    d.rectangle([M, 380, M + max(int(nw), 220), 400], fill=JMAG_GREEN)
+    y = 480
     for it in items:
         cat = (it.get("category") or "").strip()
         if cat:
-            d.text((M, y), cat, font=_font("semi", 48), fill=JMAG_RED)
-            y += 84
-        hf, hs = _fit_font(d, it.get("title", ""), "xbold", 92, W - M * 2, min_size=68)
-        for ln in _wrap(d, it.get("title", ""), hf, W - M * 2):
+            d.text((M, y), cat, font=_font("semi", 74), fill=JMAG_RED)
+            y += 122
+        hf, hs, hlines = _fit_mag(d, it.get("title", ""), "xbold", 140, W - M * 2,
+                                  102, max_lines=3)
+        for ln in hlines:
             d.text((M, y), ln, font=hf, fill=JMAG_INK)
             y += int(hs * 1.18)
-        y += 26
-        bf = _font("reg", 56)
+        y += 36
+        bf = _font("reg", 84)
         for lnobj in it.get("lines", []):
             txt = (lnobj.get("text") or "").strip()
             if not txt:
                 continue
-            for ln in _wrap(d, txt, bf, W - M * 2):
+            for ln in _wrap_mag(d, txt, bf, W - M * 2, max_lines=4):
                 d.text((M, y), ln, font=bf, fill=JMAG_BODY)
-                y += 84
-            y += 12
-        y += 40
+                y += 124
+            y += 18
+        y += 56
         d.line([M, y, W - M, y], fill=(232, 230, 226), width=3)
-        y += 60
+        y += 80
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
 
@@ -2251,25 +2330,25 @@ def _jmag_cta(plan, cfg, out_path):
         d = ImageDraw.Draw(c)
     ink = (255, 255, 255) if on_photo else JMAG_INK
     acc = JMAG_YELLOW if on_photo else JMAG_RED
-    y = int(H * 0.5) if on_photo else int(H * 0.3)
+    y = int(H * 0.46) if on_photo else int(H * 0.26)
     l1, l2 = "여러분의 생각은?", "댓글로 알려주세요!"
-    f1, s1 = _fit_two_lines(d, l1, l2, "xbold", 150, W - M * 2, min_size=96)
+    f1, s1 = _fit_two_lines(d, l1, l2, "xbold", 230, W - M * 2, min_size=150)
     d.text(((W - _tw(d, l1, f1)) / 2, y), l1, font=f1, fill=ink)
     y += int(s1 * 1.25)
     d.text(((W - _tw(d, l2, f1)) / 2, y), l2, font=f1, fill=acc)
-    y += int(s1 * 1.25) + 100
-    ih = 210
-    d.rounded_rectangle([M, y, W - M, y + ih], radius=32, fill=(255, 255, 255),
-                        outline=(228, 226, 222), width=3)
-    d.text((M + 56, y + 44), "댓글 추가...", font=_font("reg", 46), fill=(150, 148, 152))
-    bf = _font("xbold", 54)
-    bw = _tw(d, "댓글", bf) + 88
-    d.rounded_rectangle([W - M - 56 - bw, y + 58, W - M - 56, y + 156],
-                        radius=26, fill=JMAG_GREEN)
-    d.text((W - M - 56 - bw + 44, y + 80), "댓글", font=bf, fill=(10, 38, 20))
-    y += ih + 90
+    y += int(s1 * 1.25) + 130
+    ih = 330
+    d.rounded_rectangle([M, y, W - M, y + ih], radius=48, fill=(255, 255, 255),
+                        outline=(228, 226, 222), width=4)
+    d.text((M + 84, y + 110), "댓글 추가...", font=_font("reg", 76), fill=(150, 148, 152))
+    bf = _font("xbold", 88)
+    bw = _tw(d, "댓글", bf) + 140
+    d.rounded_rectangle([W - M - 84 - bw, y + 80, W - M - 84, y + 250],
+                        radius=40, fill=JMAG_GREEN)
+    d.text((W - M - 84 - bw + 70, y + 122), "댓글", font=bf, fill=(10, 38, 20))
+    y += ih + 120
     foot = "저장 + 팔로우하면 다음 이슈도 놓치지 않아요"
-    ff = _font("semi", 54)
+    ff = _font("semi", 84)
     d.text(((W - _tw(d, foot, ff)) / 2, y), foot, font=ff,
            fill=(232, 232, 236) if on_photo else (120, 118, 122))
     c.save(out_path, "JPEG", quality=92)
