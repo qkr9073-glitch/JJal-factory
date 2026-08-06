@@ -311,6 +311,143 @@ def thumb_sheet(base, group, out_dir, per_sheet=40, cols=5, log=print):
     return sheets
 
 
+# ── jp1 소재 영상 소싱: 커뮤 인기글 임베드 영상 → 다운로드 → 감성 적합도 채점 ──
+# 원리: 우리가 틱톡을 뒤지는 게 아니라, 한국 커뮤 인기글이 이미 '터진 영상'을
+# 큐레이션한다 — 인기글에 박힌 영상 링크를 뽑아 yt-dlp로 받고 Gemini가 jp1 감성 판정.
+_VIDEO_PAT = re.compile(
+    r"https?://(?:www\.)?(?:"
+    r"youtube\.com/(?:watch\?v=|shorts/)[\w-]+"
+    r"|youtu\.be/[\w-]+"
+    r"|(?:vm|vt)\.tiktok\.com/[\w]+"
+    r"|tiktok\.com/@[^\s\"'<>]+/video/\d+"
+    r"|(?:twitter|x)\.com/[^\s\"'<>]+/status/\d+"
+    r")")
+
+FIELD_FILE = "_field_videos.json"
+
+
+def _field_load(base):
+    try:
+        return json.loads((Path(base) / REFS_DIRNAME / FIELD_FILE)
+                          .read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _field_save(base, rows):
+    (Path(base) / REFS_DIRNAME / FIELD_FILE).write_text(
+        json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def find_field_videos(cfg, base, per_source=8, log=print):
+    """커뮤 인기글에서 임베드 영상 링크 발굴. 반환: 새로 발견한 후보 수."""
+    from . import hunter, extractors
+    posts = []
+    for fn in hunter.SOURCES:
+        try:
+            posts += fn(per_source) or []
+        except Exception:
+            continue
+    rows = _field_load(base)
+    seen = {r.get("video_url") for r in rows} | {r.get("post_url") for r in rows}
+    new = 0
+    for p in posts:
+        url = p.get("url") or ""
+        if not url or url in seen:
+            continue
+        try:
+            soup = extractors.fetch_html(url, p.get("site", ""))
+            html = str(soup)
+            links = list(dict.fromkeys(_VIDEO_PAT.findall(html)))
+            og = soup.find("meta", property="og:video")
+            if og and og.get("content", "").startswith("http"):
+                links.append(og["content"])
+            for v in links[:2]:
+                if v in seen:
+                    continue
+                rows.append({"title": p.get("title", ""), "post_url": url,
+                             "video_url": v, "site": p.get("site", ""),
+                             "recs": p.get("recs", 0), "replies": p.get("replies", 0)})
+                seen.add(v)
+                new += 1
+            seen.add(url)
+            time.sleep(0.8)
+        except Exception:
+            continue
+    _field_save(base, rows)
+    log(f"      🔎 커뮤 임베드 영상 후보 신규 {new}개 (누적 {len(rows)}개)")
+    return new
+
+
+FIELD_PROMPT = """이 영상이 아래 채널의 '릴스 소재'로 적합한지 냉정하게 채점하라.
+
+채널: 일본 시청자에게 '진짜 한국'을 보여주는 릴스 채널.
+형식 = 터진 현장 원본 영상 + 간단한 일본어 자막 (벤치마크 실측 93%).
+잘 먹히는 소재 = 현장 논란·갑질·반전·유머 해프닝·기묘한 일상·사회면 —
+'와 이게 한국이야?' 싶은 현장감. 뉴스 앵커 화면·긴 설명형·광고·연출 티 나는 건 부적합.
+
+JSON만 출력:
+{"fit": 0.0, "topic": "영상 내용 한 줄", "why": "적합/부적합 이유 1문장",
+ "hook_ja": "일본어 후킹 자막 시안 1줄 (fit 7+ 일 때만, 아니면 빈 문자열)",
+ "risk": "초상권·폭력·선정성·미성년 등 주의점 (없으면 빈 문자열)"}"""
+
+
+def scout_field_videos(cfg, base, max_judge=6, log=print):
+    """후보 영상 다운로드(yt-dlp) + Gemini 감성 적합도 채점 → fit순 정렬 저장."""
+    import subprocess
+    key = (cfg.get("gemini_api_key") or "").strip()
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    rows = _field_load(base)
+    vdir = Path(base) / REFS_DIRNAME / "_field_videos"
+    vdir.mkdir(parents=True, exist_ok=True)
+    done = 0
+    for r in rows:
+        if done >= max_judge:
+            break
+        if r.get("judge") or r.get("dead"):
+            continue
+        vid = re.sub(r"[^\w]", "", r["video_url"])[-24:]
+        dest = vdir / f"{vid}.mp4"
+        try:
+            if not (dest.exists() and dest.stat().st_size > 50_000):
+                p = subprocess.run(
+                    ["yt-dlp", "--no-playlist", "-f", "bv*+ba/b",
+                     "--merge-output-format", "mp4", "--max-filesize", "80M",
+                     "-o", str(dest), "--quiet", "--no-warnings",
+                     r["video_url"]],
+                    capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", timeout=300)
+                if not (dest.exists() and dest.stat().st_size > 50_000):
+                    r["dead"] = (p.stderr or "다운로드 실패")[-80:]
+                    continue
+            r["file"] = str(dest)
+            uri = _upload_video(key, dest, log=log)
+            body = {"contents": [{"role": "user", "parts": [
+                        {"file_data": {"mime_type": "video/mp4", "file_uri": uri}},
+                        {"text": FIELD_PROMPT}]}],
+                    "generationConfig": {"response_mime_type": "application/json",
+                                         "temperature": 0.2,
+                                         "maxOutputTokens": 512,
+                                         "thinkingConfig": {"thinkingBudget": 0}}}
+            resp = requests.post(GEMINI_URL.format(model=model),
+                                 params={"key": key}, json=body, timeout=240)
+            if resp.status_code != 200:
+                raise RuntimeError(f"채점 {resp.status_code}")
+            r["judge"] = _parse_json(
+                resp.json()["candidates"][0]["content"]["parts"][0]["text"]) or {}
+            done += 1
+            log(f"      🎯 적합도 {r['judge'].get('fit', '?')}/10 — "
+                f"{str(r['judge'].get('topic'))[:30]}")
+            _field_save(base, rows)
+            time.sleep(random.uniform(5, 9))
+        except Exception as e:
+            log(f"      (소재 영상 실패: {str(e)[:70]})")
+            r["dead"] = str(e)[:80]
+    rows.sort(key=lambda x: -(float((x.get("judge") or {}).get("fit") or 0)))
+    _field_save(base, rows)
+    return done
+
+
 SYNTH_PROMPT = """당신은 릴스 벤치마킹 전략가다. 아래는 한 채널 그룹의 릴스 해부 데이터다
 (각 줄: 좋아요/댓글 + 분석 JSON). 이 그룹의 '릴스 공식'을 실측 기반으로 종합하라.
 숫자·비중은 데이터에서 세어라. JSON만 출력:

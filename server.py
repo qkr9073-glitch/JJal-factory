@@ -3041,6 +3041,7 @@ def api_pack_detail():
         "source": meta.get("source", ""),
         "template": meta.get("template", ""),
         "video": (meta.get("video") or (lambda v: v[0].name if v else "")(sorted(d.glob("*.mp4")))),
+        "reel_video": (d / "video.mp4").exists(),   # 카드팩→슬라이드 릴스(41차) 존재 여부
         "reel_thumbs": meta.get("reel_thumbs", []),
         "cover": meta.get("cover", ""),
         "zip": zips[0].name if zips else "",
@@ -4119,6 +4120,104 @@ def api_insta_publish():
                      args=(jid, pack_dir, lead,
                            bool(data.get("force")), cfg,
                            (data.get("account") or "").strip() or None), daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/pack/reel")
+def api_pack_reel():
+    """완성팩 → 슬라이드 릴스(video.mp4) 굽기 — jp2 릴스 공식 실측 재현(41차).
+    meta.type은 그대로라 캐러셀 발행과 공존한다."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    pack = (data.get("pack") or "").strip()
+    pack_dir = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not pack_dir.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "running", "pct": 15, "msg": "릴스 굽는 중...",
+                 "result": None, "error": None, "ts": time.time()}
+
+    def _run(jid=jid, pack_dir=pack_dir, cfg=cfg):
+        job = JOBS[jid]
+        try:
+            from src import cardreel
+            cardreel.build(cfg, BASE, pack_dir,
+                           log=lambda m: job.update(msg=str(m).strip(), pct=60))
+            job["result"] = {"reel": f"/packs/{pack_dir.name}/video.mp4"}
+            job["pct"] = 100
+            job["status"] = "done"
+        except Exception as e:
+            job["error"] = str(e)[:200]
+            job["status"] = "error"
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/pack/reel_publish")
+def api_pack_reel_publish():
+    """팩의 video.mp4를 릴스로 발행 — 계정은 meta.ig_account(채널 전용 계정) 최우선.
+    커버=팩 표지(01.jpg). 발행 기록은 '<팩>::reel' 키로 중복 방지."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    if not _is_admin(cfg, data.get("code")):
+        return jsonify(ok=False, error="즉시 업로드는 관리자만 가능합니다"), 403
+    pack = (data.get("pack") or "").strip()
+    pack_dir = OUTPUT / pack
+    if not pack or "/" in pack or "\\" in pack or not pack_dir.is_dir():
+        return jsonify(ok=False, error="팩을 찾을 수 없습니다"), 404
+    if not (pack_dir / "video.mp4").exists():
+        return jsonify(ok=False, error="릴스가 아직 없습니다 — 먼저 [릴스 굽기]"), 400
+    meta = {}
+    try:
+        meta = json.loads((pack_dir / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    account = (data.get("account") or "").strip() or str(meta.get("ig_account") or "")
+    if not account:
+        return jsonify(ok=False, error="전용 계정이 없는 팩입니다 — account를 지정하세요"), 400
+    key = f"{pack}::reel"
+    if not data.get("force") and key in insta.load_published(BASE):
+        return jsonify(ok=False, error="이미 릴스로 발행된 팩입니다"), 400
+    caption = ""
+    try:
+        caption = (pack_dir / "caption.txt").read_text(encoding="utf-8")
+    except Exception:
+        pass
+    public = (cfg.get("public_base_url") or "https://jjal.traffic-charger.com").rstrip("/")
+    from urllib.parse import quote as _q
+    video_url = f"{public}/packs/{_q(pack)}/video.mp4"
+    cover_url = f"{public}/packs/{_q(pack)}/01.jpg" \
+        if (pack_dir / "01.jpg").exists() else None
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "running", "pct": 10, "msg": "릴스 발행 준비...",
+                 "result": None, "error": None, "ts": time.time()}
+
+    def _run(jid=jid, cfg=cfg):
+        job = JOBS[jid]
+
+        def log(m):
+            job["msg"] = str(m).strip()
+
+        try:
+            r = insta.publish_reel(cfg, BASE, video_url, caption,
+                                   account=account, cover_url=cover_url, log=log)
+            insta.mark_published(BASE, key, r)
+            _auto_comment(cfg, r, "릴스(카드 슬라이드)",
+                          str(meta.get("title") or ""), caption, log=log,
+                          pack_name=key)
+            job["result"] = {"insta": True, "permalink": r.get("permalink", "")}
+            job["pct"] = 100
+            job["status"] = "done"
+        except Exception as e:
+            job["error"] = str(e)[:200]
+            job["status"] = "error"
+
+    threading.Thread(target=_run, daemon=True).start()
     return jsonify(ok=True, job=jid)
 
 

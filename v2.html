@@ -469,6 +469,8 @@
       <div class="sp"></div>
       <button class="iconbtn" id="mEbook" title="전자책 PDF 받기" style="display:none">📕</button>
       <button class="iconbtn" id="mDrive" title="전자책 드라이브 업로드 → 공유링크" style="display:none">📁</button>
+      <button class="iconbtn" id="mReel" title="카드들을 슬라이드 릴스(9:16+BGM)로 굽기">🎞</button>
+      <button class="iconbtn" id="mReelPub" title="구운 릴스를 전용 계정으로 발행" style="display:none">🎬</button>
       <button class="iconbtn" id="mZip" title="zip 받기">⬇</button>
       <button class="iconbtn" id="mDel" title="삭제" style="color:var(--danger)">🗑</button>
       <button class="iconbtn" onclick="closeModal()" title="닫기 (Esc)">✕</button>
@@ -3232,7 +3234,32 @@
     if(db) db.onclick=()=>delPack(d.name);
     if(eb){ eb.style.display=d.ebook?'':'none'; eb.onclick=()=>window.open(`${packBase(d.name)}/ebook.pdf`,'_blank'); }
     const dv=$('mDrive'); if(dv){ dv.style.display=d.ebook?'':'none'; dv.onclick=()=>uploadDrive(); }
+    const rb=$('mReel'), rp=$('mReelPub');
+    if(rb) rb.onclick=()=>packReelMake(d.name);
+    if(rp){ rp.style.display=d.reel_video?'':'none'; rp.onclick=()=>packReelPublish(d.name); }
     $('scrim').classList.add('open'); closePop();
+  }
+  async function packReelMake(name){
+    flash('🎞 슬라이드 릴스 굽는 중… (30초~1분)');
+    let d; try{d=await apiJson('/api/pack/reel',{code:code(),pack:name});}catch(e){flash('❌ 통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const poll=async()=>{ let j; try{const r=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(poll,2000);return;}
+      if(j.status==='error'){flash('❌ '+j.error);return;}
+      if(j.status==='done'){flash('✅ 릴스 완성 — 🎬 버튼으로 발행하거나 링크로 미리보기');
+        const rp=$('mReelPub'); if(rp)rp.style.display='';
+        window.open(`${packBase(name)}/video.mp4?t=${Date.now()}`,'_blank');return;}
+      setTimeout(poll,1800); };
+    poll();
+  }
+  async function packReelPublish(name){
+    if(!confirm('구운 릴스를 이 팩의 전용 계정으로 지금 발행할까요?'))return;
+    let d; try{d=await apiJson('/api/pack/reel_publish',{code:code(),pack:name});}catch(e){flash('❌ 통신 오류');return;}
+    if(!d.ok){flash('❌ '+d.error);return;}
+    const poll=async()=>{ let j; try{const r=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(poll,2500);return;}
+      if(j.status==='error'){flash('❌ '+j.error);return;}
+      if(j.status==='done'){const pl=(j.result||{}).permalink;flash('✅ 릴스 발행 완료!');if(pl)window.open(pl,'_blank');return;}
+      flash('📤 '+(j.msg||'발행 중…')); setTimeout(poll,2000); };
+    poll();
   }
   function closeModal(){$('scrim').classList.remove('open');closePop();PK=null;}
   function reloadModal(){ if(PK) openModal(PK.name); }
