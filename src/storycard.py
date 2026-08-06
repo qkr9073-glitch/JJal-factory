@@ -68,10 +68,57 @@ def _tw(d, t, f):
     return d.textlength(t, font=f)
 
 
+_KINSOKU_HEAD = "、。，．・：；！？…‥ー〜）」』】〕｝〉》!?,.)]}゙゚ゝゞ々ぁぃぅぇぉっゃゅょァィゥェォッャュョン"
+_KINSOKU_TAIL = "（「『【〔｛〈《([{"
+
+
+def _wrap_ja_kinsoku(d, text, font, max_w):
+    """일본어 글자 단위 줄바꿈 + 금칙 처리 — 닫는 괄호·구두점이 줄 머리에 오지 않게
+    (실사고: 헤드라인 끝 」 가 혼자 다음 줄로 떨어짐). 머리 금칙자는 앞줄에 욱여넣고
+    (살짝 넘침 허용), 여는 괄호는 다음 줄로 내려보낸다."""
+    lines, cur = [], ""
+    for ch in str(text):
+        if not cur or _tw(d, cur + ch, font) <= max_w:
+            cur += ch
+            continue
+        if ch in _KINSOKU_HEAD:          # 줄 머리 금지 → 앞줄에 붙임(추い込み)
+            cur += ch
+            continue
+        if cur[-1] in _KINSOKU_TAIL:     # 여는 괄호로 줄 못 끝냄 → 함께 내림
+            lines.append(cur[:-1])
+            cur = cur[-1] + ch
+            continue
+        lines.append(cur)
+        cur = ch
+    if cur:
+        lines.append(cur)
+    return lines or [""]
+
+
+def _balance_ja_2lines(d, text, font, max_w):
+    """2줄 일본어 헤드라인 균형 분배 — '...女性 / の物語'처럼 꼬리가 외톨이로
+    떨어지는 어색함 방지. 중앙 근처에서 금칙 없는 최적 절단점을 찾는다."""
+    t = str(text)
+    mid = len(t) // 2
+    best = None
+    for k in range(max(1, mid - 7), min(len(t), mid + 8)):
+        if t[k] in _KINSOKU_HEAD or t[k - 1] in _KINSOKU_TAIL:
+            continue
+        if t[k - 1].isascii() and t[k].isascii() and t[k] != " ":
+            continue                      # 영단어·숫자 중간 절단 금지
+        w1, w2 = _tw(d, t[:k], font), _tw(d, t[k:], font)
+        if w1 <= max_w and w2 <= max_w:
+            if best is None or abs(w1 - w2) < best[0]:
+                best = (abs(w1 - w2), [t[:k], t[k:]])
+    return best[1] if best else None
+
+
 def _wrap(d, text, font, max_w):
     """공백 우선 줄바꿈, 넘치면 글자 단위 분해 (한국어/일본어 모두 대응).
     단일 줄 래핑용이므로 들어온 \\n·개행은 공백으로 눕힌다."""
     text = " ".join(str(text).split())
+    if _lang() == "ja":
+        return _wrap_ja_kinsoku(d, text, font, max_w)
     lines, cur = [], ""
     for word in text.split(" "):
         trial = (cur + " " + word).strip()
@@ -112,7 +159,9 @@ def _cover(img, box_w, box_h):
         nh = int(nw / src_r)
     img = img.resize((max(nw, 1), max(nh, 1)), Image.LANCZOS)
     left = (img.width - box_w) // 2
-    top = (img.height - box_h) // 2
+    # 세로로 자를 땐 위쪽 1/3 지점 크롭 — 인물 얼굴·상단 자막(재미 포인트) 보존.
+    # 중앙 크롭은 이마·자막을 잘라 사진이 심심해지는 실사고가 있었음.
+    top = (img.height - box_h) // 3
     return img.crop((left, top, left + box_w, top + box_h))
 
 
@@ -324,6 +373,11 @@ def _render_card(image_path, headline, paragraphs, cfg, out_path, img_ratio=0.42
             hs -= 4
             hf = _font("bold", hs)
             lines = _wrap(d, headline, hf, CONTENT_W)
+        if _lang() == "ja" and len(lines) == 2:
+            bal = _balance_ja_2lines(d, " ".join(str(headline).split()), hf,
+                                     CONTENT_W)
+            if bal:
+                lines = bal
         for ln in lines:
             d.text((PAD, y), ln, font=hf, fill=INK)
             y += int(hs * 1.26)
