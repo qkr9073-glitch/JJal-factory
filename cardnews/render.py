@@ -2678,3 +2678,124 @@ def _reel_frame_impl(plan, items, cfg, out_path):
            fill=(240, 240, 244))
     c.save(out_path, "JPEG", quality=92)
     return str(out_path)
+
+
+def render_reel_grid(plan, items, cfg, out_path):
+    """릴스 그리드 프레임(9:16) — 벤치마크 실물 2호(변태 여친 특징 TOP10, ♥150) 재현:
+    2열 10칸, 칸마다 ①번호+3줄 초구체 텍스트+네온 애니 일러스트, 시안/핑크 네온 테두리,
+    제목=글로우 인용 후킹+초대형 주제. items[i]["image"]에 칸 일러스트 경로(옵션)."""
+    _LOCAL.lang = cfg.get("card_lang", "ko")
+    try:
+        return _reel_grid_impl(plan, items, cfg, out_path)
+    finally:
+        _LOCAL.lang = "ko"
+
+
+def _reel_grid_impl(plan, items, cfg, out_path):
+    RW, RH = 2160, 3840
+    ja = (_lang() == "ja")
+    CX = RW // 2
+    PINK, CYAN = (255, 105, 200), (90, 215, 255)
+    c = Image.new("RGB", (RW, RH), (12, 9, 20))
+    d = ImageDraw.Draw(c)
+
+    y = 240
+    kick = "（保存必須）" if ja else "(저장필수)"
+    quote = (plan.get("title_top") or "").strip()
+    if quote:
+        q = quote if quote[:1] in "「『“\"'" else f"“{quote}”"
+        line1 = f"{kick} {q}"
+        lf, _ls = _fit_font(d, line1, "xbold", 110, RW - M * 2, min_size=78)
+        _glow_text_center(c, CX, y, line1, lf, (255, 230, 120), PINK)
+        y += int(_ls * 1.38)
+    title = (plan.get("title_main") or plan.get("title") or "").strip()
+    tf, ts, tlines = _fit_mag(d, title, "xbold", 215, RW - M * 2, 126, max_lines=2)
+    for ln in tlines:
+        _glow_text_center(c, CX, y, ln, tf, (255, 255, 255), CYAN, radius=12)
+        y += int(ts * 1.13)
+    hd = (cfg.get("_reel_handle") or "").strip()
+    if hd:
+        label = cfg.get("_reel_brand") or ""
+        cred = f"@{hd.lstrip('@')}" + (f" - {label}" if label else "")
+        crf = _font("semi", 58)
+        d.text((CX - _tw(d, cred, crf) / 2, y + 18), cred, font=crf,
+               fill=(225, 225, 232))
+        y += 58 + 44
+
+    rows = [it for it in (items or []) if (it.get("title") or "").strip()][:10]
+    foot_h = 230
+    gap = 34
+    ncols = 2
+    nrows = max(1, (len(rows) + 1) // 2)
+    cell_w = (RW - M * 2 - gap) // 2
+    cell_h = (RH - foot_h - y - (nrows - 1) * gap) // nrows
+    pad = 42
+    img_w = int(cell_w * 0.42)
+
+    size = 84
+    wraps = []
+    while size > 44:
+        f = _font("xbold", size)
+        wraps, ok = [], True
+        for it in rows:
+            hi = bool(it.get("image") and Path(str(it["image"])).exists())
+            wlim = cell_w - pad * 2 - (img_w + 24 if hi else 0)
+            w = (_wrap_ja if ja else _wrap_mag)(
+                d, re.sub(r"\s+", " ", str(it["title"])).strip(), f, wlim,
+                max_lines=4)
+            wraps.append(w)
+            if 130 + len(w) * int(size * 1.24) > cell_h - pad:
+                ok = False
+        if ok:
+            break
+        size -= 5
+    f = _font("xbold", size)
+    nf = _font("xbold", 78)
+
+    for i, (it, wrap) in enumerate(zip(rows, wraps)):
+        col, row = i % ncols, i // ncols
+        x0 = M + col * (cell_w + gap)
+        y0 = y + row * (cell_h + gap)
+        neon = CYAN if (i % 4 in (1, 2)) else PINK
+        cell = Image.new("RGBA", (RW, RH), (0, 0, 0, 0))
+        cd = ImageDraw.Draw(cell)
+        cd.rounded_rectangle([x0, y0, x0 + cell_w, y0 + cell_h], 36,
+                             fill=(6, 5, 12, 216), outline=neon + (255,),
+                             width=7)
+        c.paste(cell, (0, 0), cell)
+        img_p = str(it.get("image") or "")
+        has_img = img_p and Path(img_p).exists()
+        if has_img:
+            try:
+                im = Image.open(img_p).convert("RGB")
+                bw, bh = img_w, cell_h - pad * 2
+                sc = max(bw / im.width, bh / im.height)
+                im = im.resize((int(im.width * sc) + 1, int(im.height * sc) + 1),
+                               Image.LANCZOS)
+                ix = (im.width - bw) // 2
+                iy = (im.height - bh) // 3
+                im = im.crop((ix, iy, ix + bw, iy + bh))
+                mask = Image.new("L", (bw, bh), 0)
+                ImageDraw.Draw(mask).rounded_rectangle([0, 0, bw - 1, bh - 1],
+                                                       26, fill=255)
+                c.paste(im, (x0 + cell_w - pad - bw, y0 + pad), mask)
+            except Exception:
+                has_img = False
+        num = str(it.get("num") or i + 1)
+        cx_n, cy_n = x0 + pad + 46, y0 + pad + 46
+        d.ellipse([cx_n - 46, cy_n - 46, cx_n + 46, cy_n + 46], outline=neon,
+                  width=6)
+        d.text((cx_n - _tw(d, num, nf) / 2, cy_n - 44), num, font=nf,
+               fill=(255, 255, 255))
+        th = len(wrap) * int(size * 1.24)
+        ty = y0 + max(pad + 104, (cell_h - th) // 2 + 40)
+        for ln in wrap:
+            d.text((x0 + pad, ty), ln, font=f, fill=(250, 250, 252))
+            ty += int(size * 1.24)
+
+    foot = "*詳しくはキャプションで*" if ja else "*자세한 내용 본문 참고*"
+    ff = _font("xbold", 74)
+    d.text((CX - _tw(d, foot, ff) / 2, RH - 180), foot, font=ff,
+           fill=(240, 240, 244))
+    c.save(out_path, "JPEG", quality=92)
+    return str(out_path)

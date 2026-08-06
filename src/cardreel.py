@@ -193,6 +193,14 @@ def build_single(cfg, base, pack_dir, sec=9.0, bgm_code="무난", bgm_file="",
     frame = pack / "reel.jpg"
     _render.render_reel_frame(plan, rows, cfg2, frame)
     log(f"      🖼 릴스 단일 프레임 렌더 — {len(rows)}항목, {sec:.0f}초 정지화면")
+    return mp4_from_frame(base, pack, frame, sec=sec, bgm_code=bgm_code,
+                          bgm_file=bgm_file, log=log)
+
+
+def mp4_from_frame(base, pack, frame, sec=9.0, bgm_code="무난", bgm_file="",
+                   log=print):
+    """단일 프레임 이미지 → pack/video.mp4 (1080x1920 정지화면 + BGM)."""
+    pack = Path(pack)
     out_mp4 = pack / "video.mp4"
     tmp_v = pack / "_reel_single.mp4"
     _run([FFMPEG, "-y", "-loop", "1", "-t", f"{sec:.2f}", "-i", str(frame),
