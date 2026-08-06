@@ -4196,6 +4196,8 @@ def api_reel_topics():
                            **json.loads(cache.read_text(encoding="utf-8")))
         except Exception:
             pass
+    if data.get("cached_only"):
+        return jsonify(ok=True, need_run=True)
     jid = uuid.uuid4().hex[:10]
     JOBS[jid] = {"status": "running", "pct": 30, "msg": "실측 143개로 주제 뽑는 중...",
                  "result": None, "error": None, "ts": time.time()}
@@ -4249,6 +4251,114 @@ def api_reel_generate():
             job["result"] = {"pack": pk, "title": res.get("title", ""),
                              "risk": res.get("risk", ""),
                              "video": f"/packs/{quote(pk)}/video.mp4"}
+            _job_set_owner(job)
+            job["pct"] = 100
+            job["status"] = "done"
+        except Exception as e:
+            job["error"] = str(e)[:200]
+            job["status"] = "error"
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify(ok=True, job=jid)
+
+
+@app.post("/api/reel/bench")
+def api_reel_bench():
+    """jp2 벤치마크 릴스 목록(♥순) — '레퍼런스 릴스 리메이크'의 소재 선택지."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    from src import reelscout
+    rows = []
+    for h in reelscout.GROUPS.get("jp2", []):
+        for r in reelscout.reels_load(BASE, h):
+            topic = ((r.get("analysis") or {}).get("topic")
+                     or (r.get("caption") or "").split("\n")[0])
+            topic = re.sub(r"\s+", " ", str(topic)).strip()
+            if topic:
+                rows.append({"handle": h, "like": r.get("like", 0),
+                             "topic": topic[:110],
+                             "permalink": r.get("permalink", "")})
+    rows.sort(key=lambda x: -x["like"])
+    return jsonify(ok=True, items=rows[:60])
+
+
+@app.post("/api/reel/field")
+def api_reel_field():
+    """jp1 소싱 후보(적합도 채점 완료 + 영상 확보분) — '이 영상으로 변환' 선택지."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _check_code(cfg, data.get("code")):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    rows = []
+    try:
+        for r in json.loads((BASE / "레퍼런스" / "_field_videos.json")
+                            .read_text(encoding="utf-8")):
+            j = r.get("judge") or {}
+            f = r.get("file") or ""
+            if j and float(j.get("fit") or 0) >= 6 and f and Path(f).exists():
+                rows.append({"file": f, "fit": j.get("fit"),
+                             "topic": str(j.get("topic", ""))[:90],
+                             "origin": str(j.get("origin", ""))[:60],
+                             "hook_ja": str(j.get("hook_ja", ""))[:60],
+                             "site": r.get("site", ""),
+                             "recs": r.get("recs", 0)})
+    except Exception:
+        pass
+    rows.sort(key=lambda x: -(float(x["fit"] or 0)))
+    return jsonify(ok=True, items=rows)
+
+
+@app.post("/api/reel/jp1")
+def api_reel_jp1():
+    """jp1 변환 — 사용자가 구해온 한국 영상(업로드) 또는 소싱 후보(서버 경로)를
+    jp1 공식(일본어 자막 번인·원본 사운드)의 해외판으로. 잡 접수."""
+    cfg = load_config()
+    code_v = (request.form.get("code") if request.files
+              else (request.get_json(silent=True) or {}).get("code"))
+    if not _check_code(cfg, code_v):
+        return jsonify(ok=False, error="접속코드가 틀렸습니다"), 403
+    src_path = ""
+    if request.files and request.files.get("video"):
+        f = request.files["video"]
+        up = BASE / "레퍼런스" / "_jp1_uploads"
+        up.mkdir(parents=True, exist_ok=True)
+        name = re.sub(r"[^\w.-]", "_", f.filename or "video.mp4")[-60:]
+        src_path = str(up / f"{int(time.time())}_{name}")
+        f.save(src_path)
+    else:
+        data = request.get_json(silent=True) or {}
+        cand = (data.get("file") or "").strip()
+        # 소싱 후보 파일만 허용(임의 경로 차단)
+        try:
+            allowed = {r.get("file") for r in json.loads(
+                (BASE / "레퍼런스" / "_field_videos.json")
+                .read_text(encoding="utf-8"))}
+        except Exception:
+            allowed = set()
+        if cand not in allowed:
+            return jsonify(ok=False, error="영상 파일을 업로드하거나 소싱 후보에서 골라주세요"), 400
+        src_path = cand
+    chs = cfg.get("channels") or DEFAULT_CHANNELS
+    acct = next((c.get("account") for c in chs if c.get("id") == "jp1"),
+                "") or "real_kankoku"
+    jid = uuid.uuid4().hex[:10]
+    JOBS[jid] = {"status": "running", "pct": 20, "msg": "영상 분석·자막 작성 중...",
+                 "result": None, "error": None, "ts": time.time(),
+                 "code": (code_v or "").strip()}
+
+    def _run(jid=jid, cfg=cfg, src_path=src_path, acct=acct):
+        job = JOBS[jid]
+        try:
+            from src import jp1reel
+            res = jp1reel.convert(
+                cfg, BASE, src_path, account=acct,
+                log=lambda m: job.update(msg=str(m).strip(), pct=60))
+            pk = Path(res["pack"]).name
+            job["result"] = {"pack": pk, "title": res.get("title", ""),
+                             "origin": res.get("origin", ""),
+                             "risk": res.get("risk", "")}
             _job_set_owner(job)
             job["pct"] = 100
             job["status"] = "done"
@@ -4683,6 +4793,9 @@ def api_ref_krjp():
     ent = KRJP_CACHE.get(axis)
     if not data.get("refresh") and not more and ent and now - ent["time"] < 1800:
         return jsonify(ok=True, items=ent["data"], cached=True, axis=axis)
+    if data.get("cached_only"):
+        # 탭 진입 자동 호출 — 캐시 없으면 스캔을 멋대로 돌리지 않는다(사용자 지시).
+        return jsonify(ok=True, need_run=True, axis=axis)
     exclude = [str(i.get("topic") or "").strip()
                for i in ((ent or {}).get("data") or [])] if more else []
     jid = uuid.uuid4().hex[:10]

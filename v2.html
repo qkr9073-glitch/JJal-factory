@@ -4312,12 +4312,15 @@
       const r=d.result||{};krjpRender({items:r.items||[],cached:false});flash('✅ 소재 수색 완료');return;}
     setTimeout(()=>krjpPoll(jid),1500);
   }
-  async function refKrjp(refresh,axis,more){
+  async function refKrjp(refresh,axis,more,auto){
     if(axis!==undefined)KRJP_AXIS=axis;
     const box=$('refKrjpBox'); if(!box)return;
     const label=(KRJP_AXIS?`'${KRJP_AXIS}' 갈래 전용 수색`:'커뮤 9곳+뉴스 스캔')+(more?' — 다른 주제 더보기':'')+' + 출처 교차검증';
-    let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh,more:!!more,axis:KRJP_AXIS});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    let d; try{d=await apiJson('/api/ref/krjp',{code:code(),refresh:!!refresh,more:!!more,axis:KRJP_AXIS,cached_only:!!auto});}catch(e){box.innerHTML='❌ 통신 오류';return;}
     if(!d.ok){box.innerHTML='❌ '+esch(d.error);return;}
+    if(d.need_run){box.innerHTML=`<div style="padding:14px;border:1px dashed var(--line);border-radius:10px">
+      <div class="caphint" style="margin-bottom:8px">스캔은 1~2분 걸려요 — 자동으로 돌리지 않고 기다립니다.</div>
+      <button class="btn" onclick="refKrjp(false)">🔎 소재 스캔 시작</button></div>`;return;}
     if(d.job){
       const row=$('krjpMoreRow');
       if(more&&row)row.innerHTML=krjpGauge(label);   // 더보기: 기존 목록 유지, 하단에 게이지
@@ -4368,23 +4371,17 @@
           <input class="in" id="prodTopic" placeholder="소재(주제) 한 줄">
           <textarea class="in" id="prodCtx" rows="2" placeholder="맥락 메모 (선택) — 원문 링크를 붙이면 실사진을 표지·컷으로 사용" style="margin-top:6px"></textarea>
           <button class="go" style="margin-top:8px" onclick="prodDirect()">🚀 이 채널로 제작</button></div>
-        <div class="step"><div class="sh"><span class="num">4</span><span class="st">🎬 릴스 (표·그리드 한 장)</span></div>
-          <div style="display:flex;gap:6px;margin-bottom:6px">
-            <button class="btn" onclick="reelTopics(false)">💡 주제 후보</button>
-            <button class="btn" onclick="reelTopics(true)" title="실측 143개로 이식·창조 주제 재생성 (1분 내)">🔄 새로 뽑기</button></div>
-          <div id="reelTopicList" style="max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:5px;margin-bottom:6px"></div>
-          <input class="in" id="reelTopic" placeholder="주제 (후보 클릭 또는 직접 입력)">
-          <button class="go" style="margin-top:8px" onclick="reelGen()">🎬 릴스 생성 (해석본 검수 포함)</button>
-          <div class="caphint" style="margin-top:6px">완성되면 결과물 모달에서 🇯🇵→🇰🇷 해석본으로 검수 → 📤 발행</div></div>
       </aside>
       <main class="mainpane">
         <div id="jjobs"></div>
         <div class="panehead"><h2>🚀 채널 생산</h2><span class="n"><span class="num" style="margin-right:4px">2</span>소재 고르기 → 만들기</span></div>
         <div class="chips" style="margin-bottom:10px">
-          <span class="chip on" id="matScan" onclick="prodMat('scan')">🔎 소재 스캔 (갈래별)</span>
-          <span class="chip" id="matPosts" onclick="prodMat('posts')">🗞 레퍼런스 게시물 리메이크</span></div>
+          <span class="chip on" id="matScan" onclick="prodMat('scan')">🔎 캐러셀 소재 스캔</span>
+          <span class="chip" id="matPosts" onclick="prodMat('posts')">🗞 캐러셀 리메이크</span>
+          <span class="chip" id="matReel" onclick="prodMat('reel')" style="border-color:var(--gold)">🎬 릴스</span></div>
         <div id="refKrjpBox"></div>
         <div id="prodPosts" style="display:none"></div>
+        <div id="prodReel" style="display:none"></div>
       </main>
     </div>`;
     let d; try{d=await apiJson('/api/channels',{code:code()});}catch(e){$('prodChList').innerHTML='❌ 통신 오류';return;}
@@ -4406,16 +4403,53 @@
         <div style="font-size:11.5px;margin-top:4px;color:${c.account?'var(--gold)':'var(--faint)'}">${c.account?'📤 업로드 계정 @'+esch(c.account)+' (완성팩에 자동 지정)':'📤 업로드 계정 미지정'}</div></div>`;}).join('')
       ||'<div class="caphint">채널 프로필이 없어요.</div>';
   }
-  async function reelTopics(fresh){
-    const box=$('reelTopicList'); if(!box)return;
-    box.innerHTML='<div class="caphint">주제 뽑는 중…</div>';
-    let d; try{d=await api('/api/reel/topics',{fresh:!!fresh});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+  /* ---- 🎬 릴스 패널: jp1(영상 변환)·jp2(표/그리드) 채널별 서브탭 ---- */
+  let REEL_CH='jp2';
+  function prodReelPane(){
+    const box=$('prodReel'); if(!box)return;
+    box.innerHTML=`
+      <div class="chips" style="margin-bottom:10px">
+        <span class="chip ${REEL_CH==='jp2'?'on':''}" onclick="REEL_CH='jp2';prodReelPane()">🎌 jp2 — 표·그리드 (주제 기반)</span>
+        <span class="chip ${REEL_CH==='jp1'?'on':''}" onclick="REEL_CH='jp1';prodReelPane()">🗾 jp1 — 영상 변환 (내가 구한 영상)</span></div>
+      <div id="reelPaneBody"></div>`;
+    if(REEL_CH==='jp2')reelJp2Pane(); else reelJp1Pane();
+  }
+  async function reelJp2Pane(){
+    const b=$('reelPaneBody'); if(!b)return;
+    b.innerHTML=`
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input class="in" id="reelTopic" placeholder="주제 직접 입력 또는 아래 후보·벤치 클릭" style="flex:1;min-width:240px">
+        <button class="go" style="width:auto" onclick="reelGen()">🎬 릴스 생성</button>
+        <button class="btn" onclick="reelTopicsLoad(true)">🔄 소재추천 새로 뽑기</button></div>
+      <div class="chips" style="margin-bottom:8px">
+        <span class="chip on" id="rj2Topics" onclick="rj2Mode('topics')">💡 소재 추천 (이식·창조)</span>
+        <span class="chip" id="rj2Bench" onclick="rj2Mode('bench')">🪞 벤치 릴스 리메이크 (♥실측)</span></div>
+      <div id="rj2Body"><div class="caphint">불러오는 중…</div></div>`;
+    rj2Mode('topics');
+  }
+  let RJ2='topics';
+  function rj2Mode(m){
+    RJ2=m;
+    const t=$('rj2Topics'),bn=$('rj2Bench');
+    if(t)t.classList.toggle('on',m==='topics');
+    if(bn)bn.classList.toggle('on',m==='bench');
+    if(m==='topics')reelTopicsLoad(false,true); else reelBenchLoad();
+  }
+  async function reelTopicsLoad(fresh,auto){
+    const box=$('rj2Body'); if(!box)return;
+    box.innerHTML='<div class="caphint">주제 후보 불러오는 중…</div>';
+    let d; try{d=await api('/api/reel/topics',{fresh:!!fresh,cached_only:!!auto&&!fresh});}catch(e){box.innerHTML='❌ 통신 오류';return;}
     if(!d.ok){box.innerHTML='❌ '+esch(d.error||'');return;}
+    if(d.need_run){box.innerHTML='<button class="btn" onclick="reelTopicsLoad(true)">💡 실측 143개로 주제 후보 뽑기 (1분 내)</button>';return;}
     const paint=(res)=>{
-      const chip=(t,tag,ev)=>`<div onclick="$('reelTopic').value=this.dataset.t" data-t="${esch(t.title_ko||t.title_ja||'')}" style="cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px">
-        <b>${tag}</b> ${esch(t.title_ja||'')}<div style="color:var(--faint);font-size:11px">${esch(t.title_ko||'')}${ev?` · 근거 ${esch(ev)}`:''}</div></div>`;
-      box.innerHTML=(res['import']||[]).map(t=>chip(t,'📥',t.evidence||'')).join('')
-        +(res['create']||[]).map(t=>chip(t,'✨','')).join('')||'<div class="caphint">후보 없음 — 🔄 새로 뽑기</div>';
+      const card=(t,tag,ev)=>`<div style="border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12.5px;display:flex;gap:10px;align-items:center">
+        <div style="flex:1"><b>${tag} ${esch(t.title_ja||'')}</b>
+          <div style="color:var(--faint);font-size:11.5px;margin-top:2px">${esch(t.title_ko||'')}${t.angle?` — ${esch(t.angle)}`:''}${ev?`<br>📊 근거: ${esch(ev)}`:''}</div></div>
+        <button class="btn" onclick="reelGen(this.dataset.t)" data-t="${esch(t.title_ko||t.title_ja||'')}">🎬 생성</button></div>`;
+      box.innerHTML=`<div style="display:flex;flex-direction:column;gap:6px">
+        ${(res['import']||[]).map(t=>card(t,'📥',t.evidence||'')).join('')}
+        ${(res['create']||[]).map(t=>card(t,'✨','')).join('')}</div>`
+        ||'<div class="caphint">후보 없음 — 🔄 새로 뽑기</div>';
     };
     if(d.job){
       const poll=async()=>{let j;try{const r=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(poll,2000);return;}
@@ -4425,18 +4459,74 @@
       poll();
     } else paint(d);
   }
-  async function reelGen(){
-    const topic=($('reelTopic')&&$('reelTopic').value.trim())||'';
+  async function reelBenchLoad(){
+    const box=$('rj2Body'); if(!box)return;
+    box.innerHTML='<div class="caphint">벤치마크 릴스 실측 목록 불러오는 중…</div>';
+    let d; try{d=await api('/api/reel/bench',{});}catch(e){box.innerHTML='❌ 통신 오류';return;}
+    if(!d.ok){box.innerHTML='❌ '+esch(d.error||'');return;}
+    box.innerHTML=`<div style="display:flex;flex-direction:column;gap:5px">${(d.items||[]).map(r=>`
+      <div style="border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px;display:flex;gap:10px;align-items:center">
+        <span style="color:var(--gold);font-weight:800;min-width:64px">♥${r.like}</span>
+        <div style="flex:1">${esch(r.topic)} <span style="color:var(--faint);font-size:11px">@${esch(r.handle)}</span>
+          ${r.permalink?` <a href="${esch(r.permalink)}" target="_blank" style="font-size:11px">원본↗</a>`:''}</div>
+        <button class="btn" onclick="reelGen(this.dataset.t)" data-t="${esch('벤치마크 릴스 리메이크(일본화): '+r.topic)}">🎬 리메이크</button></div>`).join('')
+      ||'<div class="caphint">벤치 목록 없음</div>'}</div>`;
+  }
+  async function reelGen(topic){
+    topic=topic||($('reelTopic')&&$('reelTopic').value.trim())||'';
     if(topic.length<4){flash('주제를 입력하거나 후보를 클릭해주세요');return;}
-    const acct=PROD_CH&&PROD_CH.account||'';
     flash('🎬 릴스 생성 중… (그리드형은 일러스트 10장이라 2~4분)');
-    let d; try{d=await api('/api/reel/generate',{topic,account:acct});}catch(e){flash('❌ 통신 오류');return;}
+    let d; try{d=await api('/api/reel/generate',{topic});}catch(e){flash('❌ 통신 오류');return;}
     if(!d.ok){flash('❌ '+esch(d.error||''));return;}
     const poll=async()=>{let j;try{const r=await fetch(`/api/job/${d.job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(poll,2500);return;}
       if(j.status==='error'){flash('❌ '+esch(j.error||''));return;}
       if(j.status==='done'){const p=(j.result||{}).pack;flash('✅ 릴스 완성 — 해석본 검수 후 발행하세요'+((j.result||{}).risk?' ⚠️'+(j.result||{}).risk:''));if(p)openReelModal(p);return;}
       flash('🎬 '+(j.msg||'생성 중…')); setTimeout(poll,2200);};
     poll();
+  }
+  async function reelJp1Pane(){
+    const b=$('reelPaneBody'); if(!b)return;
+    b.innerHTML=`
+      <div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:6px">📤 내가 구한 한국 영상 → jp1 해외판 변환</div>
+        <div class="caphint" style="margin-bottom:8px">영상을 올리면 실측 공식대로: 일본어 자막 거의 매초(핵심=노랑 강조)+원본 사운드+풀버전. 완성 후 자막 해석본으로 검수.</div>
+        <input type="file" id="jp1File" accept="video/mp4,video/*" style="font-size:12px">
+        <button class="go" style="margin-top:8px" onclick="reelJp1Upload()">🗾 jp1 변환 시작</button></div>
+      <div style="font-weight:700;font-size:13px;margin:12px 0 6px">🔎 소싱 후보 (해시태그·커뮤 수색에서 적합 판정된 영상)</div>
+      <div id="jp1Field"><div class="caphint">불러오는 중…</div></div>`;
+    let d; try{d=await api('/api/reel/field',{});}catch(e){$('jp1Field').innerHTML='❌ 통신 오류';return;}
+    if(!d.ok){$('jp1Field').innerHTML='❌ '+esch(d.error||'');return;}
+    $('jp1Field').innerHTML=`<div style="display:flex;flex-direction:column;gap:5px">${(d.items||[]).map(r=>`
+      <div style="border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px;display:flex;gap:10px;align-items:center">
+        <span style="color:var(--gold);font-weight:800">fit ${r.fit}</span>
+        <div style="flex:1">${esch(r.topic)} <span style="color:var(--faint);font-size:11px">${esch(r.site)} · ${esch(r.origin||'')}</span>
+          ${r.hook_ja?`<div style="color:var(--faint);font-size:11px">훅: ${esch(r.hook_ja)}</div>`:''}</div>
+        <button class="btn" onclick="reelJp1FromField(this.dataset.f)" data-f="${esch(r.file)}">🗾 변환</button></div>`).join('')
+      ||'<div class="caphint">아직 적합 판정(6점+) 영상이 없어요 — 소싱은 매일 자동 축적됩니다</div>'}</div>`;
+  }
+  function jp1Poll(job){
+    const poll=async()=>{let j;try{const r=await fetch(`/api/job/${job}?code=${encodeURIComponent(code())}`);j=await r.json();}catch(e){setTimeout(poll,2500);return;}
+      if(j.status==='error'){flash('❌ '+esch(j.error||''));return;}
+      if(j.status==='done'){const res=j.result||{};flash(`✅ jp1 릴스 완성 (원산지: ${res.origin||'?'})${res.risk?' ⚠️'+res.risk:''} — 자막 해석본 검수하세요`);if(res.pack)openReelModal(res.pack);return;}
+      flash('🗾 '+(j.msg||'변환 중…')); setTimeout(poll,2500);};
+    poll();
+  }
+  async function reelJp1Upload(){
+    const inp=$('jp1File');
+    if(!inp||!inp.files||!inp.files.length){flash('영상 파일을 골라주세요');return;}
+    const fd=new FormData();
+    fd.append('code',code()); fd.append('video',inp.files[0]);
+    flash('🗾 영상 업로드·분석 중… (길이에 따라 2~5분)');
+    let d; try{const r=await fetch('/api/reel/jp1',{method:'POST',body:fd});d=await r.json();}catch(e){flash('❌ 통신 오류');return;}
+    if(!d.ok){flash('❌ '+esch(d.error||''));return;}
+    jp1Poll(d.job);
+  }
+  async function reelJp1FromField(f){
+    if(!confirm('이 소싱 영상을 jp1 해외판으로 변환할까요?'))return;
+    flash('🗾 영상 분석·자막 작성 중…');
+    let d; try{d=await api('/api/reel/jp1',{file:f});}catch(e){flash('❌ 통신 오류');return;}
+    if(!d.ok){flash('❌ '+esch(d.error||''));return;}
+    jp1Poll(d.job);
   }
   function prodPick(id){
     PROD_CH=CHANNELS.find(c=>c.id===id)||PROD_CH;
@@ -4447,13 +4537,17 @@
   function prodMat(m,force){
     if(PROD_MAT===m&&!force)return;
     PROD_MAT=m;
-    const s=$('matScan'),p=$('matPosts');
+    const s=$('matScan'),p=$('matPosts'),r=$('matReel');
     if(s)s.classList.toggle('on',m==='scan');
     if(p)p.classList.toggle('on',m==='posts');
-    const kb=$('refKrjpBox'),pb=$('prodPosts');
+    if(r)r.classList.toggle('on',m==='reel');
+    const kb=$('refKrjpBox'),pb=$('prodPosts'),rb=$('prodReel');
     if(kb)kb.style.display=m==='scan'?'':'none';
     if(pb)pb.style.display=m==='posts'?'':'none';
-    if(m==='scan')refKrjp(false);else prodPosts();
+    if(rb)rb.style.display=m==='reel'?'':'none';
+    if(m==='scan')refKrjp(false,undefined,false,true);   // auto=캐시만, 스캔은 버튼으로
+    else if(m==='posts')prodPosts();
+    else prodReelPane();
   }
   let PROD_REF='all';
   async function prodPosts(h){
