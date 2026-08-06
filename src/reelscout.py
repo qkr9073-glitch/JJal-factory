@@ -106,11 +106,10 @@ def _shortcode(permalink):
 
 
 def download_reels(cfg, base, handle, limit=10, log=print):
-    """좋아요순 상위 릴스 영상 다운로드 (버너 세션, 릴스당 8~15초 간격 스로틀).
+    """좋아요순 상위 릴스 영상 다운로드 — yt-dlp(익명 웹 경로, 실측 검증) + 스로틀.
+    instaloader Post API는 2026-08 기준 막혀 있음(BadResponse) — yt-dlp가 정답.
     이미 받은 파일은 건너뜀. 반환: 새로 받은 개수."""
-    from . import insta_import
-    import instaloader
-    L, user = insta_import._loader(cfg, base, log=log)
+    import subprocess
     reels = reels_load(base, handle)
     vdir = _dir(base, handle) / "reels"
     vdir.mkdir(parents=True, exist_ok=True)
@@ -122,24 +121,22 @@ def download_reels(cfg, base, handle, limit=10, log=print):
         if dest.exists() and dest.stat().st_size > 50_000:
             r["file"] = str(dest)
             continue
-        sc = _shortcode(r.get("permalink"))
-        if not sc:
+        perm = str(r.get("permalink") or "")
+        if not perm.startswith("http"):
             continue
         try:
-            post = instaloader.Post.from_shortcode(L.context, sc)
-            url = post.video_url
-            if not url:
-                continue
-            resp = requests.get(url, timeout=180,
-                                headers={"User-Agent": "Mozilla/5.0"})
-            if resp.status_code != 200 or len(resp.content) < 50_000:
-                log(f"      (다운로드 실패 {r['id']}: HTTP {resp.status_code})")
-                continue
-            dest.write_bytes(resp.content)
-            r["file"] = str(dest)
-            got += 1
-            log(f"      ⬇ @{handle} 릴스 {got}/{limit} (♥{r.get('like', 0)}, "
-                f"{len(resp.content) // 1024}KB)")
+            p = subprocess.run(
+                ["yt-dlp", "--no-playlist", "-f", "bv*+ba/b",
+                 "--merge-output-format", "mp4", "-o", str(dest),
+                 "--quiet", "--no-warnings", perm],
+                capture_output=True, text=True, timeout=300)
+            if dest.exists() and dest.stat().st_size > 50_000:
+                r["file"] = str(dest)
+                got += 1
+                log(f"      ⬇ @{handle} 릴스 {got}/{limit} (♥{r.get('like', 0)}, "
+                    f"{dest.stat().st_size // 1024}KB)")
+            else:
+                log(f"      (실패 {r['id']}: {(p.stderr or '')[-90:].strip()})")
             time.sleep(random.uniform(8, 15))
         except Exception as e:
             log(f"      (릴스 {r['id']} 실패: {str(e)[:80]})")
@@ -217,6 +214,101 @@ def analyze_reels(cfg, base, handle, limit=10, log=print):
         except Exception as e:
             log(f"      (분석 실패 {r['id']}: {str(e)[:80]})")
     return done
+
+
+def collect_thumbs(cfg, base, handle, max_media=250, log=print):
+    """전체 릴스 썸네일 수집(공식 BD, 부계정 불필요) → 레퍼런스/<h>/reels_thumb/<id>.jpg.
+    reels.json은 건드리지 않는다(다운로드 배치와 동시 실행 안전)."""
+    tok = (cfg.get("fb_long_token") or "").strip()
+    uid = str(cfg.get("fb_bd_ig_id") or "").strip()
+    tdir = _dir(base, handle) / "reels_thumb"
+    tdir.mkdir(parents=True, exist_ok=True)
+    got, after, fetched = 0, "", 0
+    while fetched < max_media:
+        m = "media.limit(50)" + (f".after({after})" if after else "")
+        fields = (f"business_discovery.username({handle})"
+                  f"{{{m}{{id,media_type,thumbnail_url}}}}")
+        r = requests.get(GRAPH.format(uid=uid),
+                         params={"fields": fields, "access_token": tok}, timeout=60)
+        if r.status_code != 200:
+            break
+        med = (((r.json().get("business_discovery") or {}).get("media")) or {})
+        data = med.get("data") or []
+        if not data:
+            break
+        fetched += len(data)
+        for it in data:
+            if it.get("media_type") != "VIDEO" or not it.get("thumbnail_url"):
+                continue
+            dest = tdir / f"{it['id']}.jpg"
+            if dest.exists():
+                continue
+            try:
+                resp = requests.get(it["thumbnail_url"], timeout=40)
+                if resp.status_code == 200 and len(resp.content) > 3000:
+                    dest.write_bytes(resp.content)
+                    got += 1
+            except Exception:
+                continue
+        after = ((med.get("paging") or {}).get("cursors") or {}).get("after") or ""
+        if not after:
+            break
+        time.sleep(1.0)
+    log(f"      @{handle}: 릴스 썸네일 {got}개 신규 (총 {len(list(tdir.glob('*.jpg')))}개)")
+    return got
+
+
+def thumb_sheet(base, group, out_dir, per_sheet=40, cols=5, log=print):
+    """그룹의 릴스 썸네일을 좋아요순 그리드 시트로 — 한눈에 '어떤 영상인지' 파악용.
+    각 칸에 ♥수·채널 표시. 반환: 생성된 시트 파일 경로 목록."""
+    from PIL import Image, ImageDraw, ImageFont
+    rows = []
+    for h in GROUPS.get(group, []):
+        tdir = _dir(base, h) / "reels_thumb"
+        for r in reels_load(base, h):
+            f = tdir / f"{r['id']}.jpg"
+            if f.exists():
+                rows.append((r.get("like") or 0, r.get("comments") or 0, h, f))
+    rows.sort(key=lambda x: -x[0])
+    if not rows:
+        return []
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    CW, CH, BAR = 270, 420, 44          # 셀 크기 + 하단 정보 바
+    try:
+        font = ImageFont.truetype(
+            str(Path(base) / "assets" / "fonts" / "Pretendard-SemiBold.otf"), 26)
+    except Exception:
+        font = ImageFont.load_default()
+    sheets = []
+    for si in range(0, len(rows), per_sheet):
+        chunk = rows[si:si + per_sheet]
+        nrows = -(-len(chunk) // cols)
+        canvas = Image.new("RGB", (cols * CW, nrows * (CH + BAR)), (18, 18, 22))
+        d = ImageDraw.Draw(canvas)
+        for i, (like, cm, h, f) in enumerate(chunk):
+            x, y = (i % cols) * CW, (i // cols) * (CH + BAR)
+            try:
+                im = Image.open(f).convert("RGB")
+                sc = max(CW / im.width, CH / im.height)
+                im = im.resize((int(im.width * sc) + 1, int(im.height * sc) + 1))
+                im = im.crop(((im.width - CW) // 2, (im.height - CH) // 3,
+                              (im.width - CW) // 2 + CW, (im.height - CH) // 3 + CH))
+                canvas.paste(im, (x, y))
+            except Exception:
+                continue
+            d.rectangle([x, y + CH, x + CW, y + CH + BAR], fill=(18, 18, 22))
+            d.text((x + 8, y + CH + 8), f"♥{like:,} 💬{cm}", font=font,
+                   fill=(255, 205, 90))
+            tag = {"justdoeatjapan": "저스트", "selectionmgz": "셀렉",
+                   "1mintrend": "1분트", "1mknow": "1분지"}.get(h, h[:4])
+            w = d.textlength(tag, font=font)
+            d.text((x + CW - w - 8, y + CH + 8), tag, font=font, fill=(150, 150, 160))
+        p = out_dir / f"{group}_{si // per_sheet + 1}.jpg"
+        canvas.save(p, "JPEG", quality=88)
+        sheets.append(str(p))
+    log(f"      🗺 {group} 썸네일 지도 {len(sheets)}장 ({len(rows)}개 릴스)")
+    return sheets
 
 
 SYNTH_PROMPT = """당신은 릴스 벤치마킹 전략가다. 아래는 한 채널 그룹의 릴스 해부 데이터다
