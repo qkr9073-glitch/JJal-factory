@@ -334,6 +334,7 @@ _VIDEO_PAT = re.compile(
     r"|youtu\.be/[\w-]+"
     r"|(?:vm|vt)\.tiktok\.com/[\w]+"
     r"|tiktok\.com/@[^\s\"'<>]+/video/\d+"
+    r"|instagram\.com/(?:reel|reels|p|tv)/[A-Za-z0-9_-]+"
     r"|(?:twitter|x)\.com/[^\s\"'<>]+/status/\d+"
     r")")
 
@@ -413,6 +414,65 @@ def find_field_videos(cfg, base, per_source=8, log=print):
             continue
     _field_save(base, rows)
     log(f"      🔎 커뮤 임베드 영상 후보 신규 {new}개 (누적 {len(rows)}개)")
+    return new
+
+
+def find_sns_field(cfg, base, top_n=5, log=print):
+    """SNS 이슈 계정에서 터진 영상 발굴 — 터진 영상의 본진은 틱톡·인스타(사용자 확정).
+    config field_sources={"instagram": [핸들], "tiktok": [핸들]} 를 원천으로:
+    인스타=공식 business_discovery(계정 리스크 0, ♥ 중앙값 대비 배수로 '터짐' 판정),
+    틱톡=yt-dlp 공개 페이지 목록(익명, 조회수 상위). 반환: 신규 후보 수."""
+    import statistics
+    import subprocess
+    src = cfg.get("field_sources") or {}
+    rows = _field_load(base)
+    seen = {r.get("video_url") for r in rows} | {r.get("post_url") for r in rows}
+    new = 0
+    for handle in src.get("instagram") or []:
+        try:
+            reels = collect_reels(cfg, base, handle, max_media=100, log=log)
+            likes = [r["like"] for r in reels if r.get("like")]
+            med = statistics.median(likes) if likes else 0
+            for r in reels[:top_n]:
+                url = r.get("permalink") or ""
+                if not url or url in seen:
+                    continue
+                rows.append({"title": re.sub(r"\s+", " ", r.get("caption") or "")[:80],
+                             "post_url": url, "video_url": url,
+                             "site": f"IG@{handle}", "direct": False,
+                             "referer": "",
+                             "recs": r.get("like", 0), "replies": r.get("comments", 0),
+                             "mult": round(r["like"] / med, 1) if med else 0})
+                seen.add(url)
+                new += 1
+        except Exception as e:
+            log(f"      (IG @{handle} 소싱 실패: {str(e)[:80]})")
+    for handle in src.get("tiktok") or []:
+        try:
+            p = subprocess.run(
+                ["yt-dlp", "--flat-playlist", "-J", "--playlist-end", "30",
+                 f"https://www.tiktok.com/@{handle}"],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=180)
+            info = json.loads(p.stdout or "{}")
+            ents = [e for e in (info.get("entries") or []) if e]
+            ents.sort(key=lambda e: -(e.get("view_count") or 0))
+            for e in ents[:top_n]:
+                url = e.get("url") or e.get("webpage_url") or ""
+                if not url or url in seen:
+                    continue
+                rows.append({"title": re.sub(r"\s+", " ", e.get("title") or "")[:80],
+                             "post_url": url, "video_url": url,
+                             "site": f"TT@{handle}", "direct": False,
+                             "referer": "",
+                             "recs": int(e.get("view_count") or 0),
+                             "replies": int(e.get("comment_count") or 0)})
+                seen.add(url)
+                new += 1
+        except Exception as e:
+            log(f"      (틱톡 @{handle} 소싱 실패: {str(e)[:80]})")
+    _field_save(base, rows)
+    log(f"      📱 SNS 이슈 계정 후보 신규 {new}개 (누적 {len(rows)}개)")
     return new
 
 
@@ -554,3 +614,90 @@ def synth_group(cfg, base, group, log=print):
         "\n".join(md), encoding="utf-8")
     log(f"      📋 {group} 릴스 공식 저장 ({len(rows)}개 기반)")
     return formula
+
+
+# ── jp2 주제 엔진: 벤치마크 실측 주제(♥ 근거) → 이식(일본화) + 창조(같은 류 신규) ──
+TOPIC_PROMPT = """너는 일본 타겟 인스타 채널의 릴스 기획자다.
+채널 = 궁금한 이야기 큐레이션 매거진(気になるマガジン류) — 저장 필수 실용정보·순위·
+공감·심리·기묘한 상식을 사진슬라이드 릴스로 낸다. 시청자는 일본인이고 한국을 모른다.
+
+[벤치마크 한국 채널 릴스 실측 — 주제 (좋아요)]
+{samples}
+
+[이 그룹의 릴스 공식 요약]
+{formula}
+
+임무: 이런 류의 주제를 두 갈래로 각 {n}개.
+A. import(이식) — 위 실측에서 실제 터진 주제를 골라 일본 시청자용으로 현지화.
+   한국 내수 전제(한국 유명인·한국식 순위)는 보편/일본형으로 변환하되 터진 이유는 보존.
+   evidence에 원본 주제와 좋아요 수를 남겨라. 실측에 없는 것을 이식이라 하지 마라.
+B. create(창조) — 실측에 없는 새 각도. 같은 류(저장형 실용·순위·공감·심리·기묘)로
+   일본 시청자가 자기 이야기로 느낄 주제. 일본 생활 디테일(콘비니·전철·직장·라인 등) 환영.
+
+규칙: 순위·통계 주제는 실제 조사 가능한 것만(수치 날조 금지), 실존 인물 저격 금지,
+정치·혐오·성인 노골 배제(가벼운 은유 수위는 허용), 제목은 일본어 네이티브(직역투 금지),
+「保存必須」「9割が知らない」류 후킹 관용구 활용 가능.
+
+JSON만 출력:
+{{"import": [{{"title_ja": "", "title_ko": "한국어 해석", "angle": "왜 먹히나 1문장",
+              "evidence": "원본 주제 (♥수, @채널)", "branch": "실용|순위|공감|심리|기묘"}}],
+  "create": [{{"title_ja": "", "title_ko": "", "angle": "", "branch": ""}}]}}"""
+
+
+def suggest_reel_topics(cfg, base, group="jp2", n=10, log=print):
+    """벤치마크 릴스 실측(주제·캡션·♥)로 릴스 주제 두 갈래(이식/창조) 생성 →
+    레퍼런스/_reel_topics_<group>.json/.md 저장."""
+    key = (cfg.get("gemini_api_key") or "").strip()
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    handles = GROUPS.get(group) or []
+    samples = []
+    for h in handles:
+        for r in reels_load(base, h):
+            t = ((r.get("analysis") or {}).get("topic")
+                 or (r.get("caption") or "").split("\n")[0])
+            t = re.sub(r"\s+", " ", str(t)).strip()
+            if len(t) > 4:
+                samples.append(f"- {t[:90]} (♥{r.get('like', 0)}, @{h})")
+    if not samples:
+        raise RuntimeError("실측 표본이 없습니다 — collect_reels 먼저")
+    formula = {}
+    try:
+        formula = json.loads((Path(base) / REFS_DIRNAME / f"_reels_{group}.json")
+                             .read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    fsum = " / ".join(str(formula.get(k) or "")[:150]
+                      for k in ("mix", "hook_formula", "winners") if formula.get(k))
+    prompt = TOPIC_PROMPT.format(samples="\n".join(samples[:130]),
+                                 formula=fsum or "(공식 미산출)", n=n)
+    body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json",
+                                 "temperature": 0.8,
+                                 "maxOutputTokens": 8192}}
+    resp = requests.post(GEMINI_URL.format(model=model), params={"key": key},
+                         json=body, timeout=180)
+    if resp.status_code != 200:
+        raise RuntimeError(f"주제 생성 호출 실패 {resp.status_code}")
+    data = _parse_json(_gem_text(resp)) or {}
+    data["group"] = group
+    data["sample_count"] = len(samples)
+    (Path(base) / REFS_DIRNAME / f"_reel_topics_{group}.json").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    md = [f"# 릴스 주제 후보 — {group} (실측 {len(samples)}개 기반)", ""]
+    for sec, label in [("import", "A. 이식 — 벤치마크 실측에서 일본화"),
+                       ("create", "B. 창조 — 같은 류의 새 주제")]:
+        md.append(f"## {label}")
+        for i, t in enumerate(data.get(sec) or [], 1):
+            md.append(f"{i}. **{t.get('title_ja', '')}**  \n"
+                      f"   🇰🇷 {t.get('title_ko', '')} · [{t.get('branch', '')}] "
+                      f"{t.get('angle', '')}"
+                      + (f"  \n   근거: {t.get('evidence')}"
+                         if t.get("evidence") else ""))
+        md.append("")
+    (Path(base) / REFS_DIRNAME / f"_reel_topics_{group}.md").write_text(
+        "\n".join(md), encoding="utf-8")
+    log(f"      💡 {group} 주제 후보 이식 {len(data.get('import') or [])}"
+        f"+창조 {len(data.get('create') or [])}개 저장")
+    return data
