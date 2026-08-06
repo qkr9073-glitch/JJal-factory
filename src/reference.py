@@ -1585,6 +1585,43 @@ def _judge_pack(cfg2, base, handle, plan, pack, cards, intent="", ref_post="",
     return judge
 
 
+def orig_review_html(base, meta):
+    """결과물 미리보기(review.html)에 붙일 '원본 대조' 섹션 — 리메이크 원본 게시물
+    (이미지+캡션+링크)과 소재 원문(커뮤 글 링크)을 결과물 옆에서 바로 확인 (사용자 지시)."""
+    def e(s):
+        return str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+    h = re.sub(r"[^A-Za-z0-9._]", "", str(meta.get("ref_handle") or ""))
+    pid = str(meta.get("ref_post") or "")
+    src = str(meta.get("src_link") or "")
+    rows = []
+    if h and pid:
+        try:
+            for p in _posts_load(base, h):
+                if str(p.get("id")) == pid:
+                    img = (f'<img src="/refimg/{h}/{e(p["img"])}" style="width:230px;'
+                           f'border-radius:10px;flex:none">') if p.get("img") else ""
+                    perm = (f' · <a href="{e(p.get("permalink"))}" target="_blank" '
+                            f'rel="noopener">인스타 원본 ↗</a>') if p.get("permalink") else ""
+                    cap = e((p.get("caption") or "")[:400])
+                    rows.append(
+                        f'<div style="text-align:left;background:#f3f1ec;border-radius:12px;'
+                        f'padding:14px 16px;margin:0 0 14px">'
+                        f'<b>📌 리메이크 원본 — @{e(h)}</b>'
+                        f'<span style="font-size:12.5px;color:#777"> ♥{p.get("like", 0)} '
+                        f'💬{p.get("comments", 0)}{perm}</span>'
+                        f'<div style="display:flex;gap:14px;margin-top:10px">{img}'
+                        f'<div style="font-size:13px;line-height:1.6;white-space:pre-wrap;'
+                        f'color:#333">{cap}</div></div></div>')
+                    break
+        except Exception:
+            pass
+    if src.startswith("http"):
+        rows.append(f'<div style="text-align:left;background:#f3f1ec;border-radius:12px;'
+                    f'padding:12px 16px;margin:0 0 14px;font-size:13.5px">🔗 소재 원문(커뮤): '
+                    f'<a href="{e(src)}" target="_blank" rel="noopener">{e(src[:90])} ↗</a></div>')
+    return "".join(rows)
+
+
 def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
     """매거진 팩 공용 빌더: AI 표지+연속 컷 → 렌더 → 캡션·고지 → 팩 파일 일습.
     remake_build(게시물 리메이크)와 magazine_build(소재 기반)가 함께 쓴다."""
@@ -1718,7 +1755,8 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
         for c in cards:
             zf.write(c, c.name)
         zf.write(pack / "caption.txt", "caption.txt")
-    cards_html = "\n".join(f'<img src="{c.name}">' for c in cards)
+    cards_html = orig_review_html(base, meta) \
+        + "\n".join(f'<img src="{c.name}">' for c in cards)
     (pack / "review.html").write_text(card_pipeline.REVIEW_TEMPLATE.format(
         title=meta["title"], num_cards=len(cards), num_pages=0,
         keyword="", zip_name=zip_path.name,
@@ -1940,7 +1978,8 @@ def magazine_build(cfg, base, topic, context="", theme="jmag", handle="",
         + (f" · 시퀀스 {seq_log}" if seq_log else ""))
     return _produce_pack(cfg2, base, plan, items, beats, rp,
                          {"source": "magazine", "topic": topic,
-                          "ref_handle": ref_handle}, log=log)
+                          "ref_handle": ref_handle,
+                          "src_link": cfg2.get("_src_link") or ""}, log=log)
 
 
 def _rss_titles(query, n=5, lang="ko"):

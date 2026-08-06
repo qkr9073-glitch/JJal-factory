@@ -403,8 +403,10 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
         "teaser": plan.get("teaser", []),
         "created": datetime.now().isoformat(timespec="seconds"),
     }
-    # 원본 팩의 의도·자가채점·전용 업로드 계정은 현지화판에도 승계 (업로드 판단·발행은 현지화판에서)
-    for k in ("intent", "judge", "source", "ref_handle", "cover_ai", "ig_account"):
+    # 원본 팩의 의도·자가채점·원본 출처·전용 업로드 계정은 현지화판에도 승계
+    # (업로드 판단·발행·원본 대조 검수는 현지화판에서 하니까)
+    for k in ("intent", "judge", "source", "ref_handle", "ref_post", "src_link",
+              "cover_ai", "ig_account"):
         if smeta.get(k) is not None and k not in meta:
             meta[k] = smeta[k]
     (pack / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
@@ -448,6 +450,11 @@ def build_translated(pack_dir, cfg, base_dir, target="ja", log=print):
                    f'<div>🇯🇵 {_e(ja)}</div>'
                    f'<div style="color:#1a7a4a;margin-top:4px">🇰🇷 {_e(ko)}</div></div>')
         parts.append(f'<img src="{c.name}">{cap}')
+    try:                          # 원본 대조 섹션 (리메이크 원본·커뮤 원문) — 검수용
+        from src.reference import orig_review_html as _orig_html
+        parts.insert(0, _orig_html(base_dir, meta))
+    except Exception:
+        pass
     cards_html = "\n".join(parts)
     _ko_cap = str(ko_plan.get("caption") or "").strip()
     rv_caption = caption + (f"\n\n―― 🇰🇷 원문(해석용, 업로드엔 미포함) ――\n{_ko_cap}"
