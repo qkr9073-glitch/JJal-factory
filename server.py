@@ -5037,6 +5037,37 @@ def _ig_extra_save(d):
                                     encoding="utf-8")
 
 
+@app.post("/api/admin/keyinfo")
+def api_admin_keyinfo():
+    """(관리자) 저장된 키의 '모양'만 확인 — 값은 절대 반환하지 않음.
+    ElevenLabs 신형 키는 sk_ 로 시작해야 하며 구형 키는 401/400으로 거부된다."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if not _is_admin(cfg, (data.get("code") or "").strip()):
+        return jsonify(ok=False, error="관리자만 가능합니다"), 403
+    raw = str(cfg.get("elevenlabs_api_key") or "")
+    k = raw.strip()
+    info = {"set": bool(k), "len": len(k), "prefix_ok": k.startswith("sk_"),
+            "had_space": raw != k,
+            "looks_quoted": bool(k) and (k[0] in "\"'" or k[-1] in "\"'")}
+    live = None
+    if k:                                   # 실제로 통하는 키인지 비파괴 확인(사용량 조회)
+        try:
+            import requests as _rq
+            r = _rq.get("https://api.elevenlabs.io/v1/user/subscription",
+                        headers={"xi-api-key": k}, timeout=15)
+            live = {"status": r.status_code, "ok": r.status_code == 200}
+            if r.status_code == 200:
+                j = r.json()
+                live["chars_left"] = int(j.get("character_limit", 0)) - int(j.get("character_count", 0))
+            else:
+                live["msg"] = r.text[:120]
+        except Exception as e:
+            live = {"status": 0, "ok": False, "msg": str(e)[:100]}
+    return jsonify(ok=True, elevenlabs=info, live=live,
+                   voice_id=bool(str(cfg.get("elevenlabs_voice_id") or "").strip()))
+
+
 @app.post("/api/admin/config_set")
 def api_admin_config_set():
     """(관리자) 허용된 설정 키를 원격으로 저장 — 서버 PC를 못 만질 때 키 세팅용.
@@ -5053,6 +5084,12 @@ def api_admin_config_set():
     bad = [k for k in updates if k not in ALLOW]
     if bad:
         return jsonify(ok=False, error=f"허용되지 않은 키: {bad}"), 400
+    if "elevenlabs_api_key" in updates:      # 흔한 실수: 따옴표째 붙여넣기 / 앞뒤 공백 / 구형 키
+        v = str(updates["elevenlabs_api_key"] or "").strip().strip("\"'").strip()
+        if v and not v.startswith("sk_"):
+            return jsonify(ok=False, error="ElevenLabs 키는 sk_ 로 시작해야 해요. "
+                                           "elevenlabs.io → 프로필 → API Keys 에서 새로 발급받아 넣어주세요"), 400
+        updates["elevenlabs_api_key"] = v
     path = BASE / "config.json"
     disk = json.loads(path.read_text(encoding="utf-8"))
     for k, v in updates.items():
