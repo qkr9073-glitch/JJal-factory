@@ -1381,6 +1381,10 @@ def remake_build(cfg, base, handle, media_id, audience="", log=print):
     theme = cfg2.get("card_theme", "smag")
     if not audience and theme == "jmag":
         audience = "일본 시청자(일본 네티즌)"   # 일본 타겟 채널은 언어와 무관하게 항상 일본 시점
+    # 원본 표지 = 표지 생성의 시각 참조 (사물 은유·모양 개그를 글이 아니라 그림으로 전달)
+    _ref_img = _refs_root(base) / handle / "img" / f"{media_id}.jpg"
+    if _ref_img.exists():
+        cfg2["_ref_image"] = str(_ref_img)
     paths, caption = remake_source(cfg2, base, handle, media_id, log=log)
     key = (cfg2.get("gemini_api_key") or "").strip()
     if not key:
@@ -1652,18 +1656,31 @@ def _produce_pack(cfg2, base, plan, items, beats, rp, meta_extra, log=print):
             # 실사진이 모자란 비트는 표지 재사용(폴백과 동일) — AI 컷과 혼합하지 않는다
     else:
         log(f"[2/4] AI 이미지 생성 중 — 표지 + 전개 연속 컷 {len(items)}장 (채널 미감)...")
-        for attempt, scene in enumerate([
-                plan["image_query"] or plan["title_main"],
-                # 재시도: 브랜드/캐릭터 언급이 거부됐을 가능성 — 일반화 장면으로 우회
-                f"Atmospheric editorial photo evoking the topic '{plan['title_main']}' "
-                f"without any brands, characters or celebrities. Generic objects and mood only."]):
+        # 리메이크는 원본 표지를 시각 참조로 재현(같은 구도·같은 개그의 새 사진) —
+        # 사물 은유·모양 개그가 글 설명으로는 재현이 안 되는 문제의 해법 (39차)
+        ref_img = cfg2.get("_ref_image")
+        if ref_img and Path(ref_img).exists():
             try:
-                genimg.generate_cover(cfg2, scene, cover_p, theme=theme, log=log)
+                genimg.generate_recreation(
+                    cfg2, ref_img, plan["image_query"] or plan["title_main"],
+                    cover_p, theme=theme, log=log)
                 cfg2["cover_image"] = str(cover_p)
                 cfg2["_cover_ai"] = True
-                break
             except Exception as e:
-                log(f"      (AI 표지 {attempt + 1}차 실패: {str(e)[:70]})")
+                log(f"      (원본 참조 재현 실패 — 일반 생성으로: {str(e)[:60]})")
+        if not cfg2.get("_cover_ai"):
+            for attempt, scene in enumerate([
+                    plan["image_query"] or plan["title_main"],
+                    # 재시도: 브랜드/캐릭터 언급이 거부됐을 가능성 — 일반화 장면으로 우회
+                    f"Atmospheric editorial photo evoking the topic '{plan['title_main']}' "
+                    f"without any brands, characters or celebrities. Generic objects and mood only."]):
+                try:
+                    genimg.generate_cover(cfg2, scene, cover_p, theme=theme, log=log)
+                    cfg2["cover_image"] = str(cover_p)
+                    cfg2["_cover_ai"] = True
+                    break
+                except Exception as e:
+                    log(f"      (AI 표지 {attempt + 1}차 실패: {str(e)[:70]})")
         if not cfg2.get("_cover_ai"):
             log("      (표지 생성 전부 실패 — 텍스트 표지로 진행)")
         # 안쪽 장: 표지와 '같은 사건의 연속 사진 세트'로 — 레퍼런스 채널의 이미지 위주 전개

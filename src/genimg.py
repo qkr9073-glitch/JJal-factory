@@ -181,6 +181,57 @@ def generate_variation(cfg, base_image_path, scene, out_path, theme="smag", log=
     raise RuntimeError(f"연속 컷 생성 실패 — {last}")
 
 
+def generate_recreation(cfg, ref_image_path, scene, out_path, theme="smag", log=print):
+    """원본 게시물 표지를 '참조'로 주고 같은 시각 장치를 새로 촬영한 컷 생성 —
+    사물 은유·모양 개그처럼 글로는 재현이 안 되는 표지용 (리메이크 기본 경로).
+    원본 복제가 아니라 같은 구도·같은 개그의 새 사진을 만든다."""
+    key = (cfg.get("gemini_api_key") or "").strip() or os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        raise RuntimeError("Gemini API 키가 없습니다")
+    raw = Path(ref_image_path).read_bytes()
+    prompt = (f"The provided image is a REFERENCE for composition and visual idea. "
+              f"Create a completely NEW photograph that reproduces the same visual "
+              f"device: the same camera angle, framing, arrangement, lighting mood "
+              f"and — most importantly — the same visual joke or point the reference "
+              f"makes. Scene description: {scene}\n"
+              f"It must read as a fresh photo of different but equivalent subjects — "
+              f"do not copy the reference pixel-for-pixel, and ignore any text or "
+              f"graphic overlays in the reference (make a clean photo only).\n"
+              f"Style: {STYLE_HINTS.get(theme, STYLE_HINTS['smag'])}.\n"
+              f"{EMOTION}\n{PEOPLE}\n{NEGATIVE}")
+    models = [cfg.get("card_genimg_model", "gemini-3.1-flash-image"),
+              "gemini-2.5-flash-image"]
+    last = ""
+    for model in dict.fromkeys(models):
+        try:
+            r = requests.post(
+                GEMINI_URL.format(model=model), params={"key": key},
+                json={"contents": [{"parts": [
+                          {"text": prompt},
+                          {"inline_data": {"mime_type": "image/jpeg",
+                                           "data": base64.b64encode(raw).decode()}}]}],
+                      "generationConfig": {
+                          "responseModalities": ["IMAGE"],
+                          "imageConfig": {"aspectRatio": "3:4"}}},
+                timeout=150)
+            j = r.json()
+            if "error" in j:
+                last = f"{model}: {j['error'].get('message', '')[:120]}"
+                continue
+            parts = (j.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+            img = next((p for p in parts if "inlineData" in p), None)
+            if not img:
+                last = f"{model}: 응답에 이미지 없음"
+                continue
+            data = base64.b64decode(img["inlineData"]["data"])
+            Path(out_path).write_bytes(data)
+            log(f"      🎨 원본 참조 재현 컷 생성 ({model}, {len(data) // 1024}KB)")
+            return str(out_path)
+        except Exception as e:
+            last = f"{model}: {str(e)[:120]}"
+    raise RuntimeError(f"원본 참조 재현 실패 — {last}")
+
+
 def generate_cover(cfg, scene, out_path, theme="smag", log=print):
     """scene(장면 묘사, 한국어 OK) → out_path에 JPEG 저장. 실패 시 예외."""
     key = (cfg.get("gemini_api_key") or "").strip() or os.environ.get("GEMINI_API_KEY", "")
