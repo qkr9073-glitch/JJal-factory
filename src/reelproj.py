@@ -874,7 +874,8 @@ def _assemble_edit(base, pid, st, only_idx=None):
             _apply_blur(edir / f"s{i}.mp4", e["blur"])
     (edir / "_list.txt").write_text("".join(f"file 's{i}.mp4'\n" for i in range(len(edl))), encoding="utf-8")
     autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
-                     "-i", "_list.txt", "-c", "copy", "video.mp4"], cwd=str(edir))
+                     "-i", "_list.txt", "-c", "copy",
+                     "-movflags", "+faststart", "video.mp4"], cwd=str(edir))
     _mux_subs(base, pid, st)
 
 
@@ -921,7 +922,55 @@ def _mux_subs(base, pid, st):
     # cwd=edir 이므로 상위 tts 폴더는 ../tts 로 참조(절대/상대 base 모두 안전)
     autoshorts._run([FF, "-hide_banner", "-loglevel", "error", "-y", "-i", "video.mp4", "-i", "../tts/tts.mp3",
                      "-vf", ff_arg, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
-                     "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", "preview.mp4"], cwd=str(edir))
+                     "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest",
+                     "-movflags", "+faststart", "preview.mp4"], cwd=str(edir))
+
+
+def _moov_first(path):
+    """MP4 앞부분 박스를 훑어 moov(인덱스)가 앞에 있는지 확인."""
+    import struct
+    try:
+        with open(path, "rb") as f:
+            head = f.read(64)
+        i = 0
+        for _ in range(3):
+            if i + 8 > len(head):
+                break
+            size = struct.unpack(">I", head[i:i + 4])[0]
+            name = head[i + 4:i + 8].decode("latin1", "replace")
+            if name == "moov":
+                return True
+            if name == "mdat" or size < 8:
+                return False
+            i += size
+    except Exception:
+        return True          # 판단 불가면 건드리지 않음
+    return False
+
+
+def ensure_faststart(path):
+    """moov가 끝에 있는 기존 영상을 무손실 리먹스로 앞당김(재생 즉시 시작·탐색 가능).
+    이미 정상이면 아무것도 하지 않음. 반환: 보정했으면 True."""
+    path = Path(path)
+    if not path.exists() or path.suffix.lower() != ".mp4" or _moov_first(path):
+        return False
+    tmp = path.with_suffix(".fs.tmp.mp4")
+    try:
+        autoshorts._run([autoshorts.FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+                         "-i", str(path), "-c", "copy",
+                         "-movflags", "+faststart", str(tmp)])
+        if tmp.exists() and tmp.stat().st_size > 1000:
+            tmp.replace(path)
+            return True
+    except Exception:
+        pass
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+    return False
 
 
 def restyle_subs(base, pid):
@@ -1028,6 +1077,7 @@ def build_final(cfg, base, pid, bgm_code="", bgm_file="", bgm_db=-20.0, log=prin
                          "-shortest", str(final)])
     else:
         shutil.copy(str(prev), str(final))
+    ensure_faststart(final)           # 완성본도 즉시 재생 가능하게
     st["bgm"] = {"code": bgm_code, "file": bgm_file, "db": bgm_db}
     st["final"] = {"video": "edit/final.mp4"}
     st = patch(base, pid, st, ("bgm", "final"))

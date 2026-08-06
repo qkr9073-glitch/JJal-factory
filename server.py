@@ -6303,7 +6303,13 @@ def api_reelproj_edit_file(pid, fn):
     safe = Path(fn).name
     if not (d / safe).exists():
         return jsonify(ok=False, error="파일 없음"), 404
-    return send_from_directory(str(d), safe)
+    if safe.lower().endswith(".mp4") and not request.headers.get("Range"):
+        # 옛 영상은 인덱스(moov)가 끝에 있어 전체를 받아야 재생됨 → 첫 요청 때 1회 보정
+        try:
+            reelproj.ensure_faststart(d / safe)
+        except Exception:
+            pass
+    return send_from_directory(str(d), safe, conditional=True)
 
 
 def _run_reelproj_edit(jid, cfg, pid):
