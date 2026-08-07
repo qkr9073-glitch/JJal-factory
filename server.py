@@ -22,6 +22,8 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from urllib.parse import quote
+
 from flask import Flask, jsonify, request, send_from_directory
 
 BASE = Path(__file__).resolve().parent
@@ -7792,6 +7794,39 @@ def api_ie_insta_collect():
     return jsonify(ok=True, total=len(merged), added=added)
 
 
+_IG_IMG_HOSTS = (".cdninstagram.com", ".fbcdn.net")
+
+
+@app.get("/igimg")
+def api_ig_image_proxy():
+    """인스타 CDN 이미지를 서버가 대신 받아 전달(같은 출처로 만들어 CORP 차단 우회).
+    수집 목록 썸네일 표시용 — 허용 호스트만(SSRF 방지)."""
+    from urllib.parse import urlparse
+    u = (request.args.get("u") or "").strip()
+    if not u.startswith("https://"):
+        return jsonify(ok=False, error="잘못된 주소"), 400
+    host = (urlparse(u).netloc or "").lower().split(":")[0]
+    if not any(host.endswith(h) for h in _IG_IMG_HOSTS):
+        return jsonify(ok=False, error="허용되지 않은 호스트"), 400
+    try:
+        import requests as _rq
+        r = _rq.get(u, timeout=25, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Referer": "https://www.instagram.com/"})
+    except Exception:
+        return jsonify(ok=False, error="이미지 요청 실패"), 502
+    if r.status_code != 200 or not r.content:
+        # 만료(403)면 UI가 조용히 아이콘만 남기도록 404로
+        return jsonify(ok=False, error=f"이미지 없음({r.status_code}) — 주소 만료 가능"), 404
+    ct = r.headers.get("Content-Type", "")
+    if not ct.startswith("image/"):
+        ct = "image/jpeg"
+    resp = app.response_class(r.content, mimetype=ct)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
 @app.post("/api/ie/insta/collected")
 def api_ie_insta_collected():
     """수집 항목 목록(우리 UI용). 조회수/좋아요순."""
@@ -7815,7 +7850,10 @@ def api_ie_insta_collected():
             "caption": (it.get("caption", "") or "")[:200],
             "viewCount": int(it.get("viewCount", 0) or 0),
             "likeCount": int(it.get("likeCount", 0) or 0),
-            "n_img": len(imgs), "thumb": imgs[0] if imgs else it.get("thumbUrl", ""),
+            "n_img": len(imgs),
+            # 인스타 CDN은 CORP로 외부 표시를 막으므로 우리 서버를 거쳐 보여준다
+            "thumb": (lambda u: ("/igimg?u=" + quote(u, safe="")) if u else "")(
+                imgs[0] if imgs else it.get("thumbUrl", "")),
             "collected_at": it.get("collected_at", ""),
             "stale": bool(imgs and (lambda e: e and e < datetime.now())(_cdn_expiry(imgs[0]))),
             "transcript": bool((it.get("transcript") or "").strip()),
